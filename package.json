@@ -1,0 +1,33 @@
+{
+  "name": "foxhole-bot",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Robinhood Chain meme trading intelligence — Long.xyz launch & squeeze monitoring",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "fetch:long": "tsx src/cli/fetch-long.ts",
+    "analyze": "tsx src/cli/analyze.ts",
+    "scan": "tsx src/cli/scan.ts",
+    "monitor": "tsx src/cli/monitor.ts",
+    "monitor:once": "tsx src/cli/monitor.ts --once",
+    "backtest": "tsx src/cli/backtest.ts",
+    "backtest:live": "tsx src/cli/backtest.ts --live",
+    "deploy": "bash scripts/deploy-local.sh",
+    "serve": "python3 -m http.server 8787 --directory web",
+    "dev": "npm run fetch:long && npm run serve",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hoodchain": "^0.1.1",
+    "viem": "^2.35.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

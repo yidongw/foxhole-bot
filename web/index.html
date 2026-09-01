@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Foxhole — Long.xyz Launches</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #121821;
+      --panel-2: #171f2b;
+      --border: #243041;
+      --text: #e8eef7;
+      --muted: #8fa0b5;
+      --accent: #00c805;
+      --accent-2: #5b8cff;
+      --danger: #ff5c5c;
+      --warn: #ffb020;
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(0, 200, 5, 0.08), transparent 28%),
+        radial-gradient(circle at top right, rgba(91, 140, 255, 0.08), transparent 24%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 28px 20px 48px; }
+    .hero {
+      display: flex; justify-content: space-between; gap: 20px; align-items: flex-end;
+      margin-bottom: 24px; flex-wrap: wrap;
+    }
+    .eyebrow {
+      color: var(--accent); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700;
+    }
+    h1 { margin: 8px 0 6px; font-size: clamp(28px, 4vw, 40px); line-height: 1.05; }
+    .sub { color: var(--muted); max-width: 720px; line-height: 1.6; }
+
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn {
+      border: 1px solid var(--border); background: var(--panel); color: var(--text);
+      padding: 10px 14px; border-radius: 12px; text-decoration: none; font-size: 14px;
+      cursor: pointer;
+    }
+    .btn.primary { background: linear-gradient(135deg, #0f7a18, var(--accent)); border-color: transparent; color: #041006; font-weight: 700; }
+
+    .stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin: 22px 0;
+    }
+    .card {
+      background: linear-gradient(180deg, var(--panel-2), var(--panel));
+      border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; box-shadow: var(--shadow);
+    }
+    .card .label { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+    .card .value { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; }
+    .card .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+    .toolbar {
+      display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 18px 0 14px;
+    }
+    .toolbar input, .toolbar select {
+      background: var(--panel); color: var(--text); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 12px; min-width: 220px;
+    }
+
+    table {
+      width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 16px;
+      background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow);
+    }
+    thead { background: #101722; }
+    th, td { padding: 14px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
+    th { color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; white-space: nowrap; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    .token { display: flex; flex-direction: column; gap: 4px; }
+    .token strong { font-size: 15px; }
+    .token span { color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .pair {
+      display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+      background: rgba(91, 140, 255, 0.12); color: #b9cbff; font-weight: 600; font-size: 12px;
+    }
+    .chg-pos { color: var(--accent); }
+    .chg-neg { color: var(--danger); }
+    .links { display: flex; gap: 8px; flex-wrap: wrap; }
+    .links a {
+      color: var(--accent-2); text-decoration: none; font-size: 12px; border: 1px solid var(--border);
+      padding: 4px 8px; border-radius: 8px;
+    }
+    .empty, .error, .loading { padding: 28px; text-align: center; color: var(--muted); }
+    .footer { margin-top: 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    @media (max-width: 900px) {
+      table, thead, tbody, th, td, tr { display: block; }
+      thead { display: none; }
+      tr { border-bottom: 1px solid var(--border); padding: 10px 0; }
+      td { border: 0; padding: 8px 14px; }
+      td::before {
+        content: attr(data-label);
+        display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div>
+        <div class="eyebrow">Foxhole Bot / Long.xyz</div>
+        <h1>Robinhood Chain Stock-Paired Launches</h1>
+        <p class="sub">
+          追踪 <strong>Long.xyz</strong> 生态中的股币配对 meme 发射：代币与 NVDA、TSLA、HIMS、SPCX 等 Robinhood 股票代币配对。
+          数据来自 DexScreener 公开市场数据，按交易对创建时间排序。
+        </p>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="refreshBtn">刷新数据</button>
+        <a class="btn" href="https://app.long.xyz/" target="_blank" rel="noreferrer">Long.xyz</a>
+        <a class="btn" href="https://docs.mobula.io/almanac/robinhood-launchpads/longxyz" target="_blank" rel="noreferrer">集成文档</a>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="搜索名称 / 符号 / 地址" />
+      <select id="quoteFilter">
+        <option value="">全部配对资产</option>
+      </select>
+      <select id="sortBy">
+        <option value="pair_created_at">按发射时间</option>
+        <option value="fdv">按 FDV</option>
+        <option value="volume_24h">按 24h 成交量</option>
+        <option value="liquidity_usd">按流动性</option>
+        <option value="price_change_24h">按 24h 涨跌</option>
+      </select>
+    </div>
+
+    <div id="status" class="loading">正在加载 Long.xyz 发射数据…</div>
+    <table id="table" hidden>
+      <thead>
+        <tr>
+          <th data-sort="symbol">代币</th>
+          <th data-sort="quote_symbol">配对</th>
+          <th data-sort="pair_created_at">发射时间</th>
+          <th data-sort="fdv">FDV</th>
+          <th data-sort="volume_24h">24h 量</th>
+          <th data-sort="liquidity_usd">流动性</th>
+          <th data-sort="price_change_24h">24h</th>
+          <th>链接</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+
+    <div class="footer" id="footer"></div>
+  </div>
+
+  <script>
+    const fmtMoney = (n) => {
+      if (n == null || Number.isNaN(n)) return '—';
+      if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+      if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+      if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+      return '$' + Number(n).toFixed(0);
+    };
+
+    const fmtPct = (n) => {
+      if (n == null || Number.isNaN(n)) return '—';
+      const cls = n >= 0 ? 'chg-pos' : 'chg-neg';
+      const sign = n > 0 ? '+' : '';
+      return `<span class="${cls}">${sign}${Number(n).toFixed(2)}%</span>`;
+    };
+
+    const fmtDate = (iso, ms) => {
+      const d = iso ? new Date(iso) : (ms ? new Date(ms) : null);
+      if (!d || Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleString('zh-CN', { hour12: false });
+    };
+
+    let payload = null;
+    let sortKey = 'pair_created_at';
+    let sortDir = -1;
+
+    async function loadData() {
+      const status = document.getElementById('status');
+      const table = document.getElementById('table');
+      status.className = 'loading';
+      status.textContent = '正在加载 Long.xyz 发射数据…';
+      table.hidden = true;
+
+      const res = await fetch('./data/launches.json?_=' + Date.now());
+      if (!res.ok) throw new Error('无法读取 data/launches.json，请先运行 npm run fetch:long');
+      payload = await res.json();
+      render();
+    }
+
+    function renderStats() {
+      const meta = payload.meta || {};
+      const cards = [
+        ['已追踪发射', meta.count ?? 0, '股币配对代币'],
+        ['24h 总成交', fmtMoney(meta.total_volume_24h_usd), 'DexScreener 汇总'],
+        ['总流动性', fmtMoney(meta.total_liquidity_usd), '当前池子规模'],
+        ['热门配对', Object.keys(meta.quote_breakdown || {})[0] || '—', '按代币数量'],
+      ];
+      document.getElementById('stats').innerHTML = cards.map(([label, value, hint]) => `
+        <div class="card">
+          <div class="label">${label}</div>
+          <div class="value">${value}</div>
+          <div class="hint">${hint}</div>
+        </div>
+      `).join('');
+
+      const select = document.getElementById('quoteFilter');
+      const current = select.value;
+      const quotes = Object.keys(meta.quote_breakdown || {}).sort();
+      select.innerHTML = '<option value="">全部配对资产</option>' +
+        quotes.map(q => `<option value="${q}">${q} (${meta.quote_breakdown[q]})</option>`).join('');
+      select.value = current;
+
+      document.getElementById('footer').innerHTML = `
+        数据源：${meta.source || '—'} · 抓取时间：${fmtDate(meta.fetched_at)} ·
+        Factory <code>${meta.factory || ''}</code> · Chain ID ${meta.chain_id || ''}
+      `;
+    }
+
+    function getFiltered() {
+      const q = document.getElementById('search').value.trim().toLowerCase();
+      const quote = document.getElementById('quoteFilter').value;
+      let rows = [...(payload.launches || [])];
+      if (quote) rows = rows.filter(r => r.quote_symbol === quote);
+      if (q) {
+        rows = rows.filter(r =>
+          (r.name || '').toLowerCase().includes(q) ||
+          (r.symbol || '').toLowerCase().includes(q) ||
+          (r.address || '').toLowerCase().includes(q)
+        );
+      }
+      rows.sort((a, b) => {
+        const av = a[sortKey] ?? 0;
+        const bv = b[sortKey] ?? 0;
+        if (typeof av === 'string') return sortDir * av.localeCompare(bv);
+        return sortDir * ((av > bv) - (av < bv));
+      });
+      return rows;
+    }
+
+    function renderTable() {
+      const rows = getFiltered();
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = rows.map(r => `
+        <tr>
+          <td data-label="代币">
+            <div class="token">
+              <strong>${r.name || r.symbol || 'Unknown'} (${r.symbol || '?'})</strong>
+              <span>${r.address || ''}</span>
+            </div>
+          </td>
+          <td data-label="配对"><span class="pair">${r.pair || '—'}</span></td>
+          <td data-label="发射时间">${fmtDate(r.created_at, r.pair_created_at)}</td>
+          <td data-label="FDV">${fmtMoney(r.fdv)}</td>
+          <td data-label="24h 量">${fmtMoney(r.volume_24h)}</td>
+          <td data-label="流动性">${fmtMoney(r.liquidity_usd)}</td>
+          <td data-label="24h">${fmtPct(r.price_change_24h)}</td>
+          <td data-label="链接">
+            <div class="links">
+              <a href="${r.long_url}" target="_blank" rel="noreferrer">Long</a>
+              <a href="${r.dex_url}" target="_blank" rel="noreferrer">Chart</a>
+              <a href="${r.explorer_url}" target="_blank" rel="noreferrer">Explorer</a>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+
+      const status = document.getElementById('status');
+      const table = document.getElementById('table');
+      if (!rows.length) {
+        status.className = 'empty';
+        status.textContent = '没有匹配结果';
+        table.hidden = true;
+      } else {
+        status.textContent = '';
+        status.className = '';
+        table.hidden = false;
+      }
+    }
+
+    function render() {
+      renderStats();
+      renderTable();
+    }
+
+    document.getElementById('search').addEventListener('input', renderTable);
+    document.getElementById('quoteFilter').addEventListener('change', renderTable);
+    document.getElementById('sortBy').addEventListener('change', (e) => {
+      sortKey = e.target.value;
+      sortDir = sortKey === 'symbol' ? 1 : -1;
+      renderTable();
+    });
+    document.getElementById('refreshBtn').addEventListener('click', loadData);
+    document.querySelectorAll('th[data-sort]').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = key === 'symbol' ? 1 : -1; }
+        document.getElementById('sortBy').value = key;
+        renderTable();
+      });
+    });
+
+    loadData().catch(err => {
+      document.getElementById('status').className = 'error';
+      document.getElementById('status').textContent = err.message;
+    });
+  </script>
+</body>
+</html>
