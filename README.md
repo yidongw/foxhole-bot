@@ -77,7 +77,7 @@ Public fallback: `https://rpc.mainnet.chain.robinhood.com` (rate limited).
 - [ ] Dashboard: lock ratio column
 
 ```bash
-npm run backtest          # validate BONER Aug 28 alert before pump
+npm run backtest          # real historical replay (DexPaprika OHLCV)
 npm run scan              # one-shot scan all Long.xyz tokens
 npm run monitor:once      # single monitor cycle
 npm run monitor           # continuous (set DISCORD_WEBHOOK_URL)

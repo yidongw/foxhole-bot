@@ -15,7 +15,6 @@
     "monitor": "tsx src/cli/monitor.ts",
     "monitor:once": "tsx src/cli/monitor.ts --once",
     "backtest": "tsx src/cli/backtest.ts",
-    "backtest:live": "tsx src/cli/backtest.ts --live",
     "deploy": "bash scripts/deploy-local.sh",
     "serve": "python3 -m http.server 8787 --directory web",
     "dev": "npm run fetch:long && npm run serve",
