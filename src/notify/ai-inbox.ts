@@ -46,13 +46,33 @@ export async function appendAiInbox(ev: SignalEvaluation): Promise<void> {
   await appendFile(INBOX_PATH, JSON.stringify(entry) + "\n", "utf8");
 }
 
-export async function readAiInbox(): Promise<InboxSignal[]> {
+/** BlockBeats 快讯叫醒条目 — AI 会话读到后自行判断是否查价/开仓/退出。 */
+export interface InboxNews {
+  kind: "news";
+  at: string;
+  title: string;
+  url: string;
+  reasons: string[];
+  /** true = 危险信号（关注币暴跌/rug/造假）→ 优先考虑退出而非进场 */
+  negative: boolean;
+  note?: string;
+}
+
+export async function appendAiInboxNews(
+  entry: Omit<InboxNews, "kind" | "at">,
+): Promise<void> {
+  const line: InboxNews = { kind: "news", at: new Date().toISOString(), ...entry };
+  await mkdir(path.dirname(INBOX_PATH), { recursive: true });
+  await appendFile(INBOX_PATH, JSON.stringify(line) + "\n", "utf8");
+}
+
+export async function readAiInbox(): Promise<Array<InboxSignal | InboxNews>> {
   try {
     const raw = await readFile(INBOX_PATH, "utf8");
     return raw
       .split("\n")
       .filter(Boolean)
-      .map((l) => JSON.parse(l) as InboxSignal);
+      .map((l) => JSON.parse(l) as InboxSignal | InboxNews);
   } catch {
     return [];
   }

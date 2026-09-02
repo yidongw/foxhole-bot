@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { appendAiInboxNews } from "../notify/ai-inbox.js";
 import { sendDiscordMessage } from "../notify/discord.js";
 import { resolveWebhook } from "../notify/routes.js";
 import type { LaunchesPayload } from "../types.js";
@@ -148,10 +149,20 @@ export async function newsTick(options: {
       }
       const msg = formatWakeAlert(flash, cls, verdict);
       console.log(msg.replace(/\n/g, " · "));
-      if (signalUrl && !options.dryRun) {
-        await sendDiscordMessage(signalUrl, msg).catch((err) =>
-          console.error("news signal post failed:", err.message),
-        );
+      if (!options.dryRun) {
+        // 投递 AI 收件箱 — wake-probe 会叫醒 Claude 会话来判断买/卖/跳过
+        await appendAiInboxNews({
+          title: flash.title,
+          url: flash.url,
+          reasons: cls.reasons,
+          negative: cls.negative,
+          note: verdict?.note,
+        }).catch((err) => console.error("news inbox append failed:", err.message));
+        if (signalUrl) {
+          await sendDiscordMessage(signalUrl, msg).catch((err) =>
+            console.error("news signal post failed:", err.message),
+          );
+        }
       }
       woke++;
     } else {
