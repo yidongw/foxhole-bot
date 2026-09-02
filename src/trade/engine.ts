@@ -11,6 +11,7 @@ import type { ChainId } from "../chains/adapter.js";
 import { sendDiscordMessage } from "../notify/discord.js";
 import { appendAlertLog } from "../notify/alert-log.js";
 import { appendTradeJournal } from "./trade-journal.js";
+import { resolveWebhook } from "../notify/routes.js";
 import { sleep } from "../lib/utils.js";
 import type { SignalEvaluation } from "../signals/types.js";
 import { loadTradeConfig, type TradeConfig } from "./config.js";
@@ -40,17 +41,18 @@ export interface EngineOptions {
   webhookUrl?: string;
 }
 
-async function notify(body: string, options: EngineOptions): Promise<void> {
+async function notify(
+  body: string,
+  options: EngineOptions,
+  chain?: string,
+): Promise<void> {
   if (options.dryRun) {
     console.log("--- DRY RUN TRADE ---\n" + body + "\n");
     return;
   }
   await appendAlertLog(body);
-  // Trade events go to the dedicated 交易日志 channel when configured.
-  const url =
-    options.webhookUrl ??
-    process.env.DISCORD_TRADE_WEBHOOK_URL ??
-    process.env.DISCORD_WEBHOOK_URL;
+  // Trade events go to the (per-chain) 交易日志 channel when configured.
+  const url = options.webhookUrl ?? resolveWebhook("trade", chain);
   if (url) await sendDiscordMessage(url, body).catch((err) => console.error(err));
   else console.log(body);
 }
@@ -261,6 +263,7 @@ export async function processSignals(
         await notify(
           `🛑 ${modeTag(config)} entry VETOED [${chain}] ${candidate.symbol}: ${safety.flags.join(", ")}`,
           options,
+          chain,
         );
         continue;
       }
@@ -305,12 +308,14 @@ export async function processSignals(
           .filter(Boolean)
           .join("\n"),
         options,
+        chain,
       );
     } catch (err) {
       console.error(`entry failed ${candidate.symbol}:`, (err as Error).message);
       await notify(
         `⚠️ ${modeTag(config)} entry FAILED for ${candidate.symbol}: ${(err as Error).message}`,
         options,
+        chain,
       );
     }
   }
@@ -406,6 +411,7 @@ export async function managePositions(
             .filter(Boolean)
             .join("\n"),
           options,
+          chain,
         );
       } catch (err) {
         console.error(`exit failed ${position.symbol}:`, (err as Error).message);

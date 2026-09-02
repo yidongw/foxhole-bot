@@ -30,6 +30,7 @@ import {
   appendFilterJournal,
   formatFilterDigest,
 } from "./filter-journal.js";
+import { resolveWebhook } from "../notify/routes.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -43,8 +44,7 @@ interface PendingMovers {
 }
 
 function reviewWebhook(explicit?: string): string | undefined {
-  // Dedicated review channel webhook wins; falls back to the main alerts one.
-  return explicit ?? process.env.DISCORD_REVIEW_WEBHOOK_URL ?? process.env.DISCORD_WEBHOOK_URL;
+  return explicit ?? resolveWebhook("review") ?? process.env.DISCORD_WEBHOOK_URL;
 }
 
 async function deliver(
@@ -104,11 +104,21 @@ export async function runDailyReview(options: {
   await appendFilterJournal("Phase 1 暴涨扫描", movers).catch((err) =>
     console.error("filter journal failed:", (err as Error).message),
   );
-  if (movers.length && !options.dryRun && process.env.DISCORD_FILTER_WEBHOOK_URL) {
-    await sendDiscordMessage(
-      process.env.DISCORD_FILTER_WEBHOOK_URL,
-      formatFilterDigest("Phase 1 暴涨扫描", movers),
-    ).catch((err) => console.error(err));
+  // Per-chain filter digests: each chain's judgments go to its own
+  // filter-log channel (falling back to the global filter webhook).
+  if (movers.length && !options.dryRun) {
+    const byChain = new Map<string, ClassifiedMover[]>();
+    for (const m of movers) {
+      byChain.set(m.chain, [...(byChain.get(m.chain) ?? []), m]);
+    }
+    for (const [chain, chainMovers] of byChain) {
+      const url = resolveWebhook("filter", chain);
+      if (!url) continue;
+      await sendDiscordMessage(
+        url,
+        formatFilterDigest(`Phase 1 暴涨扫描 [${chain}]`, chainMovers),
+      ).catch((err) => console.error(err));
+    }
   }
 
   // Candidates = misses that survived ALL automatic filters

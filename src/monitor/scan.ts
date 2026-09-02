@@ -49,6 +49,7 @@ import {
 } from "../chains/ethereum/uniswap-watcher.js";
 import { loadTradeConfig } from "../trade/config.js";
 import { checkTokenSafety } from "../trade/safety.js";
+import { resolveWebhook } from "../notify/routes.js";
 import { managePositions, processSignals } from "../trade/engine.js";
 import type { LaunchRecord, LaunchesPayload, TokenAnalysis } from "../types.js";
 
@@ -135,13 +136,14 @@ function rankLaunches(launches: LaunchRecord[]): LaunchRecord[] {
 async function deliverTradeSignal(
   body: string,
   options: Pick<ScanOptions, "dryRun" | "webhookUrl">,
+  chain?: string,
 ): Promise<void> {
   if (options.dryRun) {
     console.log("--- DRY RUN TRADE SIGNAL ---\n" + body + "\n");
     return;
   }
   await appendAlertLog(body);
-  const url = options.webhookUrl ?? process.env.DISCORD_WEBHOOK_URL;
+  const url = options.webhookUrl ?? resolveWebhook("signal", chain);
   if (url) await sendDiscordMessage(url, body);
   else console.log(body);
 }
@@ -154,13 +156,14 @@ async function deliverTradeSignal(
 async function deliverFeed(
   body: string,
   options: Pick<ScanOptions, "dryRun" | "webhookUrl">,
+  chain?: string,
 ): Promise<void> {
   if (options.dryRun) {
     console.log("--- DRY RUN FEED ---\n" + body + "\n");
     return;
   }
   await appendAlertLog(body);
-  const url = process.env.DISCORD_FEED_WEBHOOK_URL;
+  const url = resolveWebhook("feed", chain);
   if (url) await sendDiscordMessage(url, body);
   else console.log(body);
 }
@@ -205,17 +208,18 @@ async function maybeAlert(
         input.primaryPairAddress,
       );
       if (safety.ok) {
-        await deliverTradeSignal(formatTradeSignal(evaluation), options);
+        await deliverTradeSignal(formatTradeSignal(evaluation), options, input.chain);
       } else {
         await deliverFeed(
           `⛔ 信号被安全门拦截 ${input.symbol} [${input.chain}]: ${safety.flags.join(", ")}\n` +
             formatSignalAlert(evaluation),
           options,
+          input.chain,
         );
         skippedReason = `safety veto: ${safety.flags.join(",")}`;
       }
     } else {
-      await deliverFeed(formatSignalAlert(evaluation), options);
+      await deliverFeed(formatSignalAlert(evaluation), options, evaluation.input.chain);
     }
     sent = true;
     recordAlert(state, key, evaluation.level, evaluation.triggers);
@@ -295,10 +299,10 @@ export async function checkFactoryLaunches(
     events = await fetchCreatedEvents({ fromBlock: from, toBlock: latest });
     if (events.length && mode === "each") {
       for (const event of events) {
-        await deliverFeed(formatLaunchAlert(event), options);
+        await deliverFeed(formatLaunchAlert(event), options, "robinhood");
       }
     } else if (events.length && mode === "digest") {
-      await deliverFeed(formatLaunchDigest(events), options);
+      await deliverFeed(formatLaunchDigest(events), options, "robinhood");
     }
     state.lastFactoryBlock = latest.toString();
   }
@@ -372,7 +376,7 @@ async function checkFourmemeLaunches(
 
   const launches = await fetchFourmemeLaunches(from, latest);
   if (launches.length && mode !== "off") {
-    await deliverFeed(formatFourmemeDigest(launches), options);
+    await deliverFeed(formatFourmemeDigest(launches), options, "bsc");
   }
   state.lastFourmemeBlock = latest.toString();
   if (launches.length) {
@@ -396,7 +400,7 @@ async function checkClankerLaunches(
 
   const launches = await fetchClankerLaunches(from, latest);
   if (launches.length && mode !== "off") {
-    await deliverFeed(formatClankerDigest(launches), options);
+    await deliverFeed(formatClankerDigest(launches), options, "base");
   }
   state.lastClankerBlock = latest.toString();
   if (launches.length) {
@@ -420,7 +424,7 @@ async function checkEthNewPairs(
 
   const pairs = await fetchNewWethPairs(from, latest);
   if (pairs.length && mode !== "off") {
-    await deliverFeed(await formatEthPairDigest(pairs), options);
+    await deliverFeed(await formatEthPairDigest(pairs), options, "ethereum");
   }
   state.lastUniswapBlock = latest.toString();
   if (pairs.length) {
