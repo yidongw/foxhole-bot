@@ -30,6 +30,7 @@
     "@jup-ag/api": "6.0.48",
     "@pump-fun/pump-sdk": "1.36.0",
     "@solana/web3.js": "1.98.4",
+    "discord.js": "14.27.0",
     "hoodchain": "^0.1.1",
     "viem": "^2.35.1"
   },

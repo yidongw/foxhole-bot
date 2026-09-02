@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -53,6 +54,80 @@ function modeTag(config: TradeConfig): string {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const POSITIONS_WEB_PATH = path.resolve(__dirname, "../../web/data/positions.json");
+const PAUSE_FLAG_PATH = path.resolve(__dirname, "../../data/trading-paused");
+
+/** Pause blocks NEW entries only — exits and stops keep running. */
+export function tradingPaused(): boolean {
+  return existsSync(PAUSE_FLAG_PATH);
+}
+
+export async function setTradingPaused(paused: boolean): Promise<void> {
+  if (paused) {
+    await mkdir(path.dirname(PAUSE_FLAG_PATH), { recursive: true });
+    await writeFile(PAUSE_FLAG_PATH, new Date().toISOString(), "utf8");
+  } else {
+    await rm(PAUSE_FLAG_PATH, { force: true });
+  }
+}
+
+function matchesPosition(p: Position, query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    p.token.toLowerCase() === q ||
+    (p.symbol ?? "").toLowerCase() === q
+  );
+}
+
+/**
+ * Manually exit `fraction` (0..1] of an open position by symbol or address.
+ * Sells at the position's own mode (paper stays paper). Returns a human
+ * summary for the control surface.
+ */
+export async function manualExit(query: string, fraction = 1): Promise<string> {
+  const file = await loadPositions();
+  const position = openPositions(file).find((p) => matchesPosition(p, query));
+  if (!position) return `No open position matching "${query}".`;
+
+  const chain = positionChain(position.chain);
+  const price = await getAdapter(chain).priceUsd(position.token);
+  if (!price || price <= 0) return `No price available for ${position.symbol} — try again.`;
+
+  const sellFraction = Math.min(Math.max(fraction, 0), 1) * remainingFraction(position);
+  const config = { ...loadTradeConfig(), mode: position.mode };
+  try {
+    const fill = await executeSell(chain, config, position, sellFraction, price);
+    recordExit(position, {
+      at: new Date().toISOString(),
+      priceUsd: fill.priceUsd,
+      fraction: sellFraction,
+      proceedsUsd: fill.proceedsUsd ?? 0,
+      reason: "manual exit",
+      txHash: fill.txHash,
+    });
+    position.highWaterUsd = Math.max(position.highWaterUsd, price);
+    await savePositions(file);
+    await writePositionsJson(file, { [position.token.toLowerCase()]: price });
+    const pnl = totalPnlUsd(position, price);
+    return (
+      `Sold ${(sellFraction * 100).toFixed(0)}% of ${position.symbol} [${chain}/${position.mode}] ` +
+      `@ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}. ` +
+      `Position P&L ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status}).`
+    );
+  } catch (err) {
+    return `Exit failed for ${position.symbol}: ${(err as Error).message}`;
+  }
+}
+
+export async function exitAllPositions(): Promise<string> {
+  const file = await loadPositions();
+  const open = openPositions(file);
+  if (!open.length) return "No open positions.";
+  const lines: string[] = [];
+  for (const p of open) {
+    lines.push(await manualExit(p.token, 1));
+  }
+  return lines.join("\n");
+}
 
 /** Dashboard snapshot; `marks` carries the freshest prices from this tick. */
 async function writePositionsJson(
@@ -135,6 +210,10 @@ export async function processSignals(
   config: TradeConfig = loadTradeConfig(),
 ): Promise<Position[]> {
   if (config.mode === "off") return [];
+  if (tradingPaused()) {
+    console.log("trading paused — skipping entries (exits still active)");
+    return [];
+  }
   const file = await loadPositions();
   const opened: Position[] = [];
 

@@ -514,6 +514,12 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     return;
   }
 
+  // Interactive control surface (no-op without DISCORD_BOT_TOKEN)
+  const { startControlBot } = await import("../notify/control-bot.js");
+  startControlBot().catch((err) =>
+    console.error("control bot failed to start:", (err as Error).message),
+  );
+
   const positionLoopPromise = positionLoop();
 
   while (true) {
