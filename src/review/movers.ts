@@ -115,28 +115,26 @@ export async function fetchTopMovers(chain: string, limit = 12): Promise<Mover[]
   }
   const movers: Mover[] = [];
 
-  // Source 1: DexPaprika top-by-volume, 3 pages = 300 pools
-  const paprika: PaprikaPool[] = [];
-  for (let page = 1; page <= 3; page++) {
-    try {
-      const res = await fetch(
-        `https://api.dexpaprika.com/networks/${chain}/pools/search?limit=100&order_by=volume_usd_24h&sort=desc&page=${page}`,
-        { headers: { "User-Agent": "foxhole-bot/0.3" } },
-      );
-      if (!res.ok) break;
-      const data = (await res.json()) as { results?: PaprikaPool[] };
-      paprika.push(...(data.results ?? []));
-      await sleep(400);
-    } catch {
-      break;
+  // Source 1: DexPaprika top-100-by-volume (page/offset params are broken —
+  // the API returns identical content; one request is all there is).
+  // Coarse filter on VOLUME only; chg/liq judged from DexScreener pair data
+  // because DexPaprika's chg is backward-looking (JINQIAN showed -37% mid
+  // retrace after a +700% day) and its liquidity can be badly stale
+  // ($10.7K reported vs $5.7M real).
+  let paprika: PaprikaPool[] = [];
+  try {
+    const res = await fetch(
+      `https://api.dexpaprika.com/networks/${chain}/pools/search?limit=100&order_by=volume_usd_24h&sort=desc`,
+      { headers: { "User-Agent": "foxhole-bot/0.3" } },
+    );
+    if (res.ok) {
+      paprika = ((await res.json()) as { results?: PaprikaPool[] }).results ?? [];
     }
+  } catch {
+    // fall through to GT source
   }
-  const candidates = paprika.filter((p) =>
-    passesMoverFilters(
-      p.price_change_percentage_24h ?? 0,
-      p.liquidity_usd ?? 0,
-      p.volume_usd_24h ?? 0,
-    ),
+  const candidates = paprika.filter(
+    (p) => (p.volume_usd_24h ?? 0) >= MOVER_MIN_VOLUME_USD,
   );
   for (const pool of candidates) {
     if (movers.length >= limit) break;
@@ -149,15 +147,20 @@ export async function fetchTopMovers(chain: string, limit = 12): Promise<Mover[]
       const address = p?.baseToken?.address;
       if (!address || seen.has(address.toLowerCase())) continue;
       if (symbol && EXCLUDED_SYMBOLS.has(symbol.toUpperCase())) continue;
+      // fine filter on DexScreener's numbers (live, forward-looking h24)
+      const chg = Number(p?.priceChange?.h24 ?? 0);
+      const liq = Number(p?.liquidity?.usd ?? 0);
+      const vol = Number(p?.volume?.h24 ?? pool.volume_usd_24h ?? 0);
+      if (!passesMoverFilters(chg, liq, vol)) continue;
       seen.add(address.toLowerCase());
       movers.push({
         chain,
         poolId: pool.id,
         address,
         symbol,
-        priceChange24h: pool.price_change_percentage_24h ?? 0,
-        volume24hUsd: pool.volume_usd_24h ?? 0,
-        liquidityUsd: pool.liquidity_usd ?? 0,
+        priceChange24h: chg,
+        volume24hUsd: vol,
+        liquidityUsd: liq,
       });
     } catch {
       // pair not on DexScreener — skip

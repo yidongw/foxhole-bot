@@ -52,6 +52,13 @@ import { checkTokenSafety } from "../trade/safety.js";
 import { resolveWebhook } from "../notify/routes.js";
 import { appendAiInbox } from "../notify/ai-inbox.js";
 import { postThreadedSignal } from "../notify/signal-threads.js";
+import {
+  fetchNewV4PoolTokens,
+  getV4LatestBlock,
+  loadV4Watch,
+  saveV4Watch,
+  screenProbation,
+} from "../chains/robinhood/v4-watcher.js";
 import { managePositions, processSignals } from "../trade/engine.js";
 import type { LaunchRecord, LaunchesPayload, TokenAnalysis } from "../types.js";
 
@@ -405,6 +412,82 @@ async function scanRobinhood(
   }
 }
 
+/** RB v4 watcher first-run lookback ≈50 min at ~100ms blocks. */
+const V4_FIRST_RUN_LOOKBACK = 30_000n;
+
+/**
+ * RB 通用 v4 新池监控 (JINQIAN 教训): 新池的非 quote 币进观察名单,
+ * DexScreener 索引且流动性达标后每 tick 跟踪分析 12h。
+ */
+async function checkV4NewPools(state: MonitorState): Promise<void> {
+  const latest = await getV4LatestBlock();
+  const from = state.lastV4Block
+    ? BigInt(state.lastV4Block) + 1n
+    : latest - V4_FIRST_RUN_LOOKBACK;
+  if (from > latest) return;
+
+  const tokens = await fetchNewV4PoolTokens(from, latest);
+  state.lastV4Block = latest.toString();
+  if (!tokens.length) return;
+
+  const entries = await loadV4Watch();
+  const seen = new Set(entries.map((e) => e.address.toLowerCase()));
+  let added = 0;
+  for (const addr of tokens) {
+    if (seen.has(addr.toLowerCase())) continue;
+    entries.push({
+      address: addr,
+      firstSeen: new Date().toISOString(),
+      verified: false,
+      attempts: 0,
+    });
+    added++;
+  }
+  if (added) {
+    await saveV4Watch(entries);
+    console.log(`v4 watcher: ${added} new pool token(s) on probation`);
+  }
+}
+
+async function scanV4Watch(
+  state: MonitorState,
+  options: ScanOptions,
+  minRank: number,
+  hits: ScanHit[],
+  rows: SignalRow[],
+): Promise<void> {
+  const entries = await loadV4Watch();
+  if (!entries.length) return;
+
+  // Cheap batch screening promotes liquid probation tokens to verified
+  const promoted = await screenProbation(entries);
+  if (promoted) console.log(`v4 watcher: ${promoted} token(s) verified — tracking`);
+
+  for (const entry of entries.filter((e) => e.verified)) {
+    try {
+      const analysis = await analyzeToken(entry.address);
+      const key = stateKey("robinhood", entry.address);
+      const prev = state.tokens[key];
+      const accel =
+        prev && prev.volume24hUsd > 0
+          ? (analysis.volume24hUsd ?? 0) / prev.volume24hUsd
+          : undefined;
+      const input = analysisToSignalInput(analysis, {
+        volumeAccelRatio: accel,
+        dexUrl: `https://dexscreener.com/robinhood/${entry.address}`,
+      });
+      const evaluation = evaluateSignal(input, loadSignalConfig());
+      snapshotAndRow(state, key, analysis, evaluation, rows);
+      const hit = await maybeAlert(state, evaluation, key, prev?.level, minRank, options);
+      if (hit) hits.push(hit);
+    } catch {
+      entry.attempts++;
+    }
+    await sleep(250);
+  }
+  await saveV4Watch(entries);
+}
+
 /** BSC first-run lookback ≈25 min at 0.75s blocks. */
 const FOURMEME_FIRST_RUN_LOOKBACK = 2_000n;
 
@@ -563,6 +646,14 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
     // missed because FAMI wasn't in SEARCH_QUERIES and the token never
     // touched the Long factory).
     await scanChainTrending("robinhood", state, options, minRank, hits, rows);
+    // Structural fix for the same lesson: watch EVERY new v4 pool at
+    // creation so non-Long memes are seen the second they launch.
+    try {
+      await checkV4NewPools(state);
+      await scanV4Watch(state, options, minRank, hits, rows);
+    } catch (err) {
+      console.error("v4 watcher failed (continuing):", (err as Error).message);
+    }
   }
   for (const chain of chains.filter((c) => c !== "robinhood")) {
     await scanChainTrending(chain, state, options, minRank, hits, rows);

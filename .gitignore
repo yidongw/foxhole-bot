@@ -15,3 +15,4 @@ web/data/review.json
 data/ai-inbox.jsonl
 data/ai-inbox-processed.jsonl
 .playwright-mcp/
+data/v4-watch.json

@@ -31,6 +31,8 @@ export interface MonitorState {
   lastUniswapBlock?: string;
   /** Last daily self-review run. */
   lastReviewAt?: string;
+  /** Last RB block scanned for v4 pool Initialize events. */
+  lastV4Block?: string;
   tokens: Record<string, TokenSnapshot>;
   /** alertKey -> last sent ISO timestamp */
   alertHistory: Record<string, string>;

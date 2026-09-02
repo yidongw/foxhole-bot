@@ -136,3 +136,13 @@ rb 频道同时兼任全局兜底(复盘确认清单发 🟢🧹-rb-filter-log)�
 - JINQIAN 入 missed 案例库 (第4条) 供调参学习。
 
 **教训**: 每条"盲区诊断"必须当场转化为修复项或显式挂账, 不能只留在文档里。
+
+**追加(同日深挖)**: 首次修复验证时 JINQIAN 仍未出现在发现列表, 继续深挖出三层:
+1. DexPaprika 分页参数 (page/offset) 全部无效 — 一直只有 100 池, "3页"是假设未验证;
+2. DexPaprika 的 chg24h 是回看视角 (JINQIAN 回落中显示 -37%), liquidity 严重失真
+   ($10.7K vs 实际 $5.7M) → movers 精筛改用 DexScreener 实时数据;
+3. **治本: RB v4 通用新池 watcher** — 从 JINQIAN 池的 Initialize 日志反查出
+   RB PoolManager `0x8366a39c…40951`, 监控全部 v4 Initialize 事件
+   (过滤 Long 1e18 系), probation 批量验证 (DexScreener 30地址/批,
+   liq≥$30K 转正), verified 每 tick 深度分析 12h。
+   历史回放验证: 发射时段窗口 102 个候选, JINQIAN ✅ 被捕获。
