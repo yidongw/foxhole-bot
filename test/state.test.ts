@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isLevelUpgrade,
+  pruneMonitorState,
   recordAlert,
   shouldSendAlert,
   type MonitorState,
@@ -44,6 +45,30 @@ describe("shouldSendAlert / recordAlert", () => {
       Date.now() - SIGNAL_CONFIG.alertCooldownMs - 1000,
     ).toISOString();
     expect(shouldSendAlert(state, ADDR, "alert", ["x"])).toBe(true);
+  });
+});
+
+describe("pruneMonitorState", () => {
+  it("drops old alert history and token snapshots, keeps fresh ones", () => {
+    const now = Date.now();
+    const state = emptyState();
+    state.alertHistory["old"] = new Date(now - 8 * 86_400_000).toISOString();
+    state.alertHistory["fresh"] = new Date(now - 3_600_000).toISOString();
+    state.tokens["0xdead"] = {
+      volume24hUsd: 0,
+      level: "none",
+      score: 0,
+      updatedAt: new Date(now - 31 * 86_400_000).toISOString(),
+    };
+    state.tokens["0xlive"] = {
+      volume24hUsd: 1,
+      level: "watch",
+      score: 10,
+      updatedAt: new Date(now - 86_400_000).toISOString(),
+    };
+    pruneMonitorState(state, now);
+    expect(Object.keys(state.alertHistory)).toEqual(["fresh"]);
+    expect(Object.keys(state.tokens)).toEqual(["0xlive"]);
   });
 });
 

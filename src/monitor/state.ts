@@ -36,7 +36,28 @@ export async function loadMonitorState(): Promise<MonitorState> {
   }
 }
 
+const ALERT_HISTORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const TOKEN_SNAPSHOT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Drop stale entries so the state file doesn't grow forever. */
+export function pruneMonitorState(
+  state: MonitorState,
+  now: number = Date.now(),
+): void {
+  for (const [key, sentAt] of Object.entries(state.alertHistory)) {
+    if (now - new Date(sentAt).getTime() > ALERT_HISTORY_TTL_MS) {
+      delete state.alertHistory[key];
+    }
+  }
+  for (const [address, snapshot] of Object.entries(state.tokens)) {
+    if (now - new Date(snapshot.updatedAt).getTime() > TOKEN_SNAPSHOT_TTL_MS) {
+      delete state.tokens[address];
+    }
+  }
+}
+
 export async function saveMonitorState(state: MonitorState): Promise<void> {
+  pruneMonitorState(state);
   await mkdir(path.dirname(STATE_PATH), { recursive: true });
   await writeFile(STATE_PATH, JSON.stringify(state, null, 2), "utf8");
 }

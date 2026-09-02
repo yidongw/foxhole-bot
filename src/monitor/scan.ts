@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { analyzeToken } from "../long/analyze-token.js";
-import { collectLaunches } from "../long/fetch-launches.js";
+import { collectLaunches, writeLaunchesJson } from "../long/fetch-launches.js";
 import {
   analysisToSignalInput,
   evaluateSignal,
@@ -77,18 +77,22 @@ export interface ScanHit {
 }
 
 async function loadLaunches(refresh: boolean): Promise<LaunchRecord[]> {
-  if (refresh) {
-    const payload = await collectLaunches();
-    return payload.launches;
+  if (!refresh) {
+    try {
+      const raw = await readFile(LAUNCHES_PATH, "utf8");
+      const payload = JSON.parse(raw) as LaunchesPayload;
+      return payload.launches;
+    } catch {
+      // fall through to a fresh fetch
+    }
   }
-  try {
-    const raw = await readFile(LAUNCHES_PATH, "utf8");
-    const payload = JSON.parse(raw) as LaunchesPayload;
-    return payload.launches;
-  } catch {
-    const payload = await collectLaunches();
-    return payload.launches;
-  }
+  const payload = await collectLaunches();
+  // Persist so the dashboard stays fresh from the monitor loop alone,
+  // without needing a redeploy.
+  await writeLaunchesJson(payload).catch((err) =>
+    console.error("failed to write launches.json:", (err as Error).message),
+  );
+  return payload.launches;
 }
 
 function rankLaunches(launches: LaunchRecord[]): LaunchRecord[] {
