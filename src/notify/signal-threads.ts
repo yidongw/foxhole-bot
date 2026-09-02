@@ -175,7 +175,7 @@ export async function postThreadedSignal(ev: SignalEvaluation): Promise<boolean>
   };
 
   try {
-    let entry = map[key];
+    let entry: ThreadEntry | undefined = map[key];
     if (!entry) {
       entry = await createCard();
       if (!entry) return false;
