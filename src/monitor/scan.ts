@@ -40,6 +40,11 @@ import {
   formatClankerDigest,
   getBaseLatestBlock,
 } from "../chains/base/clanker.js";
+import {
+  fetchNewWethPairs,
+  formatEthPairDigest,
+  getEthLatestBlock,
+} from "../chains/ethereum/uniswap-watcher.js";
 import { loadTradeConfig } from "../trade/config.js";
 import { managePositions, processSignals } from "../trade/engine.js";
 import type { LaunchRecord, LaunchesPayload, TokenAnalysis } from "../types.js";
@@ -335,6 +340,30 @@ async function checkClankerLaunches(
   }
 }
 
+/** ETH first-run lookback ≈4h at 12s blocks. */
+const UNISWAP_FIRST_RUN_LOOKBACK = 1_200n;
+
+async function checkEthNewPairs(
+  state: MonitorState,
+  options: ScanOptions,
+): Promise<void> {
+  const mode = process.env.LAUNCH_ALERT_MODE ?? "digest";
+  const latest = await getEthLatestBlock();
+  const from = state.lastUniswapBlock
+    ? BigInt(state.lastUniswapBlock) + 1n
+    : latest - UNISWAP_FIRST_RUN_LOOKBACK;
+  if (from > latest) return;
+
+  const pairs = await fetchNewWethPairs(from, latest);
+  if (pairs.length && mode !== "off") {
+    await deliverAlert(await formatEthPairDigest(pairs), options);
+  }
+  state.lastUniswapBlock = latest.toString();
+  if (pairs.length) {
+    console.log(`uniswap watcher: ${pairs.length} new WETH pair(s)`);
+  }
+}
+
 async function scanChainTrending(
   chain: ChainId,
   state: MonitorState,
@@ -355,6 +384,13 @@ async function scanChainTrending(
       await checkClankerLaunches(state, options);
     } catch (err) {
       console.error("clanker watcher failed (continuing):", (err as Error).message);
+    }
+  }
+  if (chain === "ethereum") {
+    try {
+      await checkEthNewPairs(state, options);
+    } catch (err) {
+      console.error("uniswap watcher failed (continuing):", (err as Error).message);
     }
   }
 

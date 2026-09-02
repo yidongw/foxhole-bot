@@ -8,7 +8,8 @@ const RPC_DEFAULTS: Partial<Record<ChainId, { url: string; envVar: string }>> = 
   bsc: { url: "https://bsc.publicnode.com", envVar: "BSC_RPC" },
   // publicnode gates Base getLogs behind a token; the official RPC allows it
   base: { url: "https://mainnet.base.org", envVar: "BASE_RPC" },
-  ethereum: { url: "https://ethereum.publicnode.com", envVar: "ETH_RPC" },
+  // publicnode gates ETH getLogs behind a token; drpc allows it
+  ethereum: { url: "https://eth.drpc.org", envVar: "ETH_RPC" },
 };
 
 const VIEM_CHAINS = { bsc, base, ethereum: mainnet } as const;

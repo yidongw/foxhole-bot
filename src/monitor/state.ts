@@ -26,6 +26,8 @@ export interface MonitorState {
   lastFourmemeBlock?: string;
   /** Last Base block scanned for Clanker TokenCreated events. */
   lastClankerBlock?: string;
+  /** Last ETH block scanned for Uniswap pair creations. */
+  lastUniswapBlock?: string;
   tokens: Record<string, TokenSnapshot>;
   /** alertKey -> last sent ISO timestamp */
   alertHistory: Record<string, string>;
