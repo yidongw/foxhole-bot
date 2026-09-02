@@ -35,6 +35,7 @@ export function analysisToSignalInput(
       analysis.quoteSymbol &&
         !["ETH", "WETH", "USDG", "USDC", "USDT"].includes(analysis.quoteSymbol),
     ),
+    priceUsd: analysis.priceUsd,
     volume24hUsd: vol,
     liquidityUsd: analysis.liquidityUsd ?? 0,
     fdvUsd: analysis.fdvUsd,

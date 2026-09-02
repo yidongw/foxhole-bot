@@ -29,12 +29,23 @@ function lockedQuoteFromDex(pair: DexPair): bigint | undefined {
   return BigInt(Math.round(quote * 10 ** STOCK_TOKEN_DECIMALS));
 }
 
-function pickPrimaryPair(pairs: Awaited<ReturnType<typeof fetchTokenPairs>>) {
-  const stockPairs = pairs.filter((p) => {
+/**
+ * Deepest pair where the analyzed token is the BASE. Pairs where it appears
+ * as the quote (e.g. analyzing HIMS and finding BONER/HIMS) belong to the
+ * other token — using them attributes the meme's stats to its stock pair.
+ */
+export function selectPrimaryPair(
+  pairs: DexPair[],
+  address: Address,
+): DexPair | undefined {
+  const own = pairs.filter(
+    (p) => p.baseToken?.address?.toLowerCase() === address.toLowerCase(),
+  );
+  const stockPairs = own.filter((p) => {
     const q = p.quoteToken?.symbol ?? "";
     return !["ETH", "WETH", "USDG", "USDC", "USDT"].includes(q);
   });
-  const ranked = [...(stockPairs.length ? stockPairs : pairs)].sort(
+  const ranked = [...(stockPairs.length ? stockPairs : own)].sort(
     (a, b) => Number(b.liquidity?.usd ?? 0) - Number(a.liquidity?.usd ?? 0),
   );
   return ranked[0];
@@ -50,7 +61,12 @@ export async function analyzeToken(addressInput: string): Promise<TokenAnalysis>
     throw new Error(`No Robinhood Chain pairs found for ${address}`);
   }
 
-  const primary = pickPrimaryPair(pairs);
+  const primary = selectPrimaryPair(pairs, address);
+  if (!primary) {
+    throw new Error(
+      `${address} only appears as a quote token — likely a stock token, not a launch`,
+    );
+  }
   const base = primary.baseToken;
   const quote = primary.quoteToken;
   const quoteSymbol = quote?.symbol ?? "?";
@@ -130,6 +146,7 @@ export async function analyzeToken(addressInput: string): Promise<TokenAnalysis>
     symbol: base?.symbol,
     name: base?.name,
     primaryPair: `${base?.symbol}/${quoteSymbol}`,
+    priceUsd: primary.priceUsd ? Number(primary.priceUsd) : undefined,
     fdvUsd: primary.fdv,
     volume24hUsd: volume24h,
     liquidityUsd: Number(primary.liquidity?.usd ?? 0),

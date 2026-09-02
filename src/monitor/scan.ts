@@ -28,6 +28,8 @@ import {
   getLatestBlock,
   type FactoryLaunch,
 } from "../long/factory-watcher.js";
+import { loadTradeConfig } from "../trade/config.js";
+import { managePositions, processSignals } from "../trade/engine.js";
 import type { LaunchRecord, LaunchesPayload } from "../types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -274,6 +276,13 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     const hits = await scanLaunches({ ...options, refreshLaunches: true });
     const alerted = hits.filter((h) => h.sent);
     console.log(`done: ${hits.length} signals ≥${options.minLevel ?? "watch"}, ${alerted.length} alerts sent`);
+
+    const tradeConfig = loadTradeConfig();
+    if (tradeConfig.mode !== "off") {
+      const engineOptions = { dryRun: options.dryRun, webhookUrl: options.webhookUrl };
+      await processSignals(hits.map((h) => h.evaluation), engineOptions, tradeConfig);
+      await managePositions(engineOptions, tradeConfig);
+    }
   };
 
   // Sequential loop (not setInterval): a slow scan must finish before the

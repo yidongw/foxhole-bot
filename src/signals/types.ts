@@ -7,6 +7,7 @@ export interface SignalInput {
   primaryPair?: string;
   quoteSymbol?: string;
   isStockPaired: boolean;
+  priceUsd?: number;
   volume24hUsd: number;
   liquidityUsd: number;
   fdvUsd?: number;

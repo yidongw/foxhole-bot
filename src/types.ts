@@ -62,6 +62,7 @@ export interface TokenAnalysis {
   symbol?: string;
   name?: string;
   primaryPair?: string;
+  priceUsd?: number;
   fdvUsd?: number;
   volume24hUsd?: number;
   liquidityUsd?: number;

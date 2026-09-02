@@ -1,4 +1,5 @@
 import { type Address, type PublicClient, erc20Abi } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { createHoodClient, getQuote } from "hoodchain";
 import { LONG_AIRLOCK } from "../long/constants.js";
 
@@ -16,6 +17,26 @@ function getHoodClient() {
     hoodClient = createHoodClient({ rpcUrl: getRpcUrl() });
   }
   return hoodClient;
+}
+
+let tradingClient: ReturnType<typeof createHoodClient> | undefined;
+
+/**
+ * Wallet-enabled hood client for live swaps. Requires TRADER_PRIVATE_KEY.
+ * Never construct this in paper mode.
+ */
+export function getTradingClient(): ReturnType<typeof createHoodClient> {
+  if (!tradingClient) {
+    const pk = process.env.TRADER_PRIVATE_KEY;
+    if (!pk) {
+      throw new Error("TRADER_PRIVATE_KEY not set — live trading unavailable");
+    }
+    tradingClient = createHoodClient({
+      rpcUrl: getRpcUrl(),
+      account: privateKeyToAccount(pk as `0x${string}`),
+    });
+  }
+  return tradingClient;
 }
 
 /** Raw viem public client for log queries and reads. */

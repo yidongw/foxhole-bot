@@ -21,6 +21,9 @@ function mergePair(seen: Map<string, LaunchRecord>, pair: DexPair) {
   const address = base?.address?.toLowerCase();
   const quoteSymbol = quote?.symbol ?? "";
   if (!address || !isStockQuote(quoteSymbol)) return;
+  // Inverted pairs (e.g. HIMS/BONER) would list the stock token as a launch.
+  // Robinhood stock tokens are named "<Company> • Robinhood Token".
+  if (base?.name?.includes("Robinhood Token")) return;
 
   const vol = Number(pair.volume?.h24 ?? 0);
   const liq = Number(pair.liquidity?.usd ?? 0);
