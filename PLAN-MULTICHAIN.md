@@ -1,5 +1,19 @@
 # Foxhole Multi-Chain Plan — Solana, BSC, Base, ETH
 
+## STATUS (2026-09-02, same day): P0–P5 SHIPPED
+
+All six phases plus most §7b parity gaps are implemented and live-verified —
+see README roadmap and git history (P0 `15914b3` … grid search `1adbdec`).
+Gap items done: fast position tick (1), advisor evidence (3), positions
+dashboard (4), grid search (5), price-feed redundancy (6). Still open:
+- Interactive Discord control (gap 2) — needs a DISCORD_BOT_TOKEN
+- External signal intake (gap 7) — needs GMGN/OKX/6551 keys
+- Per-chain backtest fixtures — machinery is multi-chain-ready
+  (DexScreener pairAddress works as a DexPaprika pool id); fixtures
+  accumulate as real pumps/controls are observed
+- ≥2-week clean paper run per chain before any live mode
+- Live execution paths (BSC/Base/Solana/RB) untested with real funds
+
 Drafted 2026-09-02. Extends foxhole-bot beyond Robinhood Chain with the same
 three pillars per chain: **triggering** (launch + trend discovery),
 **analysis** (signals), **execution** (paper → live).
