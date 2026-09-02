@@ -30,6 +30,11 @@ import {
 } from "../long/factory-watcher.js";
 import { enabledChains, type ChainId } from "../chains/adapter.js";
 import { getAdapter } from "../chains/registry.js";
+import {
+  fetchFourmemeLaunches,
+  formatFourmemeDigest,
+  getBscLatestBlock,
+} from "../chains/bsc/fourmeme.js";
 import { loadTradeConfig } from "../trade/config.js";
 import { managePositions, processSignals } from "../trade/engine.js";
 import type { LaunchRecord, LaunchesPayload, TokenAnalysis } from "../types.js";
@@ -277,6 +282,30 @@ async function scanRobinhood(
   }
 }
 
+/** BSC first-run lookback ≈25 min at 0.75s blocks. */
+const FOURMEME_FIRST_RUN_LOOKBACK = 2_000n;
+
+async function checkFourmemeLaunches(
+  state: MonitorState,
+  options: ScanOptions,
+): Promise<void> {
+  const mode = process.env.LAUNCH_ALERT_MODE ?? "digest";
+  const latest = await getBscLatestBlock();
+  const from = state.lastFourmemeBlock
+    ? BigInt(state.lastFourmemeBlock) + 1n
+    : latest - FOURMEME_FIRST_RUN_LOOKBACK;
+  if (from > latest) return;
+
+  const launches = await fetchFourmemeLaunches(from, latest);
+  if (launches.length && mode !== "off") {
+    await deliverAlert(formatFourmemeDigest(launches), options);
+  }
+  state.lastFourmemeBlock = latest.toString();
+  if (launches.length) {
+    console.log(`fourmeme watcher: ${launches.length} new launch(es)`);
+  }
+}
+
 async function scanChainTrending(
   chain: ChainId,
   state: MonitorState,
@@ -285,6 +314,14 @@ async function scanChainTrending(
   hits: ScanHit[],
   rows: SignalRow[],
 ): Promise<void> {
+  if (chain === "bsc") {
+    try {
+      await checkFourmemeLaunches(state, options);
+    } catch (err) {
+      console.error("fourmeme watcher failed (continuing):", (err as Error).message);
+    }
+  }
+
   const adapter = getAdapter(chain);
   let candidates: string[];
   try {

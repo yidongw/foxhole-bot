@@ -1,12 +1,10 @@
-import {
-  decodeAbiParameters,
-  getAddress,
-  padHex,
-  type Address,
-  type Log,
-} from "viem";
+import { decodeAbiParameters, getAddress, padHex, type Address } from "viem";
 
 import { getErc20Symbol, getPublicClient } from "../chain/client.js";
+import {
+  fetchLogsChunked,
+  type RawLog,
+} from "../chains/evm/log-watcher.js";
 import { LONG_CREATED_TOPIC0, LONG_FACTORY } from "./constants.js";
 import { sleep } from "../lib/utils.js";
 
@@ -35,7 +33,9 @@ const DATA_PARAMS = [
   { type: "string" }, // token symbol
 ] as const;
 
-export function decodeCreatedLog(log: Log): FactoryLaunch {
+export function decodeCreatedLog(
+  log: Pick<RawLog, "data" | "topics" | "blockNumber" | "transactionHash">,
+): FactoryLaunch {
   if (!log.topics[1] || !log.topics[3]) {
     throw new Error(`Created log missing topics: ${log.transactionHash}`);
   }
@@ -50,8 +50,8 @@ export function decodeCreatedLog(log: Log): FactoryLaunch {
     auctionPoolId,
     epochStart: new Date(Number(epochStart) * 1000).toISOString(),
     epochEnd: new Date(Number(epochEnd) * 1000).toISOString(),
-    blockNumber: log.blockNumber ?? 0n,
-    txHash: log.transactionHash ?? "0x",
+    blockNumber: log.blockNumber,
+    txHash: log.transactionHash,
   };
 }
 
@@ -81,43 +81,23 @@ export interface FetchCreatedOptions {
 export async function fetchCreatedEvents(
   options: FetchCreatedOptions,
 ): Promise<FactoryLaunch[]> {
-  const client = getPublicClient();
-  const delay = options.chunkDelayMs ?? 400;
-  let chunk = options.chunkSize ?? 10_000n;
-  const launches: FactoryLaunch[] = [];
+  const logs = await fetchLogsChunked(getPublicClient(), {
+    address: LONG_FACTORY,
+    topics: options.token
+      ? [LONG_CREATED_TOPIC0, padHex(options.token, { size: 32 })]
+      : [LONG_CREATED_TOPIC0],
+    fromBlock: options.fromBlock,
+    toBlock: options.toBlock,
+    chunkSize: options.chunkSize ?? 10_000n,
+    chunkDelayMs: options.chunkDelayMs ?? 400,
+  });
 
-  let from = options.fromBlock;
-  while (from <= options.toBlock) {
-    const to =
-      from + chunk - 1n > options.toBlock ? options.toBlock : from + chunk - 1n;
+  const launches: FactoryLaunch[] = [];
+  for (const log of logs) {
     try {
-      const logs = await client.getLogs({
-        address: LONG_FACTORY,
-        fromBlock: from,
-        toBlock: to,
-        // topic filter keeps responses small on the rate-limited public RPC
-        ...(options.token
-          ? { topics: [LONG_CREATED_TOPIC0, padHex(options.token, { size: 32 })] }
-          : { topics: [LONG_CREATED_TOPIC0] }),
-      } as Parameters<typeof client.getLogs>[0]);
-      for (const log of logs) {
-        try {
-          launches.push(decodeCreatedLog(log));
-        } catch (err) {
-          console.error("failed to decode Created log:", (err as Error).message);
-        }
-      }
-      from = to + 1n;
-      await sleep(delay);
+      launches.push(decodeCreatedLog(log));
     } catch (err) {
-      if (chunk > 1_000n) {
-        chunk /= 2n;
-        await sleep(delay * 4);
-        continue;
-      }
-      throw new Error(
-        `factory getLogs failed at block ${from}: ${(err as Error).message}`,
-      );
+      console.error("failed to decode Created log:", (err as Error).message);
     }
   }
 

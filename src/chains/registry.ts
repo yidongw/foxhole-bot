@@ -5,6 +5,7 @@ import { fetchTokenPriceUsd, fetchTrendingTokens } from "../dex/dexscreener.js";
 import { buy as hoodBuy, sell as hoodSell } from "../trade/execute.js";
 import type { ChainAdapter, ChainId } from "./adapter.js";
 import { analyzeTokenGeneric } from "./generic-analysis.js";
+import { v2Buy, v2Sell } from "./evm/v2-swap.js";
 
 const robinhoodAdapter: ChainAdapter = {
   id: "robinhood",
@@ -33,10 +34,25 @@ function genericAdapter(id: ChainId, displayName: string): ChainAdapter {
   };
 }
 
+// BSC: generic discovery/analysis + PancakeSwap v2 live execution.
+// ⚠️ Live path untested with real funds — paper first (see README).
+const bscAdapter: ChainAdapter = {
+  ...genericAdapter("bsc", "BNB Chain"),
+  buy: async (token, priceUsd, usd, config) =>
+    v2Buy("bsc", token as Address, usd, config.slippageBps),
+  sell: async (position, fraction, _currentPriceUsd, config) =>
+    v2Sell(
+      "bsc",
+      position.token as Address,
+      position.amountTokens * fraction,
+      config.slippageBps,
+    ),
+};
+
 const ADAPTERS: Record<ChainId, ChainAdapter> = {
   robinhood: robinhoodAdapter,
   solana: genericAdapter("solana", "Solana"),
-  bsc: genericAdapter("bsc", "BNB Chain"),
+  bsc: bscAdapter,
   base: genericAdapter("base", "Base"),
   ethereum: genericAdapter("ethereum", "Ethereum"),
 };
