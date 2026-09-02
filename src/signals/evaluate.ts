@@ -65,6 +65,8 @@ export function evaluateSignal(input: SignalInput): SignalEvaluation {
     lockWatch,
     lockAlert,
     lockStrong,
+    lockRiseAlert,
+    lockRiseStrong,
     volumeSpikeAlert,
     volumeSpikeStrong,
     volumeAccelAlert,
@@ -115,6 +117,31 @@ export function evaluateSignal(input: SignalInput): SignalEvaluation {
       score += 12;
       reasons.push(`quote lock ${(lock * 100).toFixed(0)}% — building`);
       triggers.push("lock_watch");
+    }
+  }
+
+  // --- Lock ratio rising between scans (the actual BONER pattern) ---
+  const lockDelta = input.quoteLockDelta;
+  if (
+    input.isStockPaired &&
+    lock != null &&
+    lockDelta != null &&
+    lock >= lockWatch
+  ) {
+    if (lockDelta >= lockRiseStrong) {
+      level = maxLevel(level, "strong");
+      score += 30;
+      reasons.push(
+        `quote lock climbing +${(lockDelta * 100).toFixed(1)}pt since last scan`,
+      );
+      triggers.push("lock_rising_strong");
+    } else if (lockDelta >= lockRiseAlert) {
+      level = maxLevel(level, "alert");
+      score += 18;
+      reasons.push(
+        `quote lock climbing +${(lockDelta * 100).toFixed(1)}pt since last scan`,
+      );
+      triggers.push("lock_rising");
     }
   }
 

@@ -8,6 +8,14 @@ export const SIGNAL_CONFIG = {
   lockAlert: 0.3,
   lockStrong: 0.45,
 
+  /**
+   * Lock ratio rise vs previous monitor snapshot (percentage points, 0-1
+   * scale). The BONER squeeze signature was the lock *climbing*, not just
+   * its absolute level.
+   */
+  lockRiseAlert: 0.03,
+  lockRiseStrong: 0.07,
+
   /** Volume spike vs peer pairs on same token. */
   volumeSpikeAlert: 5,
   volumeSpikeStrong: 8,

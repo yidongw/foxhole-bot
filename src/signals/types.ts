@@ -12,6 +12,8 @@ export interface SignalInput {
   fdvUsd?: number;
   priceChange24h?: number;
   quoteLockRatio?: number;
+  /** Lock ratio change vs the previous monitor snapshot (percentage points, 0-1 scale). */
+  quoteLockDelta?: number;
   quotePremium?: number;
   /** Max pair volume / avg other pair volume on same token. */
   volumeSpikeRatio?: number;

@@ -181,9 +181,14 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
         prev && prev.volume24hUsd > 0
           ? (analysis.volume24hUsd ?? 0) / prev.volume24hUsd
           : undefined;
+      const lockDelta =
+        prev?.lockRatio != null && analysis.quoteLockRatio != null
+          ? analysis.quoteLockRatio - prev.lockRatio
+          : undefined;
 
       const input = analysisToSignalInput(analysis, {
         volumeAccelRatio: accel,
+        quoteLockDelta: lockDelta,
         dexUrl: launch.dex_url,
         longUrl: launch.long_url,
       });
@@ -191,6 +196,7 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
 
       state.tokens[launch.address.toLowerCase()] = {
         volume24hUsd: input.volume24hUsd,
+        lockRatio: analysis.quoteLockRatio,
         level: evaluation.level,
         score: evaluation.score,
         updatedAt: new Date().toISOString(),

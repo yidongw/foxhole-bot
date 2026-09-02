@@ -11,6 +11,7 @@ const STATE_PATH = path.resolve(__dirname, "../../data/monitor-state.json");
 
 export interface TokenSnapshot {
   volume24hUsd: number;
+  lockRatio?: number;
   level: AlertLevel;
   score: number;
   updatedAt: string;
