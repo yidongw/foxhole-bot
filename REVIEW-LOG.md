@@ -58,3 +58,9 @@ trending(有机热度源, 修正按量排序被刷量垃圾霸榜的问题)。
 - **#trade-log** ← 交易日志 (TRADE webhook)
 - 三个 webhook 已用运行时 bot 令牌创建并写入主 checkout `.env`
   (该文件另已含自动开通的 Alchemy RPC)。各频道已收到接入验证消息。
+## 2026-09-02 — 按链频道分配完成
+
+15 个频道(5链×3类)全部命名为 <链色><类型icon>-<链>-<类型>:
+链色 🟢rb 🟣sol 🟡bsc 🔵base ⚪eth;类型 🎯trade-signal 💰trade-log 🧹filter-log。
+12 个新 webhook 创建并与 rb 三个原 webhook 一起写入 .env 的 per-chain 变量;
+rb 频道同时兼任全局兜底(复盘确认清单发 🟢🧹-rb-filter-log)。
