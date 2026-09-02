@@ -83,10 +83,12 @@ function candleToSignalInput(
 
   return {
     address: fixture.address,
+    chain: fixture.network ?? "robinhood",
     symbol: fixture.symbol,
     primaryPair: `${fixture.symbol}/${fixture.quoteSymbol}`,
     quoteSymbol: fixture.quoteSymbol,
-    isStockPaired: true,
+    // Stock-pair signals (launch watch, high-volume rule) are Robinhood-only
+    isStockPaired: (fixture.network ?? "robinhood") === "robinhood",
     volume24hUsd,
     liquidityUsd,
     priceChange24h,

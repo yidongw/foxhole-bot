@@ -69,4 +69,71 @@ export const CONTROL_FIXTURES: TokenBacktestFixture[] = [
   },
 ];
 
-export const ALL_FIXTURES = [...PUMP_FIXTURES, ...CONTROL_FIXTURES];
+/**
+ * Multi-chain fixtures, classified 2026-09-02 by replaying real OHLCV
+ * through the engine (not hand-labeled): pumps alerted before their peak,
+ * controls never alerted. Fixed ohlcvStart keeps results stable over time.
+ */
+export const MULTICHAIN_FIXTURES: TokenBacktestFixture[] = [
+  {
+    kind: "pump",
+    symbol: "MIGGLES",
+    address: "0xB1a03EdA10342529bBF8EB700a06C60441fEf25d",
+    poolId: "0x17a3ad8c74c4947005afeda9965305ae2eb2518a",
+    network: "base",
+    quoteSymbol: "WETH",
+    launchAt: "2024-07-16T00:00:00.000Z",
+    ohlcvStart: "2026-05-15",
+    notes: "2.7x run into Jul 17 peak; first alert May 28",
+  },
+  {
+    kind: "control",
+    symbol: "SILLY",
+    address: "7EYnhQoR9YM3N7UoaKRoA44Uy8JeaZV3qyouov87awMs",
+    poolId: "DsD69qYsFvMX4cBvHbssGneB2aYwECkL3ehYjQ6NH6aq",
+    network: "solana",
+    quoteSymbol: "SOL",
+    launchAt: "2023-12-05T00:00:00.000Z",
+    ohlcvStart: "2026-05-15",
+    notes: "Aged SOL meme, quiet volume",
+  },
+  {
+    kind: "control",
+    symbol: "CAT",
+    address: "0x59F4F336Bf3D0C49dBfbA4A74eBD2a6aCE40539A",
+    poolId: "0x63230caefc0f8220536db18136b83b5098b5acbc",
+    network: "bsc",
+    quoteSymbol: "WBNB",
+    launchAt: "2023-06-07T00:00:00.000Z",
+    ohlcvStart: "2026-05-15",
+    notes: "Aged BSC meme, no breakout",
+  },
+  {
+    kind: "control",
+    symbol: "BRETT",
+    address: "0x532f27101965dd16442E59d40670FaF5eBB142E4",
+    poolId: "0xba3f945812a83471d709bce9c3ca699a19fb46f7",
+    network: "base",
+    quoteSymbol: "WETH",
+    launchAt: "2024-02-27T00:00:00.000Z",
+    ohlcvStart: "2026-05-15",
+    notes: "Established Base meme, rangebound in window",
+  },
+  {
+    kind: "control",
+    symbol: "TURBO",
+    address: "0xA35923162C49cF95e6BF26623385eb431ad920D3",
+    poolId: "0x7baece5d47f1bc5e1953fbe0e9931d54dab6d810",
+    network: "ethereum",
+    quoteSymbol: "WETH",
+    launchAt: "2023-05-01T00:00:00.000Z",
+    ohlcvStart: "2026-05-15",
+    notes: "Established ETH meme, rangebound in window",
+  },
+];
+
+export const ALL_FIXTURES = [
+  ...PUMP_FIXTURES,
+  ...CONTROL_FIXTURES,
+  ...MULTICHAIN_FIXTURES,
+];

@@ -11,6 +11,11 @@ export interface OhlcvCandle {
 const API = "https://api.dexpaprika.com/networks";
 const BASE = `${API}/robinhood`;
 
+/** DexPaprika ids are lowercase for EVM; Solana base58 is case-sensitive. */
+function normalizeId(id: string): string {
+  return id.startsWith("0x") ? id.toLowerCase() : id;
+}
+
 export async function fetchPoolOhlcv(
   poolId: string,
   options: {
@@ -27,7 +32,7 @@ export async function fetchPoolOhlcv(
     limit: String(options.limit ?? 120),
   });
   const network = options.network ?? "robinhood";
-  const res = await fetch(`${API}/${network}/pools/${poolId}/ohlcv?${params}`, {
+  const res = await fetch(`${API}/${network}/pools/${normalizeId(poolId)}/ohlcv?${params}`, {
     headers: { "User-Agent": "foxhole-bot/0.3" },
   });
   if (!res.ok) {
@@ -44,7 +49,7 @@ export async function fetchPaprikaTokenPriceUsd(
   network: string,
   address: string,
 ): Promise<number | undefined> {
-  const res = await fetch(`${API}/${network}/tokens/${address}`, {
+  const res = await fetch(`${API}/${network}/tokens/${normalizeId(address)}`, {
     headers: { "User-Agent": "foxhole-bot/0.3" },
   });
   if (!res.ok) return undefined;
