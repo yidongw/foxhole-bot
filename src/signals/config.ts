@@ -31,6 +31,10 @@ export const SIGNAL_CONFIG = {
   /** New Long.xyz stock-paired launch watch window. */
   launchWatchDays: 14,
 
+  /** Bonding-curve graduation proximity (pump.fun-style launchpads). */
+  curveNearAlert: 0.8,
+  curveNearStrong: 0.92,
+
   /** Minimum liquidity to avoid noise. */
   minLiquidityUsd: 10_000,
 

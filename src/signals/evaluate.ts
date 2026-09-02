@@ -42,6 +42,8 @@ export function analysisToSignalInput(
     fdvUsd: analysis.fdvUsd,
     priceChange24h: analysis.priceChange24h,
     quoteLockRatio: analysis.quoteLockRatio,
+    curveProgress: analysis.curveProgress,
+    curveGraduated: analysis.curveGraduated,
     quotePremium: analysis.quotePremium,
     volumeSpikeRatio: otherVol > 0 ? vol / otherVol : undefined,
     launchAt: analysis.launchAt,
@@ -144,6 +146,26 @@ export function evaluateSignal(input: SignalInput): SignalEvaluation {
         `quote lock climbing +${(lockDelta * 100).toFixed(1)}pt since last scan`,
       );
       triggers.push("lock_rising");
+    }
+  }
+
+  // --- Bonding curve nearing graduation (pump.fun-style buy pressure) ---
+  const { curveNearAlert, curveNearStrong } = SIGNAL_CONFIG;
+  if (
+    input.curveProgress != null &&
+    !input.curveGraduated &&
+    vol >= minVolumeUsd * 0.5
+  ) {
+    if (input.curveProgress >= curveNearStrong) {
+      level = maxLevel(level, "strong");
+      score += 30;
+      reasons.push(`curve ${(input.curveProgress * 100).toFixed(0)}% — graduation imminent`);
+      triggers.push("curve_near_grad_strong");
+    } else if (input.curveProgress >= curveNearAlert) {
+      level = maxLevel(level, "alert");
+      score += 18;
+      reasons.push(`curve ${(input.curveProgress * 100).toFixed(0)}% to graduation`);
+      triggers.push("curve_near_grad");
     }
   }
 

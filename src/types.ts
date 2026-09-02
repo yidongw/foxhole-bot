@@ -78,6 +78,9 @@ export interface TokenAnalysis {
     createdAt?: string;
   }>;
   quoteLockRatio?: number;
+  /** Launchpad bonding-curve progress 0..1 (pump.fun etc.). */
+  curveProgress?: number;
+  curveGraduated?: boolean;
   quoteSymbol?: string;
   quoteTotalSupply?: string;
   quoteLockedInPool?: string;

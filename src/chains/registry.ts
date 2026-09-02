@@ -6,6 +6,8 @@ import { buy as hoodBuy, sell as hoodSell } from "../trade/execute.js";
 import type { ChainAdapter, ChainId } from "./adapter.js";
 import { analyzeTokenGeneric } from "./generic-analysis.js";
 import { v2Buy, v2Sell } from "./evm/v2-swap.js";
+import { getPumpCurveState } from "./solana/pumpfun.js";
+import { jupiterBuy, jupiterSell } from "./solana/jupiter.js";
 
 const robinhoodAdapter: ChainAdapter = {
   id: "robinhood",
@@ -64,9 +66,38 @@ const baseAdapter: ChainAdapter = {
     ),
 };
 
+// Solana: generic analysis + pump.fun curve extras; Jupiter live execution.
+// ⚠️ Live path untested with real funds — paper first (see README).
+const solanaAdapter: ChainAdapter = {
+  ...genericAdapter("solana", "Solana"),
+  analyze: async (address) => {
+    const analysis = await analyzeTokenGeneric("solana", address);
+    const curve = await getPumpCurveState(address);
+    if (curve.isPumpToken) {
+      analysis.curveProgress = curve.progress;
+      analysis.curveGraduated = curve.graduated;
+      if (curve.graduated) analysis.signals.push("pump.fun: graduated to AMM");
+      else if (curve.progress != null) {
+        analysis.signals.push(
+          `pump.fun curve ${(curve.progress * 100).toFixed(0)}% to graduation`,
+        );
+      }
+    }
+    return analysis;
+  },
+  buy: async (token, _priceUsd, usd, config) =>
+    jupiterBuy(token, usd, config.slippageBps),
+  sell: async (position, fraction, _currentPriceUsd, config) =>
+    jupiterSell(
+      position.token,
+      position.amountTokens * fraction,
+      config.slippageBps,
+    ),
+};
+
 const ADAPTERS: Record<ChainId, ChainAdapter> = {
   robinhood: robinhoodAdapter,
-  solana: genericAdapter("solana", "Solana"),
+  solana: solanaAdapter,
   bsc: bscAdapter,
   base: baseAdapter,
   ethereum: genericAdapter("ethereum", "Ethereum"),

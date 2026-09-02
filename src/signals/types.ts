@@ -17,6 +17,9 @@ export interface SignalInput {
   quoteLockRatio?: number;
   /** Lock ratio change vs the previous monitor snapshot (percentage points, 0-1 scale). */
   quoteLockDelta?: number;
+  /** Launchpad bonding-curve progress 0..1 (graduation at 1). */
+  curveProgress?: number;
+  curveGraduated?: boolean;
   quotePremium?: number;
   /** Max pair volume / avg other pair volume on same token. */
   volumeSpikeRatio?: number;
