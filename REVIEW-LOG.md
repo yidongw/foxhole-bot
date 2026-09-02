@@ -45,3 +45,8 @@ trending(有机热度源, 修正按量排序被刷量垃圾霸榜的问题)。
 - 调参: 无变更 — case library too small (3/5) — collecting evidence
 - 回测: 当前配置 赢0 漏3 假0
 
+## 2026-09-02 10:39 UTC — Phase 1 — 扫描
+- 警报评分: 0 (赢 0 / 假 0)
+- 暴涨扫描: 1 个, 自动过滤 0 个, 待人工确认 1 个
+  - 1. ORBIO [robinhood] +471% coverage_miss `0xAa07A0e9209e16aC99708C3EC70159c6eF3128A3`
+

@@ -25,6 +25,7 @@ import { tuneSignalConfig, type TuneResult } from "./tuner.js";
 import { analyzeDailyReview } from "./analyst.js";
 import { addToDenylist } from "./denylist.js";
 import { appendReviewJournal, journalHeader } from "./journal.js";
+import { appendFilterDecisions, appendFilterJournal } from "./filter-journal.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -95,9 +96,15 @@ export async function runDailyReview(options: {
   const ledger = [...(await loadLabeledOutcomes()), ...(await loadPendingOutcomes())];
   const movers = await scanMissedMovers(enabledChains(), state, ledger);
 
-  // Candidates = misses that survived the automatic filters
+  // 过滤日志: record every judgment of the day, kept and filtered alike
+  await appendFilterJournal("Phase 1 暴涨扫描", movers).catch((err) =>
+    console.error("filter journal failed:", (err as Error).message),
+  );
+
+  // Candidates = misses that survived ALL automatic filters
   const candidates = movers.filter(
-    (m) => m.kind !== "alerted" && !m.ladder && !m.noData,
+    (m) =>
+      m.kind !== "alerted" && !m.ladder && !m.noData && !m.safetyFlags?.length,
   );
   await mkdir(path.dirname(PENDING_MOVERS_PATH), { recursive: true });
   await writeFile(
@@ -112,7 +119,9 @@ export async function runDailyReview(options: {
 
   const wins = graded.filter((g) => g.outcome === "win");
   const losses = graded.filter((g) => g.outcome === "loss");
-  const filtered = movers.filter((m) => m.ladder || m.noData);
+  const filtered = movers.filter(
+    (m) => m.ladder || m.noData || m.safetyFlags?.length,
+  );
 
   const lines = [
     `📊 **每日复盘 Phase 1** — ${new Date().toISOString().slice(0, 10)}`,
@@ -203,6 +212,9 @@ export async function confirmMovers(
   }
   if (confirmed.length) await saveMissedCases(confirmed);
   await rm(PENDING_MOVERS_PATH, { force: true });
+  await appendFilterDecisions(confirmed, excluded).catch((err) =>
+    console.error("filter journal failed:", (err as Error).message),
+  );
 
   console.log("confirm: building case library + tuning…");
   const library = await buildCaseLibrary(
@@ -266,7 +278,14 @@ async function autoPush(tune: TuneResult): Promise<boolean> {
   try {
     await execFileAsync(
       "git",
-      ["add", "data/signal-overrides.json", "data/outcomes", "data/review-denylist.json", "REVIEW-LOG.md"],
+      [
+        "add",
+        "data/signal-overrides.json",
+        "data/outcomes",
+        "data/review-denylist.json",
+        "REVIEW-LOG.md",
+        "journal",
+      ],
       { cwd: ROOT },
     );
     await execFileAsync(

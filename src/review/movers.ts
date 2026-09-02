@@ -7,6 +7,7 @@ import { fetchPoolOhlcv } from "../dex/dexpaprika.js";
 import { fetchGtOhlcv, fetchGtTrendingPools } from "../dex/geckoterminal.js";
 import { detectLadderPump } from "../signals/ladder.js";
 import { loadDenylist } from "./denylist.js";
+import { checkTokenSafety } from "../trade/safety.js";
 import { sleep } from "../lib/utils.js";
 import type { MonitorState } from "../monitor/state.js";
 import type { DexPair } from "../types.js";
@@ -54,6 +55,8 @@ export interface ClassifiedMover extends Mover {
   collapsed?: boolean;
   /** No OHLCV from any source — usually a drained/delisted pool. */
   noData?: boolean;
+  /** GoPlus/holder-concentration flags from the safety gate. */
+  safetyFlags?: string[];
 }
 
 /** Chart health from both candle sources at two granularities. */
@@ -275,6 +278,9 @@ export async function scanMissedMovers(
           entry.ladder = health.ladder;
           entry.collapsed = health.collapsed;
           entry.noData = health.noData;
+          try {
+            entry.safetyFlags = (await checkTokenSafety(chain, m.address)).flags;
+          } catch {}
           await sleep(600);
         }
         classified.push(entry);

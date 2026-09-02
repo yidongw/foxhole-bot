@@ -10,6 +10,7 @@ import { getAdapter, positionChain } from "../chains/registry.js";
 import type { ChainId } from "../chains/adapter.js";
 import { sendDiscordMessage } from "../notify/discord.js";
 import { appendAlertLog } from "../notify/alert-log.js";
+import { appendTradeJournal } from "./trade-journal.js";
 import { sleep } from "../lib/utils.js";
 import type { SignalEvaluation } from "../signals/types.js";
 import { loadTradeConfig, type TradeConfig } from "./config.js";
@@ -110,6 +111,9 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
     await savePositions(file);
     await writePositionsJson(file, { [position.token.toLowerCase()]: price });
     const pnl = totalPnlUsd(position, price);
+    await appendTradeJournal(
+      `📤 手动平仓 ${position.symbol} [${chain}/${position.mode}] 卖出 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
+    );
     return (
       `Sold ${(sellFraction * 100).toFixed(0)}% of ${position.symbol} [${chain}/${position.mode}] ` +
       `@ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}. ` +
@@ -247,6 +251,9 @@ export async function processSignals(
         console.log(
           `entry vetoed ${ev.input.symbol} [${chain}]: ${safety.flags.join(", ")}`,
         );
+        await appendTradeJournal(
+          `🛑 否决入场 ${ev.input.symbol} [${chain}] — ${safety.flags.join(", ")} (triggers: ${ev.triggers.join(",")})`,
+        );
         await notify(
           `🛑 ${modeTag(config)} entry VETOED [${chain}] ${candidate.symbol}: ${safety.flags.join(", ")}`,
           options,
@@ -281,6 +288,9 @@ export async function processSignals(
       };
       file.positions.push(position);
       opened.push(position);
+      await appendTradeJournal(
+        `📥 开仓 ${position.symbol} [${chain}/${config.mode}] $${config.usdPerTrade} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 触发: ${position.trigger}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
+      );
       await notify(
         [
           `${modeTag(config)} **ENTRY [${chain}]** ${position.symbol ?? position.token}`,
@@ -379,6 +389,9 @@ export async function managePositions(
           txHash: fill.txHash,
         });
         const pnl = totalPnlUsd(position, price);
+        await appendTradeJournal(
+          `📤 平仓 ${position.symbol} [${chain}/${config.mode}] 卖出 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)} — 原因: ${action.reason} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status})`,
+        );
         await notify(
           [
             `${modeTag(config)} **EXIT** ${position.symbol ?? position.token} — ${action.reason}`,
