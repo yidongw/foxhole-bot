@@ -186,12 +186,50 @@ engine) and de-risks everything after it.
 | @solana/web3.js | MIT ✅ | 9.4M dl/mo, publish 2026-09-01 | Safe dependency (1.x line; ecosystem/pump.fun examples target it). Note: it was supply-chain-compromised once (Dec 2024) — pin + lockfile |
 | GMGN/OKX skills, 6551 MCPs | n/a | n/a | API-key-gated services, not code |
 
+**Second survey round (2026-09-02, wider sweep — changed the Solana plan):**
+
+| Package | License | Maintenance | Verdict |
+|---|---|---|---|
+| **@pump-fun/pump-sdk** (official) | MIT | v1.36.0, 130 releases, 71k dl/mo, publish 2026-05 | **Pinned dep — replaces porting Python curve math.** Official instruction builders for create/curve-trade/AMM. chainstacklabs repo demoted to listener/filter architecture reference |
+| **@jup-ag/api** (official Jupiter) | MIT | 260k dl/mo, publish 2026-08 | **Pinned dep** for graduated-token execution |
+| **@goplus/sdk-node** (official GoPlus) | Apache-2.0 | 30k dl/mo, publish 2026-08 | **Pinned dep** for the EVM safety gate (P5) |
+| @triton-one/yellowstone-grpc | Apache-2.0 | active, publish 2026-08 | Optional fast-listener upgrade (needs paid Geyser endpoint) — not needed for signal-based entries |
+| @pancakeswap/sdk / @uniswap/sdk-core | MIT | active | Available; direct viem router calls likely suffice — decide at impl |
+| pumpdotfun-sdk (community) | ISC | stale (2025-03) | Skip — superseded by official SDK |
+| bitquery/sniper-bot-bsc | — | active | Bitquery-Kafka-gated; reference only. **No well-maintained Four.meme SDK exists** — fnzero vendor/port verdict stands |
+
 **Dependency policy for this repo** (we hold private keys — crypto npm is a
 top supply-chain target): big actively-maintained libs (viem, @solana/web3.js,
-@anthropic-ai/sdk) as pinned dependencies with lockfile; small/stale/hobby
-packages get vendored (license + attribution header) instead of installed;
-`npm ci` only in CI; review diffs on upgrades; no packages with postinstall
-scripts.
+official pump-sdk/jup-ag/goplus, @anthropic-ai/sdk) as **pinned exact
+versions** with lockfile; small/stale/hobby packages get vendored (license +
+attribution header) instead of installed; `npm ci` only in CI; review diffs on
+upgrades; no packages with postinstall scripts.
+
+## 7b. Moonbags parity gaps (patterns to rebuild — its license forbids copying)
+
+Capabilities moonbags has that foxhole-bot currently lacks; all are
+chain-agnostic engineering we build ourselves:
+
+1. **Fast position tick** — moonbags checks open positions every 3s; our
+   single 5-min loop is far too slow for meme trailing stops. Split the
+   monitor: discovery stays at 5 min, a dedicated 10–15s loop prices open
+   positions and runs exits. **Do this in P0 — it matters even for
+   Robinhood-only paper trading today.**
+2. **Interactive control** — we only push one-way webhooks. Add a discord.js
+   bot (we live in Discord, not Telegram): `/positions`, `/sellall`,
+   per-position sell buttons, pause/resume trading.
+3. **Richer LLM advisor evidence** — moonbags feeds its advisor smart-money
+   flow, dev holdings, klines; ours currently gets little beyond price.
+   Cheap immediate fix: populate the advisor context we already defined
+   (lock ratio, volume, momentum) from the scan; later add holder data.
+4. **Positions on the dashboard** — write `web/data/positions.json` and add
+   a P&L view next to launches/signals.
+5. **Backtest grid search** — sweep SIGNAL_CONFIG / exit params against the
+   fixture set instead of hand-tuning.
+6. **Price-feed redundancy** — DexScreener-only today; add DexPaprika (and
+   Jupiter on SOL) as fallback so one API outage doesn't blind stops.
+7. **External signal intake** (OKX WS / GMGN feeds) — already planned as
+   Phase 3, key-gated.
 
 ## 8. Needs from the user (none block P0–P4)
 
