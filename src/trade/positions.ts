@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { writeJsonAtomic } from "../lib/atomic-json.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,8 +57,7 @@ export async function loadPositions(): Promise<PositionsFile> {
 }
 
 export async function savePositions(file: PositionsFile): Promise<void> {
-  await mkdir(path.dirname(POSITIONS_PATH), { recursive: true });
-  await writeFile(POSITIONS_PATH, JSON.stringify(file, null, 2), "utf8");
+  await writeJsonAtomic(POSITIONS_PATH, file);
 }
 
 export function openPositions(file: PositionsFile): Position[] {

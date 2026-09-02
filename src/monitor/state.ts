@@ -1,4 +1,5 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { writeJsonAtomic } from "../lib/atomic-json.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -66,8 +67,7 @@ export function pruneMonitorState(
 
 export async function saveMonitorState(state: MonitorState): Promise<void> {
   pruneMonitorState(state);
-  await mkdir(path.dirname(STATE_PATH), { recursive: true });
-  await writeFile(STATE_PATH, JSON.stringify(state, null, 2), "utf8");
+  await writeJsonAtomic(STATE_PATH, state);
 }
 
 export function shouldSendAlert(

@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { writeJsonAtomic } from "../lib/atomic-json.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,8 +37,7 @@ export async function addToDenylist(entries: Omit<DenyEntry, "addedAt">[]): Prom
     seen.add(key);
     existing.push({ ...e, addedAt: new Date().toISOString() });
   }
-  await mkdir(path.dirname(DENYLIST_PATH), { recursive: true });
-  await writeFile(DENYLIST_PATH, JSON.stringify(existing, null, 2), "utf8");
+  await writeJsonAtomic(DENYLIST_PATH, existing);
 }
 
 export async function isDenylisted(chain: string, address: string): Promise<boolean> {

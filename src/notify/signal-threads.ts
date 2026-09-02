@@ -1,4 +1,5 @@
 import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { writeJsonAtomic } from "../lib/atomic-json.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,8 +49,7 @@ async function loadMap(): Promise<ThreadMap> {
 }
 
 async function saveMap(map: ThreadMap): Promise<void> {
-  await mkdir(path.dirname(THREADS_PATH), { recursive: true });
-  await writeFile(THREADS_PATH, JSON.stringify(map, null, 2), "utf8");
+  await writeJsonAtomic(THREADS_PATH, map);
 }
 
 const GMGN_CHAIN: Record<string, string> = {
