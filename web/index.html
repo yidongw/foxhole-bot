@@ -95,6 +95,15 @@
     .sig-strong { background: rgba(255, 92, 92, 0.16); color: var(--danger); }
     .lock-hot { color: var(--danger); font-weight: 700; }
     .lock-warm { color: var(--warn); font-weight: 600; }
+    .alert-entry {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 10px 14px; font-size: 13px; white-space: pre-wrap; line-height: 1.5;
+    }
+    .alert-entry .ts { color: var(--muted); font-size: 11px; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+    .dot-ok { background: var(--accent); }
+    .dot-warn { background: var(--warn); }
+    .dot-bad { background: var(--danger); }
     .links { display: flex; gap: 8px; flex-wrap: wrap; }
     .links a {
       color: var(--accent-2); text-decoration: none; font-size: 12px; border: 1px solid var(--border);
@@ -149,6 +158,11 @@
         <option value="lock_ratio">按锁仓比</option>
         <option value="signal_score">按信号分</option>
       </select>
+    </div>
+
+    <div id="alertsCard" hidden>
+      <h2 style="margin:22px 0 10px;font-size:18px;">最新警报 <span id="alertsMeta" style="color:var(--muted);font-size:12px;font-weight:400;"></span></h2>
+      <div id="alertsFeed" style="display:flex;flex-direction:column;gap:8px;"></div>
     </div>
 
     <div id="positionsCard" hidden>
@@ -377,11 +391,41 @@
       } catch {}
     }
 
+    async function loadAlerts() {
+      try {
+        const res = await fetch('./data/alerts.json?_=' + Date.now());
+        if (!res.ok) return;
+        const data = await res.json();
+        const alerts = (data.alerts || []).slice(-10).reverse();
+        if (!alerts.length) return;
+        const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        document.getElementById('alertsFeed').innerHTML = alerts.map(a => `
+          <div class="alert-entry"><span class="ts">${fmtDate(a.at)}</span>\n${esc(a.body).replace(/\*\*/g, '')}</div>
+        `).join('');
+        document.getElementById('alertsCard').hidden = false;
+      } catch {}
+    }
+
+    async function monitorFreshness() {
+      try {
+        const res = await fetch('./data/signals.json?_=' + Date.now());
+        if (!res.ok) return;
+        const data = await res.json();
+        const ageMin = (Date.now() - new Date(data.meta?.updated_at).getTime()) / 60000;
+        const cls = ageMin < 15 ? 'dot-ok' : ageMin < 60 ? 'dot-warn' : 'dot-bad';
+        const label = ageMin < 15 ? '监控运行中' : ageMin < 60 ? '监控延迟' : '监控离线';
+        document.getElementById('footer').innerHTML +=
+          ` · <span class="dot ${cls}"></span>${label}（${Math.round(ageMin)} 分钟前扫描）`;
+      } catch {}
+    }
+
     function render() {
       renderStats();
       renderTable();
+      monitorFreshness();
     }
     loadPositions();
+    loadAlerts();
 
     document.getElementById('search').addEventListener('input', renderTable);
     document.getElementById('quoteFilter').addEventListener('change', renderTable);

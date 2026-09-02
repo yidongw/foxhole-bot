@@ -10,3 +10,4 @@ data/signals.json
 web/data/signals.json
 data/positions.json
 web/data/positions.json
+web/data/alerts.json

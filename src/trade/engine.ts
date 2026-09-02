@@ -9,6 +9,7 @@ import { selectDeepestBasePair } from "../chains/generic-analysis.js";
 import { getAdapter, positionChain } from "../chains/registry.js";
 import type { ChainId } from "../chains/adapter.js";
 import { sendDiscordMessage } from "../notify/discord.js";
+import { appendAlertLog } from "../notify/alert-log.js";
 import { sleep } from "../lib/utils.js";
 import type { SignalEvaluation } from "../signals/types.js";
 import { loadTradeConfig, type TradeConfig } from "./config.js";
@@ -43,6 +44,7 @@ async function notify(body: string, options: EngineOptions): Promise<void> {
     console.log("--- DRY RUN TRADE ---\n" + body + "\n");
     return;
   }
+  await appendAlertLog(body);
   const url = options.webhookUrl ?? process.env.DISCORD_WEBHOOK_URL;
   if (url) await sendDiscordMessage(url, body).catch((err) => console.error(err));
   else console.log(body);

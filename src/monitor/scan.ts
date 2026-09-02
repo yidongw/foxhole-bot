@@ -13,6 +13,7 @@ import { SIGNAL_CONFIG } from "../signals/config.js";
 import type { AlertLevel, SignalEvaluation } from "../signals/types.js";
 import { LEVEL_RANK } from "../signals/types.js";
 import { sendDiscordMessage } from "../notify/discord.js";
+import { appendAlertLog } from "../notify/alert-log.js";
 import {
   isLevelUpgrade,
   loadMonitorState,
@@ -133,6 +134,7 @@ async function deliverAlert(
     console.log("--- DRY RUN ALERT ---\n" + body + "\n");
     return;
   }
+  await appendAlertLog(body);
   const url = options.webhookUrl ?? process.env.DISCORD_WEBHOOK_URL;
   if (url) await sendDiscordMessage(url, body);
   else console.log(body);
