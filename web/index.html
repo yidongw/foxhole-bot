@@ -86,6 +86,15 @@
     }
     .chg-pos { color: var(--accent); }
     .chg-neg { color: var(--danger); }
+    .sig {
+      display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px;
+      font-weight: 700; font-size: 12px;
+    }
+    .sig-watch { background: rgba(255, 176, 32, 0.14); color: var(--warn); }
+    .sig-alert { background: rgba(255, 130, 32, 0.16); color: #ff9d4d; }
+    .sig-strong { background: rgba(255, 92, 92, 0.16); color: var(--danger); }
+    .lock-hot { color: var(--danger); font-weight: 700; }
+    .lock-warm { color: var(--warn); font-weight: 600; }
     .links { display: flex; gap: 8px; flex-wrap: wrap; }
     .links a {
       color: var(--accent-2); text-decoration: none; font-size: 12px; border: 1px solid var(--border);
@@ -137,6 +146,8 @@
         <option value="volume_24h">按 24h 成交量</option>
         <option value="liquidity_usd">按流动性</option>
         <option value="price_change_24h">按 24h 涨跌</option>
+        <option value="lock_ratio">按锁仓比</option>
+        <option value="signal_score">按信号分</option>
       </select>
     </div>
 
@@ -151,6 +162,8 @@
           <th data-sort="volume_24h">24h 量</th>
           <th data-sort="liquidity_usd">流动性</th>
           <th data-sort="price_change_24h">24h</th>
+          <th data-sort="lock_ratio">锁仓比</th>
+          <th data-sort="signal_score">信号</th>
           <th>链接</th>
         </tr>
       </thead>
@@ -196,8 +209,40 @@
       const res = await fetch('./data/launches.json?_=' + Date.now());
       if (!res.ok) throw new Error('无法读取 data/launches.json，请先运行 npm run fetch:long');
       payload = await res.json();
+
+      // Monitor scan output (optional — page still works without it)
+      try {
+        const sigRes = await fetch('./data/signals.json?_=' + Date.now());
+        if (sigRes.ok) {
+          const sig = await sigRes.json();
+          const byAddr = {};
+          for (const s of sig.signals || []) byAddr[(s.address || '').toLowerCase()] = s;
+          for (const r of payload.launches || []) {
+            const s = byAddr[(r.address || '').toLowerCase()];
+            if (s) {
+              r.lock_ratio = s.lock_ratio;
+              r.signal_level = s.level;
+              r.signal_score = s.score;
+            }
+          }
+        }
+      } catch {}
       render();
     }
+
+    const fmtLock = (n) => {
+      if (n == null || Number.isNaN(n)) return '—';
+      const pct = (n * 100).toFixed(1) + '%';
+      if (n >= 0.45) return `<span class="lock-hot">${pct}</span>`;
+      if (n >= 0.3) return `<span class="lock-warm">${pct}</span>`;
+      return pct;
+    };
+
+    const fmtSignal = (level, score) => {
+      if (!level || level === 'none') return '—';
+      const label = { watch: '关注', alert: '警报', strong: '强烈' }[level] || level;
+      return `<span class="sig sig-${level}">${label} ${score ?? ''}</span>`;
+    };
 
     function renderStats() {
       const meta = payload.meta || {};
@@ -266,6 +311,8 @@
           <td data-label="24h 量">${fmtMoney(r.volume_24h)}</td>
           <td data-label="流动性">${fmtMoney(r.liquidity_usd)}</td>
           <td data-label="24h">${fmtPct(r.price_change_24h)}</td>
+          <td data-label="锁仓比">${fmtLock(r.lock_ratio)}</td>
+          <td data-label="信号">${fmtSignal(r.signal_level, r.signal_score)}</td>
           <td data-label="链接">
             <div class="links">
               <a href="${r.long_url}" target="_blank" rel="noreferrer">Long</a>

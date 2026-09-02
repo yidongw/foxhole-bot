@@ -6,3 +6,5 @@ data/monitor-state.json
 *.log
 .DS_Store
 data/factory-launches.json
+data/signals.json
+web/data/signals.json

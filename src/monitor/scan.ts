@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,6 +32,33 @@ import type { LaunchRecord, LaunchesPayload } from "../types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LAUNCHES_PATH = path.resolve(__dirname, "../../data/launches.json");
+const SIGNALS_PATHS = [
+  path.resolve(__dirname, "../../data/signals.json"),
+  path.resolve(__dirname, "../../web/data/signals.json"),
+];
+
+export interface SignalRow {
+  address: string;
+  symbol?: string;
+  lock_ratio?: number;
+  level: AlertLevel;
+  score: number;
+  triggers: string[];
+  volume_24h: number;
+  updated_at: string;
+}
+
+async function writeSignalsJson(rows: SignalRow[]): Promise<void> {
+  const payload = JSON.stringify(
+    { meta: { updated_at: new Date().toISOString(), count: rows.length }, signals: rows },
+    null,
+    2,
+  );
+  for (const target of SIGNALS_PATHS) {
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, payload, "utf8");
+  }
+}
 
 export interface ScanOptions {
   minLevel?: AlertLevel;
@@ -144,6 +171,7 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
   const launches = rankLaunches(await loadLaunches(options.refreshLaunches ?? false));
   const limit = options.limit ?? launches.length;
   const hits: ScanHit[] = [];
+  const signalRows: SignalRow[] = [];
 
   for (const launch of launches.slice(0, limit)) {
     try {
@@ -167,6 +195,17 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
         score: evaluation.score,
         updatedAt: new Date().toISOString(),
       };
+
+      signalRows.push({
+        address: launch.address,
+        symbol: launch.symbol,
+        lock_ratio: analysis.quoteLockRatio,
+        level: evaluation.level,
+        score: evaluation.score,
+        triggers: evaluation.triggers,
+        volume_24h: input.volume24hUsd,
+        updated_at: new Date().toISOString(),
+      });
 
       if (LEVEL_RANK[evaluation.level] < minRank) continue;
 
@@ -212,6 +251,11 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
 
   state.lastRunAt = new Date().toISOString();
   await saveMonitorState(state);
+  if (signalRows.length) {
+    await writeSignalsJson(signalRows).catch((err) =>
+      console.error("failed to write signals.json:", (err as Error).message),
+    );
+  }
   return hits;
 }
 
