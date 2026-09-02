@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 import { appendAiInboxNews } from "../notify/ai-inbox.js";
 import { sendDiscordMessage } from "../notify/discord.js";
 import { resolveWebhook } from "../notify/routes.js";
+import {
+  findSignalThreadBySymbol,
+  postToSignalThread,
+} from "../notify/signal-threads.js";
 import type { LaunchesPayload } from "../types.js";
 import {
   archiveFlashes,
@@ -122,7 +126,6 @@ export async function newsTick(options: {
   const watched = [
     ...new Set([...(await loadWatchedSymbols()), ...Object.keys(state.hotSymbols)]),
   ];
-  const signalUrl = options.webhookUrl ?? resolveWebhook("signal", "robinhood");
   const filterUrl = options.webhookUrl ?? resolveWebhook("filter", "robinhood");
 
   let woke = 0;
@@ -161,9 +164,26 @@ export async function newsTick(options: {
           negative: cls.negative,
           note: verdict?.note,
         }).catch((err) => console.error("news inbox append failed:", err.message));
-        if (signalUrl) {
-          await sendDiscordMessage(signalUrl, msg).catch((err) =>
-            console.error("news signal post failed:", err.message),
+
+        // trade-signal 频道是分币的（每币一张卡片+thread）—— 新闻只允许
+        // 发进已有卡片的币的 thread；对不上的去 filter-log，不发散消息
+        const candidateSymbols = [
+          ...(cls.reasons
+            .find((r) => r.startsWith("watched:"))
+            ?.slice("watched:".length)
+            .split("+") ?? []),
+          ...extractSymbols(flash.title),
+        ];
+        let delivered = false;
+        for (const sym of [...new Set(candidateSymbols)]) {
+          const thread = await findSignalThreadBySymbol(sym).catch(() => undefined);
+          if (!thread) continue;
+          delivered = await postToSignalThread(thread.chain, thread.address, msg);
+          if (delivered) break;
+        }
+        if (!delivered && filterUrl) {
+          await sendDiscordMessage(filterUrl, msg).catch((err) =>
+            console.error("news filter post failed:", err.message),
           );
         }
       }

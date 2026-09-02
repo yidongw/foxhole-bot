@@ -214,6 +214,21 @@ export async function postThreadedSignal(ev: SignalEvaluation): Promise<boolean>
   }
 }
 
+/** Find an existing token card/thread by symbol (case-insensitive). */
+export async function findSignalThreadBySymbol(
+  symbol: string,
+): Promise<{ chain: string; address: string } | undefined> {
+  const map = await loadMap();
+  const needle = symbol.toLowerCase();
+  for (const [key, entry] of Object.entries(map)) {
+    if (entry.symbol?.toLowerCase() === needle && entry.threadId) {
+      const idx = key.indexOf(":");
+      return { chain: key.slice(0, idx), address: key.slice(idx + 1) };
+    }
+  }
+  return undefined;
+}
+
 /** Post trade/AI activity into a token's signal thread (best-effort). */
 export async function postToSignalThread(
   chain: string,
