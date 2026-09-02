@@ -114,3 +114,25 @@ rb 频道同时兼任全局兜底(复盘确认清单发 🟢🧹-rb-filter-log)�
 - GET /v1/search?name=<kw> (type: 0文章 1快讯)
 无 Key 或接口失败时自动退回页面抓取。站内搜索网页版其实免登录可用
 (昨日误判),但接口带签名,程序化走官方 API。
+## 2026-09-02 — JINQIAN 漏报反思(用户指出)
+
+**事实**: JINQIAN (0xe81880c1…) 13:32 UTC 发射 JINQIAN/FAMI 主池, +700%,
+量 $92M, FDV 峰值 ~$70M — 当日 RB 链最大暴涨。监控 13:12 起在跑, 但该币
+从未进入扫描 (monitor-state 无记录), 纯 coverage miss。
+
+**根因链(五连环)**:
+1. launches 发现依赖硬编码股票词表搜索, FAMI 不在 SEARCH_QUERIES;
+2. 不走 Long factory (纯 RB meme), factory watcher 天然看不见;
+3. **RB 链实时扫描没接 trending/movers 动态发现源** — P0 给其余四链都
+   接了, robinhoodAdapter.trendingCandidates 已实现却从未被调用(主根因);
+4. BlockBeats 全程报道, 但新闻 watcher 16:53 才上线, 晚于发射 3.5h;
+5. 9 小时前的调研已明确诊断"JINQIAN 类纯 RB meme 是盲区", 只补了新闻
+   一条腿, 没补链上扫描 — **诊断了 ≠ 修了**。
+
+**修复(即时部署)**:
+- scanLaunches: robinhood 也跑 scanChainTrending (boosts + top movers);
+- RB trending 币不再强制 isStockPaired=false — JINQIAN/FAMI 类配股 meme
+  的锁仓/新盘信号照常工作;
+- JINQIAN 入 missed 案例库 (第4条) 供调参学习。
+
+**教训**: 每条"盲区诊断"必须当场转化为修复项或显式挂账, 不能只留在文档里。

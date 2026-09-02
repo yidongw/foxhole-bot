@@ -526,9 +526,12 @@ async function scanChainTrending(
           ? (analysis.volume24hUsd ?? 0) / prev.volume24hUsd
           : undefined;
 
+      // On Robinhood, trending tokens can be stock-paired memes (JINQIAN/FAMI)
+      // — keep analyzeToken's stock-pair detection so lock/launch signals
+      // work; other chains have no stock pairing.
       const input = analysisToSignalInput(analysis, {
         volumeAccelRatio: accel,
-        isStockPaired: false,
+        ...(chain === "robinhood" ? {} : { isStockPaired: false }),
         dexUrl: `https://dexscreener.com/${chain}/${address}`,
         longUrl: undefined,
       });
@@ -555,6 +558,11 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
 
   if (chains.includes("robinhood")) {
     await scanRobinhood(state, options, minRank, hits, rows);
+    // Dynamic discovery for RB too (boosts + top movers): catches non-Long
+    // memes outside the stock-keyword search — the JINQIAN lesson (+700%
+    // missed because FAMI wasn't in SEARCH_QUERIES and the token never
+    // touched the Long factory).
+    await scanChainTrending("robinhood", state, options, minRank, hits, rows);
   }
   for (const chain of chains.filter((c) => c !== "robinhood")) {
     await scanChainTrending(chain, state, options, minRank, hits, rows);
