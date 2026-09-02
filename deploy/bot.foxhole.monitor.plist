@@ -7,8 +7,10 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>-lc</string>
-        <string>cd /Users/xinjuan/git/foxhole-bot &amp;&amp; exec npx tsx src/cli/monitor.ts</string>
+        <string>-c</string>
+        <!-- Pinned to Homebrew node: the pump-sdk dependency chain needs
+             Node >=26 ESM interop (@coral-xyz/anchor BN export fails on 22) -->
+        <string>cd /Users/xinjuan/git/foxhole-bot &amp;&amp; PATH=/opt/homebrew/bin:/usr/bin:/bin exec /opt/homebrew/bin/npx tsx src/cli/monitor.ts</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
