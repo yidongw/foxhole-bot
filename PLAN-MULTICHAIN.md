@@ -4,13 +4,15 @@
 
 All six phases plus most §7b parity gaps are implemented and live-verified —
 see README roadmap and git history (P0 `15914b3` … grid search `1adbdec`).
-Gap items done: fast position tick (1), advisor evidence (3), positions
-dashboard (4), grid search (5), price-feed redundancy (6). Still open:
-- Interactive Discord control (gap 2) — needs a DISCORD_BOT_TOKEN
+All §7b gap items done: fast position tick (1), interactive Discord control
+(2 — /positions /sell /sellall /pause /resume /status, code shipped, needs
+DISCORD_BOT_TOKEN to run), advisor evidence (3), positions dashboard (4),
+grid search (5), price-feed redundancy (6). Multi-chain fixtures seeded:
+11/11 backtest (MIGGLES Base pump + SOL/BSC/Base/ETH controls, classified
+by engine replay, not hand labels). Grid search: all top configs tie at
+11/11 with zero control alerts — thresholds are not the binding constraint
+yet; keep current config. Still open (user resources required):
 - External signal intake (gap 7) — needs GMGN/OKX/6551 keys
-- Per-chain backtest fixtures — machinery is multi-chain-ready
-  (DexScreener pairAddress works as a DexPaprika pool id); fixtures
-  accumulate as real pumps/controls are observed
 - ≥2-week clean paper run per chain before any live mode
 - Live execution paths (BSC/Base/Solana/RB) untested with real funds
 
