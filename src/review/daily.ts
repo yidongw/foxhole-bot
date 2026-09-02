@@ -25,7 +25,11 @@ import { tuneSignalConfig, type TuneResult } from "./tuner.js";
 import { analyzeDailyReview } from "./analyst.js";
 import { addToDenylist } from "./denylist.js";
 import { appendReviewJournal, journalHeader } from "./journal.js";
-import { appendFilterDecisions, appendFilterJournal } from "./filter-journal.js";
+import {
+  appendFilterDecisions,
+  appendFilterJournal,
+  formatFilterDigest,
+} from "./filter-journal.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -100,6 +104,12 @@ export async function runDailyReview(options: {
   await appendFilterJournal("Phase 1 暴涨扫描", movers).catch((err) =>
     console.error("filter journal failed:", (err as Error).message),
   );
+  if (movers.length && !options.dryRun && process.env.DISCORD_FILTER_WEBHOOK_URL) {
+    await sendDiscordMessage(
+      process.env.DISCORD_FILTER_WEBHOOK_URL,
+      formatFilterDigest("Phase 1 暴涨扫描", movers),
+    ).catch((err) => console.error(err));
+  }
 
   // Candidates = misses that survived ALL automatic filters
   const candidates = movers.filter(

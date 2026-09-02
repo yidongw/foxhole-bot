@@ -46,7 +46,11 @@ async function notify(body: string, options: EngineOptions): Promise<void> {
     return;
   }
   await appendAlertLog(body);
-  const url = options.webhookUrl ?? process.env.DISCORD_WEBHOOK_URL;
+  // Trade events go to the dedicated 交易日志 channel when configured.
+  const url =
+    options.webhookUrl ??
+    process.env.DISCORD_TRADE_WEBHOOK_URL ??
+    process.env.DISCORD_WEBHOOK_URL;
   if (url) await sendDiscordMessage(url, body).catch((err) => console.error(err));
   else console.log(body);
 }

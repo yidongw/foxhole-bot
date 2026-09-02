@@ -28,6 +28,20 @@ export function moverVerdict(m: ClassifiedMover): { verdict: string; reason: str
   return { verdict: "候选", reason: "通过全部自动过滤 → 待人工确认" };
 }
 
+/** Compact per-mover lines for the 过滤日志 Discord channel. */
+export function formatFilterDigest(title: string, movers: ClassifiedMover[]): string {
+  const lines = [`🧹 **过滤日志 — ${title}** (${movers.length} 个)`];
+  for (const m of movers.slice(0, 15)) {
+    const { verdict, reason } = moverVerdict(m);
+    lines.push(
+      `${verdict === "候选" ? "🟢" : verdict === "已报警" ? "✅" : "⛔"} ` +
+        `${m.symbol ?? m.address.slice(0, 8)} [${m.chain}] +${m.priceChange24h.toFixed(0)}% — ${verdict}: ${reason}`,
+    );
+  }
+  if (movers.length > 15) lines.push(`… 还有 ${movers.length - 15} 个,详见 journal/filters/`);
+  return lines.join("\n");
+}
+
 export async function appendFilterJournal(
   title: string,
   movers: ClassifiedMover[],
