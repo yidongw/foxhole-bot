@@ -1,3 +1,4 @@
+import { tradeEnabledChains } from "../chains/adapter.js";
 import type { TradeConfig } from "./config.js";
 import {
   findOpen,
@@ -8,6 +9,7 @@ import {
 
 export interface EntryCandidate {
   token: string;
+  chain?: string;
   symbol?: string;
   priceUsd?: number;
   liquidityUsd: number;
@@ -28,6 +30,10 @@ export function checkEntry(
 ): RiskVerdict {
   if (config.mode === "off") return { ok: false, reason: "trading disabled" };
 
+  const chain = candidate.chain ?? "robinhood";
+  if (!tradeEnabledChains().includes(chain as never)) {
+    return { ok: false, reason: `trading not enabled on ${chain} (TRADE_CHAINS)` };
+  }
   if (!candidate.triggers.some((t) => config.entryTriggers.includes(t))) {
     return { ok: false, reason: "no qualifying entry trigger" };
   }

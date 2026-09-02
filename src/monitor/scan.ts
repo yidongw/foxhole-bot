@@ -28,9 +28,11 @@ import {
   getLatestBlock,
   type FactoryLaunch,
 } from "../long/factory-watcher.js";
+import { enabledChains, type ChainId } from "../chains/adapter.js";
+import { getAdapter } from "../chains/registry.js";
 import { loadTradeConfig } from "../trade/config.js";
 import { managePositions, processSignals } from "../trade/engine.js";
-import type { LaunchRecord, LaunchesPayload } from "../types.js";
+import type { LaunchRecord, LaunchesPayload, TokenAnalysis } from "../types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LAUNCHES_PATH = path.resolve(__dirname, "../../data/launches.json");
@@ -39,28 +41,8 @@ const SIGNALS_PATHS = [
   path.resolve(__dirname, "../../web/data/signals.json"),
 ];
 
-export interface SignalRow {
-  address: string;
-  symbol?: string;
-  lock_ratio?: number;
-  level: AlertLevel;
-  score: number;
-  triggers: string[];
-  volume_24h: number;
-  updated_at: string;
-}
-
-async function writeSignalsJson(rows: SignalRow[]): Promise<void> {
-  const payload = JSON.stringify(
-    { meta: { updated_at: new Date().toISOString(), count: rows.length }, signals: rows },
-    null,
-    2,
-  );
-  for (const target of SIGNALS_PATHS) {
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, payload, "utf8");
-  }
-}
+/** Max trending candidates analyzed per non-Robinhood chain per tick. */
+const TRENDING_LIMIT = 12;
 
 export interface ScanOptions {
   minLevel?: AlertLevel;
@@ -76,6 +58,36 @@ export interface ScanHit {
   skippedReason?: string;
 }
 
+export interface SignalRow {
+  address: string;
+  chain: string;
+  symbol?: string;
+  lock_ratio?: number;
+  level: AlertLevel;
+  score: number;
+  triggers: string[];
+  volume_24h: number;
+  updated_at: string;
+}
+
+/** Monitor-state key. Robinhood keeps bare addresses for back-compat. */
+function stateKey(chain: ChainId, address: string): string {
+  const addr = address.toLowerCase();
+  return chain === "robinhood" ? addr : `${chain}:${addr}`;
+}
+
+async function writeSignalsJson(rows: SignalRow[]): Promise<void> {
+  const payload = JSON.stringify(
+    { meta: { updated_at: new Date().toISOString(), count: rows.length }, signals: rows },
+    null,
+    2,
+  );
+  for (const target of SIGNALS_PATHS) {
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, payload, "utf8");
+  }
+}
+
 async function loadLaunches(refresh: boolean): Promise<LaunchRecord[]> {
   if (!refresh) {
     try {
@@ -87,8 +99,7 @@ async function loadLaunches(refresh: boolean): Promise<LaunchRecord[]> {
     }
   }
   const payload = await collectLaunches();
-  // Persist so the dashboard stays fresh from the monitor loop alone,
-  // without needing a redeploy.
+  // Persist so the dashboard stays fresh from the monitor loop alone.
   await writeLaunchesJson(payload).catch((err) =>
     console.error("failed to write launches.json:", (err as Error).message),
   );
@@ -98,9 +109,6 @@ async function loadLaunches(refresh: boolean): Promise<LaunchRecord[]> {
 function rankLaunches(launches: LaunchRecord[]): LaunchRecord[] {
   return [...launches].sort((a, b) => b.volume_24h - a.volume_24h);
 }
-
-/** Default first-run lookback ≈2.5h at ~100ms Robinhood Chain blocks. */
-const FACTORY_FIRST_RUN_LOOKBACK = 90_000n;
 
 async function deliverAlert(
   body: string,
@@ -114,6 +122,64 @@ async function deliverAlert(
   if (url) await sendDiscordMessage(url, body);
   else console.log(body);
 }
+
+/** Shared dedup + delivery for one evaluated token. */
+async function maybeAlert(
+  state: MonitorState,
+  evaluation: SignalEvaluation,
+  key: string,
+  prevLevel: AlertLevel | undefined,
+  minRank: number,
+  options: ScanOptions,
+): Promise<ScanHit | undefined> {
+  if (LEVEL_RANK[evaluation.level] < minRank) return undefined;
+
+  const upgraded = isLevelUpgrade(prevLevel, evaluation.level);
+  const canSend = shouldSendAlert(state, key, evaluation.level, evaluation.triggers);
+
+  let sent = false;
+  let skippedReason: string | undefined;
+  if (!upgraded && !canSend) {
+    skippedReason = "cooldown / no level upgrade";
+  } else if (canSend) {
+    await deliverAlert(formatSignalAlert(evaluation), options);
+    sent = true;
+    recordAlert(state, key, evaluation.level, evaluation.triggers);
+  } else {
+    skippedReason = "duplicate";
+  }
+  return { evaluation, sent, skippedReason };
+}
+
+function snapshotAndRow(
+  state: MonitorState,
+  key: string,
+  analysis: TokenAnalysis,
+  evaluation: SignalEvaluation,
+  rows: SignalRow[],
+): void {
+  state.tokens[key] = {
+    volume24hUsd: evaluation.input.volume24hUsd,
+    lockRatio: analysis.quoteLockRatio,
+    level: evaluation.level,
+    score: evaluation.score,
+    updatedAt: new Date().toISOString(),
+  };
+  rows.push({
+    address: analysis.address,
+    chain: analysis.chain ?? "robinhood",
+    symbol: analysis.symbol,
+    lock_ratio: analysis.quoteLockRatio,
+    level: evaluation.level,
+    score: evaluation.score,
+    triggers: evaluation.triggers,
+    volume_24h: evaluation.input.volume24hUsd,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+/** Default first-run lookback ≈2.5h at ~100ms Robinhood Chain blocks. */
+const FACTORY_FIRST_RUN_LOOKBACK = 90_000n;
 
 function formatLaunchDigest(events: FactoryLaunch[]): string {
   const stockPaired = events.filter(
@@ -160,11 +226,13 @@ export async function checkFactoryLaunches(
   return events;
 }
 
-export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]> {
-  const minLevel = options.minLevel ?? "watch";
-  const minRank = LEVEL_RANK[minLevel];
-  const state = await loadMonitorState();
-
+async function scanRobinhood(
+  state: MonitorState,
+  options: ScanOptions,
+  minRank: number,
+  hits: ScanHit[],
+  rows: SignalRow[],
+): Promise<void> {
   try {
     const fresh = await checkFactoryLaunches(state, options);
     if (fresh.length) {
@@ -176,13 +244,12 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
 
   const launches = rankLaunches(await loadLaunches(options.refreshLaunches ?? false));
   const limit = options.limit ?? launches.length;
-  const hits: ScanHit[] = [];
-  const signalRows: SignalRow[] = [];
 
   for (const launch of launches.slice(0, limit)) {
     try {
       const analysis = await analyzeToken(launch.address);
-      const prev = state.tokens[launch.address.toLowerCase()];
+      const key = stateKey("robinhood", launch.address);
+      const prev = state.tokens[key];
       const accel =
         prev && prev.volume24hUsd > 0
           ? (analysis.volume24hUsd ?? 0) / prev.volume24hUsd
@@ -199,72 +266,82 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
         longUrl: launch.long_url,
       });
       const evaluation = evaluateSignal(input);
+      snapshotAndRow(state, key, analysis, evaluation, rows);
 
-      state.tokens[launch.address.toLowerCase()] = {
-        volume24hUsd: input.volume24hUsd,
-        lockRatio: analysis.quoteLockRatio,
-        level: evaluation.level,
-        score: evaluation.score,
-        updatedAt: new Date().toISOString(),
-      };
-
-      signalRows.push({
-        address: launch.address,
-        symbol: launch.symbol,
-        lock_ratio: analysis.quoteLockRatio,
-        level: evaluation.level,
-        score: evaluation.score,
-        triggers: evaluation.triggers,
-        volume_24h: input.volume24hUsd,
-        updated_at: new Date().toISOString(),
-      });
-
-      if (LEVEL_RANK[evaluation.level] < minRank) continue;
-
-      const upgraded = isLevelUpgrade(prev?.level, evaluation.level);
-      const canSend = shouldSendAlert(
-        state,
-        launch.address,
-        evaluation.level,
-        evaluation.triggers,
-      );
-
-      let sent = false;
-      let skippedReason: string | undefined;
-
-      if (!upgraded && !canSend) {
-        skippedReason = "cooldown / no level upgrade";
-      } else if (canSend) {
-        const body = formatSignalAlert(evaluation);
-        if (options.dryRun) {
-          console.log("--- DRY RUN ALERT ---\n" + body + "\n");
-          sent = true;
-        } else {
-          const url = options.webhookUrl ?? process.env.DISCORD_WEBHOOK_URL;
-          if (url) {
-            await sendDiscordMessage(url, body);
-            sent = true;
-          } else {
-            console.log(body);
-            sent = true;
-          }
-        }
-        recordAlert(state, launch.address, evaluation.level, evaluation.triggers);
-      } else {
-        skippedReason = "duplicate";
-      }
-
-      hits.push({ evaluation, sent, skippedReason });
+      const hit = await maybeAlert(state, evaluation, key, prev?.level, minRank, options);
+      if (hit) hits.push(hit);
     } catch (err) {
       console.error(`scan failed ${launch.symbol} ${launch.address}:`, (err as Error).message);
     }
     await sleep(250);
   }
+}
+
+async function scanChainTrending(
+  chain: ChainId,
+  state: MonitorState,
+  options: ScanOptions,
+  minRank: number,
+  hits: ScanHit[],
+  rows: SignalRow[],
+): Promise<void> {
+  const adapter = getAdapter(chain);
+  let candidates: string[];
+  try {
+    candidates = (await adapter.trendingCandidates()).slice(0, TRENDING_LIMIT);
+  } catch (err) {
+    console.error(`${chain} trending failed:`, (err as Error).message);
+    return;
+  }
+
+  for (const address of candidates) {
+    try {
+      const analysis = await adapter.analyze(address);
+      const key = stateKey(chain, address);
+      const prev = state.tokens[key];
+      const accel =
+        prev && prev.volume24hUsd > 0
+          ? (analysis.volume24hUsd ?? 0) / prev.volume24hUsd
+          : undefined;
+
+      const input = analysisToSignalInput(analysis, {
+        volumeAccelRatio: accel,
+        isStockPaired: false,
+        dexUrl: `https://dexscreener.com/${chain}/${address}`,
+        longUrl: undefined,
+      });
+      const evaluation = evaluateSignal(input);
+      snapshotAndRow(state, key, analysis, evaluation, rows);
+
+      const hit = await maybeAlert(state, evaluation, key, prev?.level, minRank, options);
+      if (hit) hits.push(hit);
+    } catch (err) {
+      console.error(`${chain} scan failed ${address}:`, (err as Error).message);
+    }
+    await sleep(250);
+  }
+}
+
+/** One discovery pass over all enabled chains. */
+export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]> {
+  const minLevel = options.minLevel ?? "watch";
+  const minRank = LEVEL_RANK[minLevel];
+  const state = await loadMonitorState();
+  const hits: ScanHit[] = [];
+  const rows: SignalRow[] = [];
+  const chains = enabledChains();
+
+  if (chains.includes("robinhood")) {
+    await scanRobinhood(state, options, minRank, hits, rows);
+  }
+  for (const chain of chains.filter((c) => c !== "robinhood")) {
+    await scanChainTrending(chain, state, options, minRank, hits, rows);
+  }
 
   state.lastRunAt = new Date().toISOString();
   await saveMonitorState(state);
-  if (signalRows.length) {
-    await writeSignalsJson(signalRows).catch((err) =>
+  if (rows.length) {
+    await writeSignalsJson(rows).catch((err) =>
       console.error("failed to write signals.json:", (err as Error).message),
     );
   }
@@ -273,27 +350,66 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
 
 export async function runMonitorLoop(options: ScanOptions & { once?: boolean }): Promise<void> {
   const interval = Number(process.env.POLL_INTERVAL_MS ?? SIGNAL_CONFIG.pollIntervalMs);
+  const positionInterval = Number(process.env.POSITION_TICK_MS ?? 15_000);
   let consecutiveFailures = 0;
+  let stopped = false;
 
-  const tick = async () => {
-    console.log(`[${new Date().toISOString()}] scanning Long.xyz launches…`);
+  const discoveryTick = async () => {
+    console.log(
+      `[${new Date().toISOString()}] scanning chains: ${enabledChains().join(", ")}…`,
+    );
     const hits = await scanLaunches({ ...options, refreshLaunches: true });
     const alerted = hits.filter((h) => h.sent);
-    console.log(`done: ${hits.length} signals ≥${options.minLevel ?? "watch"}, ${alerted.length} alerts sent`);
+    console.log(
+      `done: ${hits.length} signals ≥${options.minLevel ?? "watch"}, ${alerted.length} alerts sent`,
+    );
 
     const tradeConfig = loadTradeConfig();
     if (tradeConfig.mode !== "off") {
-      const engineOptions = { dryRun: options.dryRun, webhookUrl: options.webhookUrl };
-      await processSignals(hits.map((h) => h.evaluation), engineOptions, tradeConfig);
-      await managePositions(engineOptions, tradeConfig);
+      await processSignals(
+        hits.map((h) => h.evaluation),
+        { dryRun: options.dryRun, webhookUrl: options.webhookUrl },
+        tradeConfig,
+      );
     }
   };
 
-  // Sequential loop (not setInterval): a slow scan must finish before the
-  // next one starts, otherwise ticks overlap and double-alert.
+  // Fast loop: open positions get priced and exit-checked every ~15s —
+  // 5-minute stops are far too slow for meme trailing exits.
+  const positionLoop = async () => {
+    while (!stopped) {
+      try {
+        const tradeConfig = loadTradeConfig();
+        if (tradeConfig.mode !== "off") {
+          await managePositions(
+            { dryRun: options.dryRun, webhookUrl: options.webhookUrl },
+            tradeConfig,
+          );
+        }
+      } catch (err) {
+        console.error("position tick error:", (err as Error).message);
+      }
+      await sleep(positionInterval);
+    }
+  };
+
+  if (options.once) {
+    await discoveryTick();
+    const tradeConfig = loadTradeConfig();
+    if (tradeConfig.mode !== "off") {
+      await managePositions(
+        { dryRun: options.dryRun, webhookUrl: options.webhookUrl },
+        tradeConfig,
+      );
+    }
+    return;
+  }
+
+  const positionLoopPromise = positionLoop();
+
   while (true) {
     try {
-      await tick();
+      await discoveryTick();
       consecutiveFailures = 0;
     } catch (err) {
       consecutiveFailures++;
@@ -308,11 +424,14 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
         }
       }
     }
-    if (options.once) return;
     const backoff =
       consecutiveFailures > 0
         ? Math.min(interval * 2 ** Math.min(consecutiveFailures, 4), 30 * 60_000)
         : interval;
     await sleep(backoff);
   }
+
+  // Unreachable, but keeps the position loop referenced.
+  stopped = true;
+  await positionLoopPromise;
 }

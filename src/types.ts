@@ -58,7 +58,10 @@ export interface LaunchesPayload {
 }
 
 export interface TokenAnalysis {
-  address: Address;
+  /** EVM checksummed address or Solana base58 mint. */
+  address: string;
+  /** Chain this analysis belongs to (default robinhood for legacy callers). */
+  chain?: string;
   symbol?: string;
   name?: string;
   primaryPair?: string;

@@ -143,6 +143,7 @@ export async function analyzeToken(addressInput: string): Promise<TokenAnalysis>
 
   return {
     address,
+    chain: "robinhood",
     symbol: base?.symbol,
     name: base?.name,
     primaryPair: `${base?.symbol}/${quoteSymbol}`,

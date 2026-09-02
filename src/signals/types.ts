@@ -2,6 +2,8 @@ export type AlertLevel = "none" | "watch" | "alert" | "strong";
 
 export interface SignalInput {
   address: string;
+  /** Chain id (default robinhood). */
+  chain?: string;
   symbol?: string;
   name?: string;
   primaryPair?: string;

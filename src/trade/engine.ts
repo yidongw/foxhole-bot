@@ -1,6 +1,7 @@
-import type { Address } from "viem";
-
-import { fetchTokenPriceUsd } from "../dex/dexscreener.js";
+import { fetchTokenPairs } from "../dex/dexscreener.js";
+import { selectDeepestBasePair } from "../chains/generic-analysis.js";
+import { getAdapter, positionChain } from "../chains/registry.js";
+import type { ChainId } from "../chains/adapter.js";
 import { sendDiscordMessage } from "../notify/discord.js";
 import { sleep } from "../lib/utils.js";
 import type { SignalEvaluation } from "../signals/types.js";
@@ -18,7 +19,7 @@ import {
 } from "./positions.js";
 import { checkEntry } from "./risk.js";
 import { evaluateExits, type ExitAction } from "./exits.js";
-import { buy, sell } from "./execute.js";
+import type { TradeFill } from "./execute.js";
 import {
   ADVISOR_COOLDOWN_MS,
   adviseExit,
@@ -44,6 +45,46 @@ function modeTag(config: TradeConfig): string {
   return config.mode === "paper" ? "📝 PAPER" : "💸 LIVE";
 }
 
+/** Paper fills happen here; live fills route to the chain adapter. */
+async function executeBuy(
+  chain: ChainId,
+  config: TradeConfig,
+  token: string,
+  priceUsd: number,
+  usd: number,
+): Promise<TradeFill> {
+  if (config.mode === "paper") {
+    return { priceUsd, amountTokens: usd / priceUsd };
+  }
+  const adapter = getAdapter(chain);
+  if (!adapter.buy) {
+    throw new Error(`live execution not implemented on ${chain}`);
+  }
+  return adapter.buy(token, priceUsd, usd, config);
+}
+
+async function executeSell(
+  chain: ChainId,
+  config: TradeConfig,
+  position: Position,
+  fraction: number,
+  currentPriceUsd: number,
+): Promise<TradeFill> {
+  if (config.mode === "paper") {
+    const amountTokens = position.amountTokens * fraction;
+    return {
+      priceUsd: currentPriceUsd,
+      amountTokens,
+      proceedsUsd: amountTokens * currentPriceUsd,
+    };
+  }
+  const adapter = getAdapter(chain);
+  if (!adapter.sell) {
+    throw new Error(`live execution not implemented on ${chain}`);
+  }
+  return adapter.sell(position, fraction, currentPriceUsd, config);
+}
+
 /** Attempt entries for qualifying signal evaluations. */
 export async function processSignals(
   evaluations: SignalEvaluation[],
@@ -55,8 +96,10 @@ export async function processSignals(
   const opened: Position[] = [];
 
   for (const ev of evaluations) {
+    const chain = (ev.input.chain ?? "robinhood") as ChainId;
     const candidate = {
       token: ev.input.address,
+      chain,
       symbol: ev.input.symbol,
       priceUsd: ev.input.priceUsd,
       liquidityUsd: ev.input.liquidityUsd,
@@ -71,15 +114,17 @@ export async function processSignals(
     }
 
     try {
-      const fill = await buy(
+      const fill = await executeBuy(
+        chain,
         config,
-        candidate.token as Address,
+        candidate.token,
         candidate.priceUsd!,
         config.usdPerTrade,
       );
       const position: Position = {
         id: `${candidate.token.toLowerCase()}-${Date.now()}`,
         mode: config.mode,
+        chain,
         token: candidate.token,
         symbol: candidate.symbol,
         trigger: ev.triggers.join(","),
@@ -96,7 +141,7 @@ export async function processSignals(
       opened.push(position);
       await notify(
         [
-          `${modeTag(config)} **ENTRY** ${position.symbol ?? position.token}`,
+          `${modeTag(config)} **ENTRY [${chain}]** ${position.symbol ?? position.token}`,
           `$${config.usdPerTrade} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} tokens)`,
           `Trigger: ${position.trigger}`,
           fill.txHash ? `Tx: ${fill.txHash}` : "",
@@ -129,9 +174,16 @@ export async function managePositions(
   if (!open.length) return;
 
   for (const position of open) {
+    const chain = positionChain(position.chain);
     let price: number | undefined;
+    let volume24hUsd: number | undefined;
+    let priceChange24h: number | undefined;
     try {
-      price = await fetchTokenPriceUsd(position.token);
+      const pairs = await fetchTokenPairs(position.token, chain);
+      const primary = selectDeepestBasePair(pairs, position.token);
+      if (primary?.priceUsd) price = Number(primary.priceUsd);
+      volume24hUsd = Number(primary?.volume?.h24 ?? 0) || undefined;
+      priceChange24h = primary?.priceChange?.h24;
     } catch (err) {
       console.error(`price fetch failed ${position.symbol}:`, (err as Error).message);
     }
@@ -150,7 +202,11 @@ export async function managePositions(
           ADVISOR_COOLDOWN_MS)
     ) {
       position.lastAdvisorAt = new Date().toISOString();
-      const decision = await adviseExit(position, { currentPriceUsd: price });
+      const decision = await adviseExit(position, {
+        currentPriceUsd: price,
+        volume24hUsd,
+        priceChange24h,
+      });
       if (decision.action === "exit" && decision.confidence >= 0.6) {
         actions.push({
           fraction: remainingFraction(position),
@@ -161,7 +217,7 @@ export async function managePositions(
 
     for (const action of actions) {
       try {
-        const fill = await sell(config, position, action.fraction, price);
+        const fill = await executeSell(chain, config, position, action.fraction, price);
         recordExit(position, {
           at: new Date().toISOString(),
           priceUsd: fill.priceUsd,
@@ -214,12 +270,12 @@ export async function formatPortfolioReport(): Promise<string> {
     for (const p of open) {
       let price: number | undefined;
       try {
-        price = await fetchTokenPriceUsd(p.token);
+        price = await getAdapter(positionChain(p.chain)).priceUsd(p.token);
       } catch {}
       const pnl = totalPnlUsd(p, price);
       const rem = remainingFraction(p);
       lines.push(
-        `• ${p.symbol ?? p.token} [${p.mode}] ${(rem * 100).toFixed(0)}% left, ` +
+        `• ${p.symbol ?? p.token} [${positionChain(p.chain)}/${p.mode}] ${(rem * 100).toFixed(0)}% left, ` +
           `entry $${p.entryPriceUsd.toPrecision(4)}${price ? `, now $${price.toPrecision(4)}` : ""}, ` +
           `P&L ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
       );

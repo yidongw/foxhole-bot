@@ -27,6 +27,7 @@ export function analysisToSignalInput(
 
   return {
     address: analysis.address,
+    chain: analysis.chain ?? "robinhood",
     symbol: analysis.symbol,
     name: analysis.name,
     primaryPair: analysis.primaryPair,
@@ -226,12 +227,21 @@ export function evaluateSignal(input: SignalInput): SignalEvaluation {
   return { level, score, reasons, triggers, input };
 }
 
+const CHAIN_TAGS: Record<string, string> = {
+  robinhood: "RB",
+  solana: "SOL",
+  bsc: "BSC",
+  base: "BASE",
+  ethereum: "ETH",
+};
+
 export function formatSignalAlert(ev: SignalEvaluation): string {
   const i = ev.input;
   const emoji =
     ev.level === "strong" ? "🔴" : ev.level === "alert" ? "🟠" : "🟡";
+  const tag = CHAIN_TAGS[i.chain ?? "robinhood"] ?? i.chain;
   const lines = [
-    `${emoji} **FOXHOLE ${ev.level.toUpperCase()}** — ${i.symbol ?? "?"} (${i.primaryPair ?? "?"})`,
+    `${emoji} **FOXHOLE ${ev.level.toUpperCase()} [${tag}]** — ${i.symbol ?? "?"} (${i.primaryPair ?? "?"})`,
     `Score: ${ev.score} | ${ev.reasons.join(" · ")}`,
     `Vol 24h: $${((i.volume24hUsd ?? 0) / 1e6).toFixed(2)}M | Liq: $${((i.liquidityUsd ?? 0) / 1e3).toFixed(0)}K` +
       (i.quoteLockRatio != null

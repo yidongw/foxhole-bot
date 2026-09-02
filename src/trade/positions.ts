@@ -20,6 +20,8 @@ export interface PositionExit {
 export interface Position {
   id: string;
   mode: TradeMode;
+  /** Chain id; absent = robinhood (legacy). */
+  chain?: string;
   token: string;
   symbol?: string;
   trigger: string;
