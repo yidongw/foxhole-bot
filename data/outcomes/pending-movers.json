@@ -1,0 +1,33 @@
+{
+  "createdAt": "2026-09-02T13:16:09.944Z",
+  "movers": [
+    {
+      "chain": "robinhood",
+      "poolId": "0xa3318d6ff46aa685b3dcee29cb09211d19a53b142fe503f8ff572258fd4c5aad",
+      "address": "0xD5f1afEA47b1A9eab414D2ee740cF1d6d039E725",
+      "symbol": "microduck",
+      "priceChange24h": 134.33515260544885,
+      "volume24hUsd": 9590374.117915075,
+      "liquidityUsd": 558978.5293611414,
+      "kind": "coverage_miss",
+      "ladder": false,
+      "collapsed": false,
+      "noData": false,
+      "safetyFlags": []
+    },
+    {
+      "chain": "robinhood",
+      "poolId": "0x10fcb9ace00509e97bb46f3520135688f1b05a2bed3cc1aec06b55d621e6efce",
+      "address": "0x812486EAea648819853F8E372dc9f1516C7868Bd",
+      "symbol": "UBIK",
+      "priceChange24h": 131.99262200540264,
+      "volume24hUsd": 2916753.5434227292,
+      "liquidityUsd": 378933.6761567613,
+      "kind": "coverage_miss",
+      "ladder": false,
+      "collapsed": false,
+      "noData": false,
+      "safetyFlags": []
+    }
+  ]
+}

@@ -64,3 +64,9 @@ trending(有机热度源, 修正按量排序被刷量垃圾霸榜的问题)。
 链色 🟢rb 🟣sol 🟡bsc 🔵base ⚪eth;类型 🎯trade-signal 💰trade-log 🧹filter-log。
 12 个新 webhook 创建并与 rb 三个原 webhook 一起写入 .env 的 per-chain 变量;
 rb 频道同时兼任全局兜底(复盘确认清单发 🟢🧹-rb-filter-log)。
+## 2026-09-02 13:16 UTC — Phase 1 — 扫描
+- 警报评分: 0 (赢 0 / 假 0)
+- 暴涨扫描: 8 个, 自动过滤 2 个, 待人工确认 2 个
+  - 1. microduck [robinhood] +134% coverage_miss `0xD5f1afEA47b1A9eab414D2ee740cF1d6d039E725`
+  - 2. UBIK [robinhood] +132% coverage_miss `0x812486EAea648819853F8E372dc9f1516C7868Bd`
+
