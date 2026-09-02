@@ -1,5 +1,6 @@
 import { fetchPoolOhlcv } from "../dex/dexpaprika.js";
 import { evaluateSignal } from "../signals/evaluate.js";
+import type { SignalConfig } from "../signals/config.js";
 import type { AlertLevel, SignalInput } from "../signals/types.js";
 import { LEVEL_RANK } from "../signals/types.js";
 import type { OhlcvCandle } from "../dex/dexpaprika.js";
@@ -8,7 +9,10 @@ export interface TokenBacktestFixture {
   kind: "pump" | "control";
   symbol: string;
   address: string;
+  /** DexPaprika pool id — a DexScreener pairAddress works on every chain. */
   poolId: string;
+  /** DexPaprika network slug; default robinhood. */
+  network?: string;
   quoteSymbol: string;
   launchAt: string;
   ohlcvStart: string;
@@ -100,14 +104,23 @@ function candleToSignalInput(
  */
 export async function replayTokenHistory(
   fixture: TokenBacktestFixture,
-  options?: { liquidityUsd?: number },
+  options?: { liquidityUsd?: number; config?: SignalConfig },
 ): Promise<TokenReplayResult> {
   const candles = await fetchPoolOhlcv(fixture.poolId, {
     start: fixture.ohlcvStart,
     interval: "24h",
     limit: 120,
+    network: fixture.network,
   });
+  return replayCandles(fixture, candles, options);
+}
 
+/** Pure replay over pre-fetched candles — reused by the grid search. */
+export function replayCandles(
+  fixture: TokenBacktestFixture,
+  candles: OhlcvCandle[],
+  options?: { liquidityUsd?: number; config?: SignalConfig },
+): TokenReplayResult {
   const liquidityUsd = options?.liquidityUsd ?? 100_000;
   const priorVolumes: number[] = [];
   let maxLevel: AlertLevel = "none";
@@ -124,7 +137,7 @@ export async function replayTokenHistory(
       priorVolumes.slice(-7),
       liquidityUsd,
     );
-    const ev = evaluateSignal(input);
+    const ev = evaluateSignal(input, options?.config);
     maxLevel = higherLevel(maxLevel, ev.level);
 
     if (LEVEL_RANK[ev.level] >= LEVEL_RANK.alert) {

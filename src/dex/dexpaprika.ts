@@ -8,7 +8,8 @@ export interface OhlcvCandle {
   volume: number;
 }
 
-const BASE = "https://api.dexpaprika.com/networks/robinhood";
+const API = "https://api.dexpaprika.com/networks";
+const BASE = `${API}/robinhood`;
 
 export async function fetchPoolOhlcv(
   poolId: string,
@@ -16,6 +17,8 @@ export async function fetchPoolOhlcv(
     start: string;
     interval?: "1h" | "6h" | "24h";
     limit?: number;
+    /** DexPaprika network slug (robinhood, solana, bsc, base, ethereum). */
+    network?: string;
   },
 ): Promise<OhlcvCandle[]> {
   const params = new URLSearchParams({
@@ -23,16 +26,31 @@ export async function fetchPoolOhlcv(
     interval: options.interval ?? "24h",
     limit: String(options.limit ?? 120),
   });
-  const res = await fetch(`${BASE}/pools/${poolId}/ohlcv?${params}`, {
+  const network = options.network ?? "robinhood";
+  const res = await fetch(`${API}/${network}/pools/${poolId}/ohlcv?${params}`, {
     headers: { "User-Agent": "foxhole-bot/0.3" },
   });
   if (!res.ok) {
-    throw new Error(`DexPaprika OHLCV ${res.status} for pool ${poolId}`);
+    throw new Error(`DexPaprika OHLCV ${res.status} for ${network} pool ${poolId}`);
   }
   const data = (await res.json()) as OhlcvCandle[];
   return [...data].sort(
     (a, b) => new Date(a.time_open).getTime() - new Date(b.time_open).getTime(),
   );
+}
+
+/** Fallback price source when DexScreener is down (keeps stops alive). */
+export async function fetchPaprikaTokenPriceUsd(
+  network: string,
+  address: string,
+): Promise<number | undefined> {
+  const res = await fetch(`${API}/${network}/tokens/${address}`, {
+    headers: { "User-Agent": "foxhole-bot/0.3" },
+  });
+  if (!res.ok) return undefined;
+  const data = (await res.json()) as { summary?: { price_usd?: number } };
+  const price = data.summary?.price_usd;
+  return price && price > 0 ? price : undefined;
 }
 
 export async function fetchPoolMeta(poolId: string) {

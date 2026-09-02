@@ -1,4 +1,9 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { fetchTokenPairs } from "../dex/dexscreener.js";
+import { fetchPaprikaTokenPriceUsd } from "../dex/dexpaprika.js";
 import { selectDeepestBasePair } from "../chains/generic-analysis.js";
 import { getAdapter, positionChain } from "../chains/registry.js";
 import type { ChainId } from "../chains/adapter.js";
@@ -44,6 +49,43 @@ async function notify(body: string, options: EngineOptions): Promise<void> {
 
 function modeTag(config: TradeConfig): string {
   return config.mode === "paper" ? "📝 PAPER" : "💸 LIVE";
+}
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const POSITIONS_WEB_PATH = path.resolve(__dirname, "../../web/data/positions.json");
+
+/** Dashboard snapshot; `marks` carries the freshest prices from this tick. */
+async function writePositionsJson(
+  file: PositionsFile,
+  marks: Record<string, number> = {},
+): Promise<void> {
+  const rows = file.positions.slice(-50).map((p) => {
+    const mark = marks[p.token.toLowerCase()];
+    return {
+      chain: p.chain ?? "robinhood",
+      symbol: p.symbol,
+      token: p.token,
+      mode: p.mode,
+      status: p.status,
+      trigger: p.trigger,
+      opened_at: p.openedAt,
+      closed_at: p.closedAt,
+      entry_price_usd: p.entryPriceUsd,
+      current_price_usd: mark,
+      remaining_fraction: remainingFraction(p),
+      cost_usd: p.costUsd,
+      pnl_usd: totalPnlUsd(p, mark),
+    };
+  });
+  const payload = JSON.stringify(
+    { meta: { updated_at: new Date().toISOString(), count: rows.length }, positions: rows },
+    null,
+    2,
+  );
+  await mkdir(path.dirname(POSITIONS_WEB_PATH), { recursive: true });
+  await writeFile(POSITIONS_WEB_PATH, payload, "utf8").catch((err) =>
+    console.error("failed to write positions.json:", (err as Error).message),
+  );
 }
 
 /** Paper fills happen here; live fills route to the chain adapter. */
@@ -175,6 +217,7 @@ export async function processSignals(
   }
 
   await savePositions(file);
+  if (opened.length) await writePositionsJson(file);
   return opened;
 }
 
@@ -187,6 +230,7 @@ export async function managePositions(
   const file = await loadPositions();
   const open = openPositions(file);
   if (!open.length) return;
+  const marks: Record<string, number> = {};
 
   for (const position of open) {
     const chain = positionChain(position.chain);
@@ -202,7 +246,15 @@ export async function managePositions(
     } catch (err) {
       console.error(`price fetch failed ${position.symbol}:`, (err as Error).message);
     }
+    if (price == null || price <= 0) {
+      // DexScreener outage must not blind the stops — fall back to DexPaprika.
+      try {
+        price = await fetchPaprikaTokenPriceUsd(chain, position.token);
+        if (price) console.log(`using DexPaprika fallback price for ${position.symbol}`);
+      } catch {}
+    }
     if (price == null || price <= 0) continue;
+    marks[position.token.toLowerCase()] = price;
 
     position.highWaterUsd = Math.max(position.highWaterUsd, price);
     const actions: ExitAction[] = evaluateExits(position, price, config);
@@ -261,17 +313,17 @@ export async function managePositions(
   }
 
   const dayMs = 24 * 60 * 60 * 1000;
-  if (
-    file.positions.length &&
-    (!file.lastReportAt || Date.now() - new Date(file.lastReportAt).getTime() > dayMs)
-  ) {
-    file.lastReportAt = new Date().toISOString();
-    await savePositions(file);
-    await notify(`📊 **Daily P&L**\n${await formatPortfolioReport()}`, options);
-    return;
-  }
+  const dueDailyReport =
+    file.positions.length > 0 &&
+    (!file.lastReportAt || Date.now() - new Date(file.lastReportAt).getTime() > dayMs);
+  if (dueDailyReport) file.lastReportAt = new Date().toISOString();
 
   await savePositions(file);
+  await writePositionsJson(file, marks);
+
+  if (dueDailyReport) {
+    await notify(`📊 **Daily P&L**\n${await formatPortfolioReport()}`, options);
+  }
 }
 
 export async function formatPortfolioReport(): Promise<string> {

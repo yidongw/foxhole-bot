@@ -151,6 +151,18 @@
       </select>
     </div>
 
+    <div id="positionsCard" hidden>
+      <h2 style="margin:22px 0 10px;font-size:18px;">持仓 <span id="posMeta" style="color:var(--muted);font-size:12px;font-weight:400;"></span></h2>
+      <table id="posTable">
+        <thead>
+          <tr>
+            <th>代币</th><th>链</th><th>模式</th><th>状态</th><th>入场价</th><th>现价</th><th>剩余</th><th>成本</th><th>盈亏</th>
+          </tr>
+        </thead>
+        <tbody id="posBody"></tbody>
+      </table>
+    </div>
+
     <div id="status" class="loading">正在加载 Long.xyz 发射数据…</div>
     <table id="table" hidden>
       <thead>
@@ -336,10 +348,40 @@
       }
     }
 
+    async function loadPositions() {
+      try {
+        const res = await fetch('./data/positions.json?_=' + Date.now());
+        if (!res.ok) return;
+        const data = await res.json();
+        const rows = data.positions || [];
+        if (!rows.length) return;
+        const fmtPrice = (n) => n == null ? '—' : '$' + Number(n).toPrecision(4);
+        document.getElementById('posBody').innerHTML = rows.slice().reverse().map(p => {
+          const pnl = Number(p.pnl_usd ?? 0);
+          const cls = pnl >= 0 ? 'chg-pos' : 'chg-neg';
+          return `<tr>
+            <td data-label="代币">${p.symbol || p.token?.slice(0, 10) || '?'}</td>
+            <td data-label="链"><span class="pair">${p.chain}</span></td>
+            <td data-label="模式">${p.mode}</td>
+            <td data-label="状态">${p.status === 'open' ? '持有中' : '已平仓'}</td>
+            <td data-label="入场价">${fmtPrice(p.entry_price_usd)}</td>
+            <td data-label="现价">${fmtPrice(p.current_price_usd)}</td>
+            <td data-label="剩余">${((p.remaining_fraction ?? 0) * 100).toFixed(0)}%</td>
+            <td data-label="成本">$${Number(p.cost_usd ?? 0).toFixed(0)}</td>
+            <td data-label="盈亏"><span class="${cls}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</span></td>
+          </tr>`;
+        }).join('');
+        document.getElementById('posMeta').textContent =
+          '更新于 ' + fmtDate(data.meta?.updated_at);
+        document.getElementById('positionsCard').hidden = false;
+      } catch {}
+    }
+
     function render() {
       renderStats();
       renderTable();
     }
+    loadPositions();
 
     document.getElementById('search').addEventListener('input', renderTable);
     document.getElementById('quoteFilter').addEventListener('change', renderTable);

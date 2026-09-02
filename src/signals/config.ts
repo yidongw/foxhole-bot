@@ -1,3 +1,5 @@
+export type SignalConfig = typeof SIGNAL_CONFIG;
+
 /** Tunable thresholds — calibrated against BONER Aug 2026 squeeze case study. */
 export const SIGNAL_CONFIG = {
   /** Minimum 24h volume (USD) before any non-launch alert fires. */

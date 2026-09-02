@@ -1,4 +1,4 @@
-import { SIGNAL_CONFIG } from "./config.js";
+import { SIGNAL_CONFIG, type SignalConfig } from "./config.js";
 import type { AlertLevel, SignalEvaluation, SignalInput } from "./types.js";
 import { LEVEL_RANK } from "./types.js";
 import type { TokenAnalysis } from "../types.js";
@@ -57,7 +57,10 @@ export function analysisToSignalInput(
  * Score squeeze / momentum opportunities (BONER-style).
  * Returns level + human-readable reasons.
  */
-export function evaluateSignal(input: SignalInput): SignalEvaluation {
+export function evaluateSignal(
+  input: SignalInput,
+  config: SignalConfig = SIGNAL_CONFIG,
+): SignalEvaluation {
   const reasons: string[] = [];
   const triggers: string[] = [];
   let level: AlertLevel = "none";
@@ -78,7 +81,7 @@ export function evaluateSignal(input: SignalInput): SignalEvaluation {
     priceMomentumAlert,
     priceMomentumStrong,
     launchWatchDays,
-  } = SIGNAL_CONFIG;
+  } = config;
 
   if (input.liquidityUsd < minLiquidityUsd) {
     return { level: "none", score: 0, reasons: ["liquidity too low"], triggers, input };
@@ -150,7 +153,7 @@ export function evaluateSignal(input: SignalInput): SignalEvaluation {
   }
 
   // --- Bonding curve nearing graduation (pump.fun-style buy pressure) ---
-  const { curveNearAlert, curveNearStrong } = SIGNAL_CONFIG;
+  const { curveNearAlert, curveNearStrong } = config;
   if (
     input.curveProgress != null &&
     !input.curveGraduated &&
