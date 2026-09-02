@@ -48,6 +48,25 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+/** 每个进程只报一次 key 失效/额度耗尽 — 额度烧完换个邮箱再注册即可。 */
+let keyProblemReported = false;
+
+async function reportKeyProblem(detail: string): Promise<void> {
+  if (keyProblemReported) return;
+  keyProblemReported = true;
+  console.error(`BlockBeats API key problem: ${detail}`);
+  const { resolveWebhook } = await import("../notify/routes.js");
+  const { sendDiscordMessage } = await import("../notify/discord.js");
+  const url = resolveWebhook("filter", "robinhood");
+  if (url) {
+    await sendDiscordMessage(
+      url,
+      `⚠️ **BLOCKBEATS KEY** 失效或额度耗尽（${detail}）— 轮询已自动退回页面抓取，` +
+        `搜索/复盘对照会降级。用新邮箱注册一个 key 换上即可（找 Claude 代办）。`,
+    ).catch(() => {});
+  }
+}
+
 async function fetchApi(path: string, params: Record<string, string>): Promise<unknown> {
   const key = apiKey();
   if (!key) return undefined;
@@ -57,9 +76,20 @@ async function fetchApi(path: string, params: Record<string, string>): Promise<u
       headers: { "api-key": key },
       signal: AbortSignal.timeout(15_000),
     });
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      await reportKeyProblem(`HTTP ${res.status}`);
+      return undefined;
+    }
     if (!res.ok) return undefined;
-    const body = (await res.json()) as { status: number; data?: unknown };
-    return body.status === 0 ? body.data : undefined;
+    const body = (await res.json()) as { status: number; message?: string; data?: unknown };
+    if (body.status !== 0) {
+      // status!=0 且 message 提到 key/额度 → 大概率要换 key 了
+      if (/key|额度|限|quota|limit/i.test(body.message ?? "")) {
+        await reportKeyProblem(body.message ?? `status ${body.status}`);
+      }
+      return undefined;
+    }
+    return body.data;
   } catch {
     return undefined;
   }
