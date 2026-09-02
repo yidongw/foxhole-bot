@@ -7,6 +7,8 @@ export interface SignalInput {
   symbol?: string;
   name?: string;
   primaryPair?: string;
+  /** DexScreener pairAddress (DexPaprika pool id) of the primary pair. */
+  primaryPairAddress?: string;
   quoteSymbol?: string;
   isStockPaired: boolean;
   priceUsd?: number;

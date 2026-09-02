@@ -50,7 +50,8 @@ function buildReport(
   const wins = graded.filter((g) => g.outcome === "win");
   const losses = graded.filter((g) => g.outcome === "loss");
   const flats = graded.filter((g) => g.outcome === "flat");
-  const missed = movers.filter((m) => m.kind !== "alerted");
+  const ladders = movers.filter((m) => m.ladder);
+  const missed = movers.filter((m) => m.kind !== "alerted" && !m.ladder);
   const alerted = movers.filter((m) => m.kind === "alerted");
 
   const lines = [`📊 **每日复盘 / Daily Review** — ${new Date().toISOString().slice(0, 10)}`];
@@ -77,6 +78,11 @@ function buildReport(
   for (const m of missed.slice(0, 5)) {
     lines.push(
       `  🕳️ ${m.symbol ?? m.address.slice(0, 8)} [${m.chain}] +${m.priceChange24h.toFixed(0)}% (${m.kind})`,
+    );
+  }
+  if (ladders.length) {
+    lines.push(
+      `  🪜 已过滤刷单画线盘 ${ladders.length} 个: ${ladders.slice(0, 4).map((m) => m.symbol ?? m.address.slice(0, 8)).join(", ")}`,
     );
   }
 

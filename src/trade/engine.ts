@@ -238,7 +238,11 @@ export async function processSignals(
     }
 
     if (safetyGateEnabled()) {
-      const safety = await checkTokenSafety(chain, candidate.token);
+      const safety = await checkTokenSafety(
+        chain,
+        candidate.token,
+        ev.input.primaryPairAddress,
+      );
       if (!safety.ok) {
         console.log(
           `entry vetoed ${ev.input.symbol} [${chain}]: ${safety.flags.join(", ")}`,

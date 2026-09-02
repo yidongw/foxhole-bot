@@ -1,5 +1,8 @@
 import { GoPlus } from "@goplus/sdk-node";
 
+import { fetchPoolOhlcv } from "../dex/dexpaprika.js";
+import { detectLadderPump } from "../signals/ladder.js";
+
 /**
  * GoPlus pre-entry safety gate (EVM + Solana). Hard veto on rug mechanics;
  * fails OPEN on API errors (logged) so a GoPlus outage can't freeze exits or
@@ -59,9 +62,30 @@ export function safetyGateEnabled(): boolean {
   return process.env.TRADE_SAFETY_GATE !== "0";
 }
 
+/** 24h+ of near-perfect staircase = wash bots painting the chart. */
+async function checkLadder(chain: string, poolId: string): Promise<string | undefined> {
+  try {
+    const start = new Date(Date.now() - 36 * 3_600_000).toISOString().slice(0, 10);
+    const candles = await fetchPoolOhlcv(poolId, {
+      start,
+      interval: "1h",
+      limit: 48,
+      network: chain,
+    });
+    const verdict = detectLadderPump(candles);
+    if (verdict.isLadder && verdict.metrics) {
+      return `ladder_pump (${verdict.metrics.candles}h straight, ${(verdict.metrics.greenRatio * 100).toFixed(0)}% green)`;
+    }
+  } catch {
+    // no candles — other gates still apply
+  }
+  return undefined;
+}
+
 export async function checkTokenSafety(
   chain: string,
   token: string,
+  poolId?: string,
 ): Promise<SafetyVerdict> {
   const key = `${chain}:${token.toLowerCase()}`;
   const cached = cache.get(key);
@@ -121,6 +145,13 @@ export async function checkTokenSafety(
   } catch (err) {
     console.error(`safety check failed ${chain}:${token}:`, (err as Error).message);
     verdict = { ok: true, flags: [], source: "unavailable" };
+  }
+
+  if (poolId) {
+    const ladderFlag = await checkLadder(chain, poolId);
+    if (ladderFlag) {
+      verdict = { ...verdict, ok: false, flags: [...verdict.flags, ladderFlag] };
+    }
   }
 
   cache.set(key, { verdict, at: Date.now() });

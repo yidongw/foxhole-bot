@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { fetchDexJson } from "../dex/dexscreener.js";
+import { fetchPoolOhlcv } from "../dex/dexpaprika.js";
+import { detectLadderPump } from "../signals/ladder.js";
 import { sleep } from "../lib/utils.js";
 import type { MonitorState } from "../monitor/state.js";
 import type { DexPair } from "../types.js";
@@ -44,6 +46,8 @@ export type MissKind = "alerted" | "threshold_miss" | "coverage_miss";
 
 export interface ClassifiedMover extends Mover {
   kind: MissKind;
+  /** Wash-bot staircase chart — excluded from tuner cases and entries. */
+  ladder?: boolean;
 }
 
 export interface MissedCase extends ClassifiedMover {
@@ -155,6 +159,9 @@ export async function saveMissedCases(
   const added: MissedCase[] = [];
   for (const m of fresh) {
     if (m.kind === "alerted") continue;
+    // Ladder pumps are not real misses — training the tuner to capture
+    // wash-painted charts would optimize toward exit-liquidity traps.
+    if (m.ladder) continue;
     const key = `${m.chain}:${m.address.toLowerCase()}:${today}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -182,7 +189,25 @@ export async function scanMissedMovers(
     try {
       const movers = await fetchTopMovers(chain);
       for (const m of movers) {
-        classified.push({ ...m, kind: classifyMover(m, state, ledger) });
+        const entry: ClassifiedMover = { ...m, kind: classifyMover(m, state, ledger) };
+        if (entry.kind !== "alerted") {
+          try {
+            const start = new Date(Date.now() - 48 * 3_600_000)
+              .toISOString()
+              .slice(0, 10);
+            const candles = await fetchPoolOhlcv(m.poolId, {
+              start,
+              interval: "1h",
+              limit: 60,
+              network: chain,
+            });
+            entry.ladder = detectLadderPump(candles).isLadder;
+          } catch {
+            // no candles — leave undetected
+          }
+          await sleep(600);
+        }
+        classified.push(entry);
       }
     } catch (err) {
       console.error(`${chain} mover scan failed:`, (err as Error).message);

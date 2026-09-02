@@ -31,6 +31,7 @@ export function analysisToSignalInput(
     symbol: analysis.symbol,
     name: analysis.name,
     primaryPair: analysis.primaryPair,
+    primaryPairAddress: analysis.primaryPairAddress,
     quoteSymbol: analysis.quoteSymbol,
     isStockPaired: Boolean(
       analysis.quoteSymbol &&
