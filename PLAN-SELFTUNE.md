@@ -1,5 +1,16 @@
 # PLAN-SELFTUNE — Daily Self-Review & Auto-Tuning Loop
 
+## STATUS (2026-09-02, same day): R1–R6 SHIPPED
+
+All six slices implemented (`src/review/`), live-verified end-to-end:
+seeded backdated alerts graded WIN +991% / LOSS correctly, 13 real 暴涨
+movers found and classified (all coverage_miss on a fresh state — the new
+movers discovery feed closes those going forward), tuner correctly held at
+"collecting evidence" below the 5-case minimum. Runs every 24h inside the
+monitor; manual: `npm run review [-- --dry-run]`. Auto-push gated behind
+`AUTO_TUNE_PUSH=1`. The loop needs a continuously-running monitor to
+accumulate cases — deploy the monitor to start learning.
+
 Drafted 2026-09-02. Goal: every 24h the bot grades its own alerts (did they
 pump? → reinforce), hunts for 暴涨 tokens it missed, diagnoses both failure
 modes, proposes a strategy revision, backtests it against the full case

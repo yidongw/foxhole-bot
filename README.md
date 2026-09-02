@@ -114,6 +114,10 @@ work for tokens with a v3 route — `NoRouteError` is surfaced, never swallowed.
 - [x] **P3**: Solana pump.fun curve state (@pump-fun/pump-sdk) + graduation signals + Jupiter lite-api execution
 - [x] **P4**: ETH Uniswap v2/v3 new-WETH-pair watcher (monitor-only by design)
 - [x] **P5**: GoPlus safety gate — hard entry veto on honeypot/taxes>10%/mint/rug mechanics (`TRADE_SAFETY_GATE=0` to disable)
+- [x] **Self-review loop** (see [PLAN-SELFTUNE.md](./PLAN-SELFTUNE.md)): daily alert
+  grading vs 24h price action, missed-暴涨 scan, bounded backtest-gated
+  auto-tuning via `data/signal-overrides.json` (`npm run review`,
+  `AUTO_TUNE_PUSH=1` for auto-commit)
 - [ ] Per-chain backtest fixtures + ≥2-week paper gate before any live mode
 
 ⚠️ **All non-Robinhood live execution paths are UNTESTED with real funds.**
