@@ -130,6 +130,78 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
   }
 }
 
+/**
+ * AI-decided entry. Same gates as automatic entries (risk caps, dup checks,
+ * safety incl. chart) — the AI chooses token/size/timing but cannot bypass
+ * any control. Size is clamped to the per-trade cap.
+ */
+export async function aiBuy(
+  chainId: string,
+  address: string,
+  usd: number,
+  reason: string,
+): Promise<string> {
+  const chain = positionChain(chainId);
+  const config = loadTradeConfig();
+  if (config.mode === "off") return "交易未开启 (TRADE_MODE=off)";
+  if (tradingPaused()) return "交易已暂停 (/resume 恢复)";
+
+  const clamped = Math.min(usd, config.usdPerTrade);
+  const analysis = await getAdapter(chain).analyze(address);
+  const candidate = {
+    token: analysis.address,
+    chain,
+    symbol: analysis.symbol,
+    priceUsd: analysis.priceUsd,
+    liquidityUsd: analysis.liquidityUsd ?? 0,
+    triggers: ["ai_decision"],
+  };
+
+  const file = await loadPositions();
+  const verdict = checkEntry({ ...config, usdPerTrade: clamped }, file, candidate);
+  if (!verdict.ok) return `风控拒绝: ${verdict.reason}`;
+
+  if (safetyGateEnabled()) {
+    const safety = await checkTokenSafety(chain, address, analysis.primaryPairAddress);
+    if (!safety.ok) {
+      await appendTradeJournal(
+        `🛑 AI买入被安全门否决 ${candidate.symbol} [${chain}] — ${safety.flags.join(", ")}`,
+      );
+      return `安全门否决: ${safety.flags.join(", ")}`;
+    }
+  }
+
+  const fill = await executeBuy(chain, config, address, candidate.priceUsd!, clamped);
+  const position: Position = {
+    id: `${address.toLowerCase()}-${Date.now()}`,
+    mode: config.mode,
+    chain,
+    token: analysis.address,
+    symbol: analysis.symbol,
+    trigger: `ai_decision: ${reason}`.slice(0, 200),
+    openedAt: new Date().toISOString(),
+    entryPriceUsd: fill.priceUsd,
+    amountTokens: fill.amountTokens,
+    costUsd: clamped,
+    highWaterUsd: fill.priceUsd,
+    exits: [],
+    status: "open",
+    txHash: fill.txHash,
+  };
+  file.positions.push(position);
+  await savePositions(file);
+  await writePositionsJson(file);
+  await appendTradeJournal(
+    `📥 AI开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 理由: ${reason}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
+  );
+  await notify(
+    `🤖 ${modeTag(config)} **AI ENTRY [${chain}]** ${position.symbol}\n$${clamped} @ $${fill.priceUsd.toPrecision(4)}\n理由: ${reason}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
+    {},
+    chain,
+  );
+  return `✅ 已开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚)`;
+}
+
 export async function exitAllPositions(): Promise<string> {
   const file = await loadPositions();
   const open = openPositions(file);

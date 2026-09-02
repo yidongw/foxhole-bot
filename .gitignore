@@ -12,3 +12,5 @@ data/positions.json
 web/data/positions.json
 web/data/alerts.json
 web/data/review.json
+data/ai-inbox.jsonl
+data/ai-inbox-processed.jsonl

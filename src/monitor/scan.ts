@@ -50,6 +50,7 @@ import {
 import { loadTradeConfig } from "../trade/config.js";
 import { checkTokenSafety } from "../trade/safety.js";
 import { resolveWebhook } from "../notify/routes.js";
+import { appendAiInbox } from "../notify/ai-inbox.js";
 import { managePositions, processSignals } from "../trade/engine.js";
 import type { LaunchRecord, LaunchesPayload, TokenAnalysis } from "../types.js";
 
@@ -175,8 +176,37 @@ function isTradeGrade(evaluation: SignalEvaluation): boolean {
   return evaluation.triggers.some((t) => entryTriggers.includes(t));
 }
 
+const GMGN_CHAIN: Record<string, string> = {
+  solana: "sol",
+  bsc: "bsc",
+  base: "base",
+  ethereum: "eth",
+};
+
 function formatTradeSignal(ev: SignalEvaluation): string {
-  return "🎯 **交易触发 / TRADE SIGNAL**\n" + formatSignalAlert(ev);
+  const i = ev.input;
+  const chain = i.chain ?? "robinhood";
+  const links: string[] = [];
+  links.push(
+    `📈 <https://dexscreener.com/${chain}/${i.primaryPairAddress ?? i.address}>`,
+  );
+  if (GMGN_CHAIN[chain]) {
+    links.push(`🔍 <https://gmgn.ai/${GMGN_CHAIN[chain]}/token/${i.address}>`);
+  }
+  if (i.primaryPairAddress) {
+    links.push(
+      `🦎 <https://www.geckoterminal.com/${chain === "ethereum" ? "eth" : chain}/pools/${i.primaryPairAddress}>`,
+    );
+  }
+  if (chain === "robinhood") {
+    links.push(`🔗 <https://robinhoodchain.blockscout.com/token/${i.address}>`);
+  }
+  return [
+    "🎯 **交易触发 / TRADE SIGNAL**",
+    formatSignalAlert(ev),
+    `CA: \`${i.address}\``,
+    links.join("  "),
+  ].join("\n");
 }
 
 /** Shared dedup + delivery for one evaluated token. */
@@ -209,6 +239,12 @@ async function maybeAlert(
       );
       if (safety.ok) {
         await deliverTradeSignal(formatTradeSignal(evaluation), options, input.chain);
+        // Wake the AI decision session (background probe watches this file)
+        if (!options.dryRun) {
+          await appendAiInbox(evaluation).catch((err) =>
+            console.error("ai inbox write failed:", (err as Error).message),
+          );
+        }
       } else {
         await deliverFeed(
           `⛔ 信号被安全门拦截 ${input.symbol} [${input.chain}]: ${safety.flags.join(", ")}\n` +

@@ -2,7 +2,7 @@
   "name": "foxhole-bot",
   "version": "0.2.0",
   "private": true,
-  "description": "Robinhood Chain meme trading intelligence — Long.xyz launch & squeeze monitoring",
+  "description": "Robinhood Chain meme trading intelligence \u2014 Long.xyz launch & squeeze monitoring",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -24,7 +24,8 @@
     "serve": "python3 -m http.server 8787 --directory web",
     "dev": "npm run fetch:long && npm run serve",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "ai": "tsx src/cli/ai-trade.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
