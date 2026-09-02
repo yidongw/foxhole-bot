@@ -231,6 +231,77 @@ chain-agnostic engineering we build ourselves:
 7. **External signal intake** (OKX WS / GMGN feeds) — already planned as
    Phase 3, key-gated.
 
+## 7c. Borrow map — top-down, by capability
+
+Legend: **[dep]** pinned npm dependency · **[vendor]** copy into repo with
+attribution · **[pattern]** rebuild the idea (license/language forbids copy) ·
+**[api]** hosted service, no code.
+
+### Triggering (launch + trend discovery)
+- All chains
+  - [api] DexScreener — search, token-profiles/boosts trending
+  - [pattern] chainstacklabs bot — staged filter pipeline, per-strategy configs
+- Solana (pump.fun)
+  - [dep] @pump-fun/pump-sdk — program IDs, event layouts, graduation detection
+  - [pattern] chainstacklabs bot — listener fallback chain, launch filters
+  - [vendor] its IDL JSONs — only if the official SDK misses an account type
+  - [api] PumpPortal WS — subscribeNewToken/subscribeMigration (optional)
+- BSC (Four.meme)
+  - [vendor] @fnzero/four-trading-sdk — TokenManager addresses, event decoding
+  - [pattern] bitquery/sniper-bot-bsc — launch-detect → entry flow shape
+- Base (Clanker)
+  - [vendor] clanker-sdk v3/v4 — factory addresses + ABIs
+  - [pattern] gmgn-skills trenches — dev-history/bundler filter concepts
+- ETH — own generalized EVM watcher; nothing worth borrowing
+
+### Analysis (signals)
+- ours (built): volume spike/accel, momentum, launch-watch, lock ratio + trend
+- [pattern] robinhood-volume-alerts — learned volume baseline vs static ratios
+- [pattern] OKX copy-trade plugin — 15-point safety checklist, consensus entry
+- [pattern] OKX trench scanner — TX-acceleration signal
+- [dep] @pump-fun/pump-sdk — curve progress/velocity math
+- [vendor] fnzero — Four.meme curve progress math
+- [dep] @goplus/sdk-node — honeypot/tax/holder flags (EVM)
+- [api, keys] GMGN / hoodly MCPs — security, smart money
+- [api, keys] 6551 opennews — meme sentiment as score modifier
+
+### Alerting + control
+- ours (built): webhooks, digests, cooldowns, level-upgrade dedup
+- [pattern] robinhood-chain-alert-bot — alert taxonomy + severity routing
+- [pattern] robinhood-toolkit — /healthz, severity → channel routing
+- [pattern] moonbags — interactive control (/positions, /sellall, sell
+  buttons) rebuilt on [dep] discord.js
+- [pattern] moonbags — positions/P&L dashboard view
+
+### Execution
+- Robinhood: [dep] hoodchain (done)
+- Solana: [dep] @pump-fun/pump-sdk (curve) + [dep] @jup-ag/api (graduated);
+  [pattern] pumpfun-pumpswap-sdk auto-routing by graduation state;
+  [pattern] Jito bundle submission (only if 0-block ever in scope)
+- BSC: [vendor] fnzero tx construction → viem; Pancake v2 router via viem
+- Base/ETH: direct viem router; [dep] @uniswap/sdk-core / @pancakeswap/sdk
+  only if routing math demands it
+- [pattern] moonbags jupClient — retry/slippage/priority-fee shape
+- [pattern] robinhood-chain-trading-bot — paper/live pipeline parity
+
+### Risk, positions, exits
+- ours (built): caps, limits, hard/trail stops, tiered TPs, stale exit, advisor
+- [pattern] moonbags — 3s fast position tick; evidence-gated advisor
+- [pattern] OKX copy-trade — 7-layer exit ladder ideas
+- [pattern] robinhood-chain-trading-bot — P&L accounting/dashboard
+
+### Backtesting + tuning
+- ours (built): DexPaprika walk-forward replay, pump/control fixtures
+- [pattern] moonbags — parameter grid search
+- [pattern] chainstacklabs — per-strategy config variants for A/B runs
+
+### Data + infra
+- [dep] viem, @solana/web3.js, @anthropic-ai/sdk, discord.js (pinned exact)
+- [dep, optional] @triton-one/yellowstone-grpc — fast SOL listening
+- [api] DexScreener, DexPaprika, Jupiter lite-api, public RPCs, GoPlus
+- [pattern] robinhood-chain-kit — SQLite indexer + multicall batching when
+  JSON state stops scaling
+
 ## 8. Needs from the user (none block P0–P4)
 
 - Nice-to-have keys: Helius (SOL rate limits), PumpPortal (0.02 SOL),
