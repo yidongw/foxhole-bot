@@ -21,6 +21,15 @@ Done and pushed to main:
   timeout, entries on squeeze triggers, Discord trade alerts + daily P&L,
   `npm run positions`. Live path uses hoodchain `executeSwap` (v3 routing —
   Long v4-only tokens raise `NoRouteError`, surfaced).
+- **Monitor freshness + hygiene** — launches.json/signals.json now persist
+  from the monitor loop; monitor state prunes alerts >7d, snapshots >30d.
+- **LLM exit advisor** — `src/trade/advisor.ts` (Claude Opus 5, off by
+  default): consulted hourly per open position only when no deterministic
+  exit fired; may add an early exit at ≥0.6 confidence, can never cancel
+  stops. Fail-safe to hold.
+- **DexPaprika poolId auto-resolve: dropped** — their `/pools/search`
+  endpoint ignores both `token` and `query` params (returns global top
+  pools); fixtures keep hardcoded poolIds.
 - **Bug found by paper trading**: analyzing the HIMS stock token returned
   BONER's stats via the inverted pair → fixed (`selectPrimaryPair` base-side
   check + "• Robinhood Token" filter in discovery).

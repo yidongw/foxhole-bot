@@ -94,8 +94,8 @@ Run the monitor as a service: `cp deploy/bot.foxhole.monitor.plist ~/Library/Lau
 - [x] Position tracker + trail/hard stop + tiered take-profits (ref: [moonbags](https://github.com/fciaf420/moonbags))
 - [x] Risk engine: per-trade/daily caps, position limits, denylist, **paper mode default** (ref: [robinhood-chain-trading-bot](https://github.com/nirholas/robinhood-chain-trading-bot))
 - [x] Entry signals: squeeze triggers (lock_strong / lock_rising_strong / boner_composite)
+- [x] LLM exit advisor (optional): `TRADE_LLM_ADVISOR=1` + `ANTHROPIC_API_KEY`; early exits only, never overrides stops
 - [ ] Live-mode gate: ≥2 weeks clean paper trading first (see `.env.example` TRADE_* vars)
-- [ ] Optional: LLM exit advisor
 
 ```bash
 TRADE_MODE=paper npm run monitor   # simulated entries/exits + daily P&L to Discord
