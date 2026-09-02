@@ -1,6 +1,6 @@
 import { decodeAbiParameters, getAddress, padHex, type Address } from "viem";
 
-import { getErc20Symbol, getPublicClient } from "../chain/client.js";
+import { getErc20Symbol, getLogsClient, getPublicClient } from "../chain/client.js";
 import {
   fetchLogsChunked,
   type RawLog,
@@ -81,7 +81,7 @@ export interface FetchCreatedOptions {
 export async function fetchCreatedEvents(
   options: FetchCreatedOptions,
 ): Promise<FactoryLaunch[]> {
-  const logs = await fetchLogsChunked(getPublicClient(), {
+  const logs = await fetchLogsChunked(getLogsClient(), {
     address: LONG_FACTORY,
     topics: options.token
       ? [LONG_CREATED_TOPIC0, padHex(options.token, { size: 32 })]

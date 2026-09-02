@@ -1,4 +1,10 @@
-import { type Address, type PublicClient, erc20Abi } from "viem";
+import {
+  createPublicClient,
+  http,
+  type Address,
+  type PublicClient,
+  erc20Abi,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createHoodClient, getQuote } from "hoodchain";
 import { LONG_AIRLOCK } from "../long/constants.js";
@@ -42,6 +48,25 @@ export function getTradingClient(): ReturnType<typeof createHoodClient> {
 /** Raw viem public client for log queries and reads. */
 export function getPublicClient(): PublicClient {
   return getHoodClient().public as unknown as PublicClient;
+}
+
+let logsClient: PublicClient | undefined;
+
+/**
+ * Client for eth_getLogs: Alchemy's free tier caps log queries at 10 blocks,
+ * so log scans go through the public RPC (10k-block ranges OK, just rate
+ * limited — the chunked fetcher paces itself). Override: ROBINHOOD_LOGS_RPC.
+ */
+export function getLogsClient(): PublicClient {
+  if (!logsClient) {
+    logsClient = createPublicClient({
+      transport: http(
+        process.env.ROBINHOOD_LOGS_RPC ?? "https://rpc.mainnet.chain.robinhood.com",
+        { retryCount: 4, retryDelay: 1500 },
+      ),
+    });
+  }
+  return logsClient;
 }
 
 export async function getErc20Symbol(token: Address): Promise<string | undefined> {
