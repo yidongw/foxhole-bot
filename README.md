@@ -105,15 +105,21 @@ npm run positions                  # portfolio report
 Note: Long.xyz pools are Uniswap v4; hoodchain routes v3, so live swaps only
 work for tokens with a v3 route — `NoRouteError` is surfaced, never swallowed.
 
-### Multi-chain (see [PLAN-MULTICHAIN.md](./PLAN-MULTICHAIN.md))
+### Multi-chain (see [PLAN-MULTICHAIN.md](./PLAN-MULTICHAIN.md)) — P0–P5 shipped
 - [x] **P0**: chain adapters + trending/momentum monitoring for Solana, BSC, Base, ETH
   (`CHAINS=robinhood,solana,bsc,base,ethereum`), chain-aware paper trading
   (`TRADE_CHAINS=`), fast 15s position tick (`POSITION_TICK_MS`)
-- [ ] P1: BSC Four.meme watcher + PancakeSwap execution
-- [ ] P2: Base Clanker watcher + Uniswap execution
-- [ ] P3: Solana pump.fun stack (@pump-fun/pump-sdk + @jup-ag/api)
-- [ ] P4: ETH Uniswap pair watcher (monitor-only)
-- [ ] P5: GoPlus/honeypot safety gates + per-chain backtests
+- [x] **P1**: BSC Four.meme `TokenCreate` watcher (verified on-chain) + PancakeSwap v2 execution
+- [x] **P2**: Base Clanker v4 `TokenCreated` watcher (ABI mined from MIT sdk) + Uniswap v2 execution
+- [x] **P3**: Solana pump.fun curve state (@pump-fun/pump-sdk) + graduation signals + Jupiter lite-api execution
+- [x] **P4**: ETH Uniswap v2/v3 new-WETH-pair watcher (monitor-only by design)
+- [x] **P5**: GoPlus safety gate — hard entry veto on honeypot/taxes>10%/mint/rug mechanics (`TRADE_SAFETY_GATE=0` to disable)
+- [ ] Per-chain backtest fixtures + ≥2-week paper gate before any live mode
+
+⚠️ **All non-Robinhood live execution paths are UNTESTED with real funds.**
+Paper mode (`TRADE_MODE=paper`) is the default and works on every chain.
+Live keys: `TRADER_PRIVATE_KEY` (RB), `BSC_PRIVATE_KEY`, `BASE_PRIVATE_KEY`,
+`SOLANA_PRIVATE_KEY` — throwaway wallets only.
 
 ### Phase 3 — Multi-signal
 - [ ] Pons launchpad module

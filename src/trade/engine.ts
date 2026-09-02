@@ -18,6 +18,7 @@ import {
   type PositionsFile,
 } from "./positions.js";
 import { checkEntry } from "./risk.js";
+import { checkTokenSafety, safetyGateEnabled } from "./safety.js";
 import { evaluateExits, type ExitAction } from "./exits.js";
 import type { TradeFill } from "./execute.js";
 import {
@@ -111,6 +112,20 @@ export async function processSignals(
         console.log(`entry skipped ${ev.input.symbol}: ${verdict.reason}`);
       }
       continue;
+    }
+
+    if (safetyGateEnabled()) {
+      const safety = await checkTokenSafety(chain, candidate.token);
+      if (!safety.ok) {
+        console.log(
+          `entry vetoed ${ev.input.symbol} [${chain}]: ${safety.flags.join(", ")}`,
+        );
+        await notify(
+          `🛑 ${modeTag(config)} entry VETOED [${chain}] ${candidate.symbol}: ${safety.flags.join(", ")}`,
+          options,
+        );
+        continue;
+      }
     }
 
     try {

@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
+    "@goplus/sdk-node": "1.1.2",
     "@jup-ag/api": "6.0.48",
     "@pump-fun/pump-sdk": "1.36.0",
     "@solana/web3.js": "1.98.4",

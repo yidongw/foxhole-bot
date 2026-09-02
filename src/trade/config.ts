@@ -52,7 +52,7 @@ export function loadTradeConfig(): TradeConfig {
     ],
     maxHoldHours: num("TRADE_MAX_HOLD_HOURS", 96),
     entryTriggers: (process.env.TRADE_ENTRY_TRIGGERS ??
-      "lock_strong,lock_rising_strong,boner_composite")
+      "lock_strong,lock_rising_strong,boner_composite,curve_near_grad_strong")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
