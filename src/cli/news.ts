@@ -73,8 +73,7 @@ async function main(): Promise<void> {
   const { flashes } = await fetchNewFlashes(latest - 15, 15);
   const watched = new Set(await watchedSymbols());
   for (const flash of flashes) {
-    const matchText = [flash.title, flash.content].filter(Boolean).join(" ");
-    const cls = classifyFlash(matchText, [...watched]);
+    const cls = classifyFlash(flash.title, [...watched], flash.content);
     // 模拟 poller 的热点币记忆：wake 过的 symbol 让后续快讯直接命中
     if (cls.action === "wake") {
       for (const sym of extractSymbols(flash.title)) watched.add(sym);

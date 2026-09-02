@@ -62,7 +62,17 @@ function isAmbiguous(sym: string): boolean {
   return sym.length <= 2 || SYMBOL_STOPLIST.has(sym.toUpperCase());
 }
 
-export function classifyFlash(title: string, watched: string[] = []): NewsClassification {
+/**
+ * @param title 快讯标题（“具体点名了哪个币”只看标题 — 正文会引用 ARB/ETH 等无关 ticker）
+ * @param watched 关注表（launches + 热点币记忆）
+ * @param content 可选正文纯文本 — 参与链名/涨跌措辞匹配（标题常不带“Robinhood 生态”字样）
+ */
+export function classifyFlash(
+  rawTitle: string,
+  watched: string[] = [],
+  content?: string,
+): NewsClassification {
+  const title = content ? `${rawTitle} ${content}` : rawTitle;
   const reasons: string[] = [];
   const memeContext = MEME_CONTEXT.test(title);
   const hitSymbols = watched.filter(
@@ -74,11 +84,24 @@ export function classifyFlash(title: string, watched: string[] = []): NewsClassi
   if (hitSymbols.length) reasons.push(`watched:${hitSymbols.join("+")}`);
   if (rbChain) reasons.push("rb-chain");
 
-  // 关注币 or 主战场链：正面负面都要叫醒（负面 = 退出/避险信号）
-  if (hitSymbols.length || rbChain) {
+  // 关注币命中：正面负面都叫醒（负面 = 退出/避险信号）
+  if (hitSymbols.length) {
     if (negative) reasons.push("negative");
     else if (MOMENTUM.test(title)) reasons.push("momentum");
     return { action: "wake", negative, reasons };
+  }
+
+  // 主战场链：必须有具体的事才叫醒 — 暴跌/动能/上所/点名了某个 token；
+  // 纯叙事（“Robinhood Chain 成新增收入来源”这类）降级留痕，不打扰
+  if (rbChain) {
+    const specific =
+      negative || MOMENTUM.test(title) || LISTING.test(title) || extractSymbols(rawTitle).length > 0;
+    if (specific) {
+      if (negative) reasons.push("negative");
+      else if (MOMENTUM.test(title)) reasons.push("momentum");
+      return { action: "wake", negative, reasons };
+    }
+    return { action: "note", negative: false, reasons };
   }
 
   if (LISTING.test(title)) {

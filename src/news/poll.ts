@@ -130,8 +130,7 @@ export async function newsTick(options: {
   for (const flash of flashes) {
     // 标题+正文一起匹配 — “microduck市值突破3200万”标题不带链名，
     // 但正文里有“Robinhood 生态 Meme 币”（2026-09-02 复盘教训）
-    const matchText = [flash.title, flash.content].filter(Boolean).join(" ");
-    const cls = classifyFlash(matchText, watched);
+    const cls = classifyFlash(flash.title, watched, flash.content);
     if (cls.action === "drop") continue;
 
     if (cls.action === "wake") {

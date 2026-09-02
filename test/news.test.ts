@@ -68,6 +68,25 @@ describe("classifyFlash", () => {
     expect(c.action).toBe("drop");
   });
 
+  it("notes RB-chain narrative news without a concrete token (no wake)", () => {
+    // 2026-09-03 用户反馈: 这条进了 trade-signal 但无从下手
+    const c = classifyFlash(
+      "Arbitrum DAO上半年收入619万美元，Robinhood Chain成新增收入来源",
+      [],
+    );
+    expect(c.action).toBe("note");
+    expect(c.reasons).toContain("rb-chain");
+  });
+
+  it("still wakes RB-chain news that names a token or has momentum", () => {
+    expect(
+      classifyFlash(
+        "币股meme或正逼空纳斯达克上市公司？JINQIAN/FAMI暴涨或与KOL Rune收购Farmmi Inc股份关联",
+        [],
+      ).action,
+    ).toBe("wake");
+  });
+
   it("notes non-RB meme momentum instead of waking", () => {
     const c = classifyFlash("某Solana Meme币市值短时突破5000万美元", []);
     expect(c.action).toBe("note");
