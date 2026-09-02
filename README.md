@@ -105,6 +105,16 @@ npm run positions                  # portfolio report
 Note: Long.xyz pools are Uniswap v4; hoodchain routes v3, so live swaps only
 work for tokens with a v3 route — `NoRouteError` is surfaced, never swallowed.
 
+### Multi-chain (see [PLAN-MULTICHAIN.md](./PLAN-MULTICHAIN.md))
+- [x] **P0**: chain adapters + trending/momentum monitoring for Solana, BSC, Base, ETH
+  (`CHAINS=robinhood,solana,bsc,base,ethereum`), chain-aware paper trading
+  (`TRADE_CHAINS=`), fast 15s position tick (`POSITION_TICK_MS`)
+- [ ] P1: BSC Four.meme watcher + PancakeSwap execution
+- [ ] P2: Base Clanker watcher + Uniswap execution
+- [ ] P3: Solana pump.fun stack (@pump-fun/pump-sdk + @jup-ag/api)
+- [ ] P4: ETH Uniswap pair watcher (monitor-only)
+- [ ] P5: GoPlus/honeypot safety gates + per-chain backtests
+
 ### Phase 3 — Multi-signal
 - [ ] Pons launchpad module
 - [ ] 6551 Twitter meme sentiment (`opennews-mcp`)
