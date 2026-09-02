@@ -20,6 +20,8 @@
     "review:confirm": "tsx src/cli/review.ts --confirm",
     "factory:backfill": "tsx src/cli/factory-backfill.ts",
     "positions": "tsx src/cli/positions.ts",
+    "news": "tsx src/cli/news.ts",
+    "news:search": "tsx src/cli/news.ts search",
     "deploy": "bash scripts/deploy-local.sh",
     "serve": "python3 -m http.server 8787 --directory web",
     "dev": "npm run fetch:long && npm run serve",

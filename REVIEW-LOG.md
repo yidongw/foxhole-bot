@@ -70,3 +70,29 @@ rb 频道同时兼任全局兜底(复盘确认清单发 🟢🧹-rb-filter-log)�
   - 1. microduck [robinhood] +134% coverage_miss `0xD5f1afEA47b1A9eab414D2ee740cF1d6d039E725`
   - 2. UBIK [robinhood] +132% coverage_miss `0x812486EAea648819853F8E372dc9f1516C7868Bd`
 
+
+## 2026-09-02 — BlockBeats（区块律动）新闻信号接入
+
+**调研结论(读了当天 74 条真实快讯人工分拣):**
+- ~70% 是噪音(宏观/美股个股/AI 行业/政治花边),对 RB meme 短线无用。
+- 可交易的三类: ① RB链/币股 meme 动态(JINQIAN/FAMI 当天从速通 1800万
+  → 破 7000万 → 跌超70% 全程逐条有快讯,含"KOL 承认数据编造"这种
+  顶级退出信号); ② 上所催化(Binance Alpha 上线 FLORK 后短时 +85%);
+  ③ 巨鲸买入/崩盘留痕。
+- 对照当日 coverage_miss: ORBIO/microduck/MOO 律动**没有**报道过(太小),
+  新闻救不了这类 miss,链上扫描仍是主力; 但 JINQIAN(不在 launches 里,
+  纯 RB meme)律动实时报了整轮 — 新闻通道恰好补上这类盲区。
+- 官方 API 已改版: 免费 API Key 制(申请即用),订阅只是提高额度。
+  旧免钥接口/RSS 全部返回空。**先申请免费 Key,不用买 Pro**。
+
+**新增 src/news/ (scrape-based,拿到 Key 后切官方接口):**
+- blockbeats.ts — 快讯 ID 严格递增,列表页定位最新 ID + 详情页 SSR 抓取;
+  全部归档到 data/news/YYYY-MM.jsonl(本地可搜: npm run news:search)。
+- filter.ts — 三层分类 wake/note/drop; 规则含 RB链、上所、崩盘、巨鲸买入、
+  短 ticker 大小写敏感词边界(MU 不撞 Multicoin)。
+- 热点币记忆: wake 快讯里的 symbol 存 48h,后续暴跌类新闻直接负面叫醒
+  (JINQIAN 暴涨 wake → "跌超70%+编造" 自动变 ⚠️ 退出信号,已验证)。
+- judge.ts — wake 候选过 Claude(claude-opus-5, effort low)判定,
+  否决的降级进 filter-log; 无 ANTHROPIC_API_KEY 时 fail-open 直接推。
+- monitor 内新增 newsLoop(默认开,NEWS_POLL_MS=3min,BLOCKBEATS_NEWS=0 关)。
+- 测试: test/news.test.ts 用当天真实标题做回归,87/87 全绿。

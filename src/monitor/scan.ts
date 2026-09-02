@@ -610,6 +610,25 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     }
   };
 
+  // News loop: BlockBeats 快讯轮询 — 上所催化/RB链动态/关注币负面 → 叫醒。
+  // Gated on BLOCKBEATS_NEWS (default on); scrape-based until we hold an API key.
+  const newsInterval = Number(process.env.NEWS_POLL_MS ?? 180_000);
+  const newsLoop = async () => {
+    if (process.env.BLOCKBEATS_NEWS === "0") return;
+    const { newsTick } = await import("../news/poll.js");
+    while (!stopped) {
+      try {
+        const r = await newsTick({ dryRun: options.dryRun, webhookUrl: options.webhookUrl });
+        if (r.fetched) {
+          console.log(`news tick: ${r.fetched} flashes, ${r.woke} woke, ${r.noted} noted`);
+        }
+      } catch (err) {
+        console.error("news tick error:", (err as Error).message);
+      }
+      await sleep(newsInterval);
+    }
+  };
+
   // Fast loop: open positions get priced and exit-checked every ~15s —
   // 5-minute stops are far too slow for meme trailing exits.
   const positionLoop = async () => {
@@ -648,6 +667,8 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
   );
 
   const positionLoopPromise = positionLoop();
+  const newsLoopPromise = newsLoop();
+  void newsLoopPromise;
 
   while (true) {
     try {
