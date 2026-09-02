@@ -57,6 +57,8 @@ export interface ClassifiedMover extends Mover {
   noData?: boolean;
   /** GoPlus/holder-concentration flags from the safety gate. */
   safetyFlags?: string[];
+  /** BlockBeats（区块律动）对照：该币已被新闻报道过 = 新闻通道也漏了。 */
+  newsNote?: string;
 }
 
 /** Chart health from both candle sources at two granularities. */

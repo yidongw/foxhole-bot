@@ -16,7 +16,8 @@ export interface NewsClassification {
 }
 
 // 本 bot 的主战场：Robinhood 链 / Long.xyz 币股 meme
-const RB_CHAIN = /Robinhood\s*(链|Chain)|Long\.xyz|币股/i;
+// （快讯正文常写“Robinhood 生态 Meme 币”“Robinhood 市场”，一并覆盖）
+const RB_CHAIN = /Robinhood\s*(链|Chain|生态|市场)|Long\.xyz|币股/i;
 
 // 上所/上线催化（现货、Alpha、韩所优先；合约上线也放行，交给下游降权）
 const LISTING =
@@ -54,9 +55,19 @@ export function usableSymbols(symbols: Array<string | undefined>): string[] {
   );
 }
 
+// 有 meme/RB 语境才允许歧义符号（AI、MU 这类会撞普通词的）算命中
+const MEME_CONTEXT = /[Mm]eme|Robinhood|Long\.xyz|币股/;
+
+function isAmbiguous(sym: string): boolean {
+  return sym.length <= 2 || SYMBOL_STOPLIST.has(sym.toUpperCase());
+}
+
 export function classifyFlash(title: string, watched: string[] = []): NewsClassification {
   const reasons: string[] = [];
-  const hitSymbols = watched.filter((s) => symbolPattern(s).test(title));
+  const memeContext = MEME_CONTEXT.test(title);
+  const hitSymbols = watched.filter(
+    (s) => symbolPattern(s).test(title) && (memeContext || !isAmbiguous(s)),
+  );
   const rbChain = RB_CHAIN.test(title);
   const negative = NEGATIVE.test(title);
 
@@ -85,6 +96,12 @@ export function classifyFlash(title: string, watched: string[] = []): NewsClassi
     return { action: "note", negative, reasons: ["meme-momentum"] };
   }
 
+  // 动能措辞但标题没带 Meme/链名（如「microduck市值突破3200万美元」）——
+  // 2026-09-02 复盘教训: 这类标题正是漏扫币的第一信号，至少留痕
+  if (MOMENTUM.test(title)) {
+    return { action: "note", negative: false, reasons: ["momentum"] };
+  }
+
   // 崩盘 / 巨鲸建仓：不认识的币也留痕 — 复盘时对照 coverage_miss
   if (CRASH.test(title)) {
     return { action: "note", negative: true, reasons: ["crash"] };
@@ -102,14 +119,24 @@ const SYMBOL_STOPLIST = new Set([
   "AI", "API", "APP", "APR", "APY", "ATH", "CEO", "CTO", "CPI", "DAO",
   "DEX", "CEX", "ETF", "FDV", "IPO", "KOL", "LP", "NFT", "NYSE", "OG",
   "OTC", "PVP", "RWA", "TGE", "TVL", "WTI", "ADP", "GDP", "FOMC", "SEC",
-  "HOOD", "MEME",
+  "HOOD", "MEME", "GMGN", "FOMO",
 ]);
 
 /**
  * 从叫醒过的快讯标题里提取候选 token symbol（热点币记忆的输入）：
  * 一个币第一次上新闻后，48h 内它的后续快讯（尤其暴跌）都应命中关注表。
+ * 除全大写 ticker 外，还提取「Meme币microduck」式小写名和「牛来」式引号名。
  */
 export function extractSymbols(title: string): string[] {
-  const raw = title.match(/[A-Z][A-Z0-9]{2,9}/g) ?? [];
-  return [...new Set(raw.filter((s) => !SYMBOL_STOPLIST.has(s)))];
+  const out: string[] = [];
+  out.push(...(title.match(/[A-Z][A-Z0-9]{2,9}/g) ?? []));
+  for (const m of title.matchAll(/[Mm]eme\s*币\s*([A-Za-z][A-Za-z0-9_-]{2,14})/g)) {
+    out.push(m[1]);
+  }
+  for (const m of title.matchAll(/「([^」\s]{1,12})」/g)) {
+    out.push(m[1]);
+  }
+  return [
+    ...new Set(out.filter((s) => !SYMBOL_STOPLIST.has(s.toUpperCase()))),
+  ];
 }

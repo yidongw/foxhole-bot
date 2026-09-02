@@ -9,13 +9,19 @@ const LIST_URL = "https://www.theblockbeats.info/newsflash";
 const FLASH_URL = (id: number) => `https://www.theblockbeats.info/flash/${id}`;
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)";
 
+// 官方 API（免费 Key: theblockbeats.info/apiDoc → 申请 Key,免费额度 10000 次）
+const API_BASE = "https://api-pro.theblockbeats.info/v1";
+
+function apiKey(): string | undefined {
+  return process.env.BLOCKBEATS_API_KEY || undefined;
+}
+
 /**
  * BlockBeats（区块律动）快讯抓取。
  *
- * 官方开放 API 已改版为 API-Key 制（免费 Key 可申请，订阅提额）：
- * https://www.theblockbeats.info/apiDoc — 拿到 BLOCKBEATS_API_KEY 后应切到
- * 官方 open-flash / search 接口。在那之前走 SSR 页面：快讯 ID 严格递增，
- * 列表页取最新 ID，再逐条抓详情页的 <title>/og:description。
+ * 有 BLOCKBEATS_API_KEY 时走官方接口（/v1/newsflash + /v1/search，
+ * 鉴权是 `api-key` 请求头）；没有或接口失败时退回 SSR 页面抓取：
+ * 快讯 ID 严格递增，列表页取最新 ID，再逐条抓详情页。
  */
 export interface Flash {
   id: number;
@@ -23,6 +29,99 @@ export interface Flash {
   content?: string;
   url: string;
   fetchedAt: string;
+}
+
+export interface NewsSearchHit {
+  /** 0 = 深度文章, 1 = 快讯 */
+  type: number;
+  title: string;
+  content?: string;
+  createTime: string;
+  url?: string;
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function fetchApi(path: string, params: Record<string, string>): Promise<unknown> {
+  const key = apiKey();
+  if (!key) return undefined;
+  try {
+    const qs = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}${path}?${qs}`, {
+      headers: { "api-key": key },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return undefined;
+    const body = (await res.json()) as { status: number; data?: unknown };
+    return body.status === 0 ? body.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 官方接口拉最新快讯（id > sinceId），失败返回 undefined 让调用方走抓取。 */
+async function fetchNewFlashesOfficial(
+  sinceId: number,
+  cap: number,
+): Promise<{ flashes: Flash[]; latestId: number } | undefined> {
+  const data = (await fetchApi("/newsflash", {
+    page: "1",
+    size: String(Math.min(cap, 50)),
+    lang: "cn",
+  })) as
+    | { data?: Array<{ id: number; title: string; content?: string; link?: string }> }
+    | undefined;
+  const rows = data?.data;
+  if (!rows?.length) return undefined;
+  const now = new Date().toISOString();
+  const flashes = rows
+    .filter((r) => r.id > sinceId)
+    .map((r) => ({
+      id: r.id,
+      title: r.title,
+      content: r.content ? stripHtml(r.content) : undefined,
+      url: FLASH_URL(r.id),
+      fetchedAt: now,
+    }))
+    .sort((a, b) => a.id - b.id);
+  const latestId = Math.max(sinceId, ...rows.map((r) => r.id));
+  return { flashes, latestId };
+}
+
+/** 官方关键词搜索（“查某个币的新闻”）。无 Key 或失败返回 undefined。 */
+export async function searchNews(
+  keyword: string,
+  limit = 10,
+): Promise<NewsSearchHit[] | undefined> {
+  const data = (await fetchApi("/search", {
+    name: keyword,
+    page: "1",
+    size: String(Math.min(limit, 100)),
+  })) as
+    | {
+        data?: Array<{
+          type: number;
+          title: string;
+          content?: string;
+          create_time: string;
+          url?: string;
+        }>;
+      }
+    | undefined;
+  if (!data?.data) return undefined;
+  return data.data.map((r) => ({
+    type: r.type,
+    title: r.title,
+    content: r.content,
+    createTime: r.create_time,
+    url: r.url,
+  }));
 }
 
 async function fetchText(url: string): Promise<string | undefined> {
@@ -80,6 +179,8 @@ export async function fetchNewFlashes(
   sinceId: number,
   cap = 30,
 ): Promise<{ flashes: Flash[]; latestId: number }> {
+  const official = await fetchNewFlashesOfficial(sinceId, cap);
+  if (official) return official;
   const latest = await fetchLatestFlashId();
   if (!latest || latest <= sinceId) return { flashes: [], latestId: sinceId };
   const from = Math.max(sinceId + 1, latest - cap + 1);

@@ -107,6 +107,32 @@ describe("extractSymbols", () => {
     expect(extractSymbols("Binance Alpha上线FLORK、PONS")).toEqual(["FLORK", "PONS"]);
     expect(extractSymbols("BTC巨鲸用1.58亿大单看涨至10万美元")).toEqual([]);
   });
+
+  it("extracts lowercase Meme币 names and quoted names (microduck 复盘教训)", () => {
+    expect(
+      extractSymbols("Meme币microduck市值短时突破4000万美元，再创历史新高"),
+    ).toContain("microduck");
+    expect(extractSymbols("「牛来」 市值短时跌破7000万美元，较高点腰斩")).toContain(
+      "牛来",
+    );
+  });
+});
+
+describe("classifyFlash momentum without meme keyword", () => {
+  it("notes bare market-cap-breakout titles instead of dropping", () => {
+    // 2026-09-02: 这条被旧规则 drop，导致 microduck 暴涨漏报
+    const c = classifyFlash("microduck市值突破3200万美元，现报0.0322美元", []);
+    expect(c.action).toBe("note");
+    expect(c.reasons).toContain("momentum");
+  });
+
+  it("wakes when content mentions the RB chain even if title does not", () => {
+    const c = classifyFlash(
+      "microduck市值突破3200万美元，现报0.0322美元 Robinhood 生态 Meme 币 microduck 市值现报约 3221 万美元",
+      [],
+    );
+    expect(c.action).toBe("wake");
+  });
 });
 
 describe("usableSymbols", () => {

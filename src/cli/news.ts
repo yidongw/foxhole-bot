@@ -1,4 +1,12 @@
-import { fetchNewFlashes, fetchLatestFlashId, searchArchive } from "../news/blockbeats.js";
+import { loadEnv } from "../lib/env.js";
+loadEnv();
+
+import {
+  fetchNewFlashes,
+  fetchLatestFlashId,
+  searchArchive,
+  searchNews,
+} from "../news/blockbeats.js";
 import { classifyFlash, extractSymbols, usableSymbols } from "../news/filter.js";
 import { newsTick } from "../news/poll.js";
 import { readFile } from "node:fs/promises";
@@ -31,11 +39,18 @@ async function main(): Promise<void> {
       console.error("usage: npm run news:search -- <keyword>");
       process.exit(1);
     }
+    const official = await searchNews(keyword, 15);
+    if (official) {
+      if (!official.length) console.log(`律动无 "${keyword}" 相关内容`);
+      for (const h of official) {
+        console.log(`[${h.type === 1 ? "快讯" : "文章"}] ${h.createTime}  ${h.title}`);
+      }
+      return;
+    }
     const hits = await searchArchive(keyword);
     if (!hits.length) {
       console.log(
-        `no local hits for "${keyword}" (archive starts when the news poller starts; ` +
-          "older history needs a BLOCKBEATS_API_KEY for the official /v1/search)",
+        `no local hits for "${keyword}" (set BLOCKBEATS_API_KEY for full official search)`,
       );
       return;
     }
@@ -58,7 +73,8 @@ async function main(): Promise<void> {
   const { flashes } = await fetchNewFlashes(latest - 15, 15);
   const watched = new Set(await watchedSymbols());
   for (const flash of flashes) {
-    const cls = classifyFlash(flash.title, [...watched]);
+    const matchText = [flash.title, flash.content].filter(Boolean).join(" ");
+    const cls = classifyFlash(matchText, [...watched]);
     // 模拟 poller 的热点币记忆：wake 过的 symbol 让后续快讯直接命中
     if (cls.action === "wake") {
       for (const sym of extractSymbols(flash.title)) watched.add(sym);

@@ -72,7 +72,8 @@ function moverLine(m: ClassifiedMover, index?: number): string {
   return (
     `${prefix}${tag} ${m.symbol ?? m.address.slice(0, 10)} [${m.chain}] +${m.priceChange24h.toFixed(0)}% ` +
     `vol $${(m.volume24hUsd / 1e6).toFixed(1)}M liq $${(m.liquidityUsd / 1e3).toFixed(0)}K\n` +
-    `   \`${m.address}\``
+    `   \`${m.address}\`` +
+    (m.newsNote ? `\n   📰 ${m.newsNote}` : "")
   );
 }
 
@@ -126,6 +127,21 @@ export async function runDailyReview(options: {
     (m) =>
       m.kind !== "alerted" && !m.ladder && !m.noData && !m.safetyFlags?.length,
   );
+
+  // BlockBeats 对照：漏掉的暴涨在律动上搜一把 — 报道过 = 新闻通道也漏了，
+  // 说明过滤规则要修（2026-09-02: microduck 有 10 条报道，早于扫描 10 小时）
+  try {
+    const { searchNews } = await import("../news/blockbeats.js");
+    for (const m of candidates) {
+      if (!m.symbol) continue;
+      const hits = await searchNews(m.symbol, 3);
+      if (hits?.length) {
+        m.newsNote = `律动 ${hits.length}+ 条报道，最新: ${hits[0].title}（${hits[0].createTime}）`;
+      }
+    }
+  } catch (err) {
+    console.error("news cross-check failed (continuing):", (err as Error).message);
+  }
   await mkdir(path.dirname(PENDING_MOVERS_PATH), { recursive: true });
   await writeFile(
     PENDING_MOVERS_PATH,
@@ -182,7 +198,10 @@ export async function runDailyReview(options: {
       ...wins.map((w) => `  - ✅ ${w.symbol} [${w.chain}] ${pct(w.maxReturn)} triggers=${w.triggers.join(",")}`),
       ...losses.map((l) => `  - ❌ ${l.symbol} [${l.chain}] ${pct(l.minReturn)} triggers=${l.triggers.join(",")}`),
       `- 暴涨扫描: ${movers.length} 个, 自动过滤 ${filtered.length} 个, 待人工确认 ${candidates.length} 个`,
-      ...candidates.map((m, i) => `  - ${i + 1}. ${m.symbol} [${m.chain}] +${m.priceChange24h.toFixed(0)}% ${m.kind} \`${m.address}\``),
+      ...candidates.map(
+        (m, i) =>
+          `  - ${i + 1}. ${m.symbol} [${m.chain}] +${m.priceChange24h.toFixed(0)}% ${m.kind} \`${m.address}\`${m.newsNote ? `\n    📰 ${m.newsNote}` : ""}`,
+      ),
     ].join("\n"),
   );
 

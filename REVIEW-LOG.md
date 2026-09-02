@@ -96,3 +96,21 @@ rb 频道同时兼任全局兜底(复盘确认清单发 🟢🧹-rb-filter-log)�
   否决的降级进 filter-log; 无 ANTHROPIC_API_KEY 时 fail-open 直接推。
 - monitor 内新增 newsLoop(默认开,NEWS_POLL_MS=3min,BLOCKBEATS_NEWS=0 关)。
 - 测试: test/news.test.ts 用当天真实标题做回归,87/87 全绿。
+
+## 2026-09-03 — 修正昨日结论 + 官方 API Key 到手
+
+**昨日"新闻救不了 coverage miss"的结论是错的**(采样只看了最近 ~80 条 ID):
+- microduck: 律动 10+ 条报道,最早 09-02 08:23(bot 18:12 才发现 miss,晚 10 小时)
+- MOO: 09-01 就有「单日涨超330%」报道,早了一整天
+- ORBIO: 确实没报道(唯一真·盲区)
+教训已固化成代码: ① 复盘时每个 miss 自动搜律动(daily.ts newsNote);
+② 标题不带链名的「X市值突破…」快讯从 drop 改为 note; ③ 标题+正文一起
+匹配(正文里的「Robinhood 生态 Meme 币」能救标题); ④ 小写/引号 token
+也进热点币记忆; ⑤ 歧义符号(AI/MU)要求 meme 语境才算命中,GMGN 进停用词。
+
+**账号+Key**: 用 agent@foxhole.bot 邮箱验证码注册了律动账号,免费 Key
+(bbp_34d980…,额度 10000 次)在 apiDoc 页可查。官方接口已接入并实测:
+- GET api-pro.theblockbeats.info/v1/newsflash (header api-key; page/size/type/lang)
+- GET /v1/search?name=<kw> (type: 0文章 1快讯)
+无 Key 或接口失败时自动退回页面抓取。站内搜索网页版其实免登录可用
+(昨日误判),但接口带签名,程序化走官方 API。
