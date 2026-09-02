@@ -51,6 +51,7 @@ import { loadTradeConfig } from "../trade/config.js";
 import { checkTokenSafety } from "../trade/safety.js";
 import { resolveWebhook } from "../notify/routes.js";
 import { appendAiInbox } from "../notify/ai-inbox.js";
+import { postThreadedSignal } from "../notify/signal-threads.js";
 import { managePositions, processSignals } from "../trade/engine.js";
 import type { LaunchRecord, LaunchesPayload, TokenAnalysis } from "../types.js";
 
@@ -238,7 +239,15 @@ async function maybeAlert(
         input.primaryPairAddress,
       );
       if (safety.ok) {
-        await deliverTradeSignal(formatTradeSignal(evaluation), options, input.chain);
+        // Thread-per-token mode (card + thread); flat message as fallback
+        const threaded = options.dryRun
+          ? false
+          : await postThreadedSignal(evaluation);
+        if (!threaded) {
+          await deliverTradeSignal(formatTradeSignal(evaluation), options, input.chain);
+        } else {
+          await appendAlertLog(formatTradeSignal(evaluation));
+        }
         // Wake the AI decision session (background probe watches this file)
         if (!options.dryRun) {
           await appendAiInbox(evaluation).catch((err) =>

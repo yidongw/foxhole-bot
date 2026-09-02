@@ -12,6 +12,7 @@ import { sendDiscordMessage } from "../notify/discord.js";
 import { appendAlertLog } from "../notify/alert-log.js";
 import { appendTradeJournal } from "./trade-journal.js";
 import { resolveWebhook } from "../notify/routes.js";
+import { postToSignalThread } from "../notify/signal-threads.js";
 import { sleep } from "../lib/utils.js";
 import type { SignalEvaluation } from "../signals/types.js";
 import { loadTradeConfig, type TradeConfig } from "./config.js";
@@ -45,6 +46,7 @@ async function notify(
   body: string,
   options: EngineOptions,
   chain?: string,
+  tokenAddress?: string,
 ): Promise<void> {
   if (options.dryRun) {
     console.log("--- DRY RUN TRADE ---\n" + body + "\n");
@@ -55,6 +57,10 @@ async function notify(
   const url = options.webhookUrl ?? resolveWebhook("trade", chain);
   if (url) await sendDiscordMessage(url, body).catch((err) => console.error(err));
   else console.log(body);
+  // Mirror into the token's signal thread so 交易思考全在一处
+  if (chain && tokenAddress) {
+    await postToSignalThread(chain, tokenAddress, body).catch(() => {});
+  }
 }
 
 function modeTag(config: TradeConfig): string {
@@ -198,6 +204,7 @@ export async function aiBuy(
     `🤖 ${modeTag(config)} **AI ENTRY [${chain}]** ${position.symbol}\n$${clamped} @ $${fill.priceUsd.toPrecision(4)}\n理由: ${reason}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
     {},
     chain,
+    position.token,
   );
   return `✅ 已开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚)`;
 }
@@ -336,6 +343,7 @@ export async function processSignals(
           `🛑 ${modeTag(config)} entry VETOED [${chain}] ${candidate.symbol}: ${safety.flags.join(", ")}`,
           options,
           chain,
+          candidate.token,
         );
         continue;
       }
@@ -381,6 +389,7 @@ export async function processSignals(
           .join("\n"),
         options,
         chain,
+        position.token,
       );
     } catch (err) {
       console.error(`entry failed ${candidate.symbol}:`, (err as Error).message);
@@ -484,6 +493,7 @@ export async function managePositions(
             .join("\n"),
           options,
           chain,
+          position.token,
         );
       } catch (err) {
         console.error(`exit failed ${position.symbol}:`, (err as Error).message);
