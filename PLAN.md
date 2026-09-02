@@ -2,6 +2,43 @@
 
 Status audit date: 2026-09-02. Based on README roadmap, REFERENCES.md, and a full read of `src/`.
 
+## Status update (2026-09-02, same day)
+
+Done and pushed to main:
+- **1.1 Factory watcher** — real `Created` topic0 verified on-chain
+  (`0xadc6f1f7…`, see `src/long/constants.ts` for the decoded layout;
+  topic3 = pair stock token). `npm run factory:backfill`, digest alerts in
+  the monitor (`LAUNCH_ALERT_MODE`). ~2.6k launches/day observed.
+- **1.2 Dashboard** — `web/data/signals.json` written each scan; 锁仓比 +
+  信号 columns live.
+- **1.3 Monitor hardening** — sequential loop (overlap bug fixed), error
+  backoff + health alert, Discord 429 retry, `.env` loader,
+  `deploy/bot.foxhole.monitor.plist` (KeepAlive).
+- **1.4 Tests + CI** — vitest (34 tests), `.github/workflows/ci.yml`.
+- **1.5 Lock trend** — `lock_rising` / `lock_rising_strong` triggers.
+- **2.1–2.5 Trading engine** — paper/live modes (`TRADE_MODE`, default off),
+  risk gates, JSON position store, hard/trail stops + tiered TPs + stale
+  timeout, entries on squeeze triggers, Discord trade alerts + daily P&L,
+  `npm run positions`. Live path uses hoodchain `executeSwap` (v3 routing —
+  Long v4-only tokens raise `NoRouteError`, surfaced).
+- **Bug found by paper trading**: analyzing the HIMS stock token returned
+  BONER's stats via the inverted pair → fixed (`selectPrimaryPair` base-side
+  check + "• Robinhood Token" filter in discovery).
+
+### Phase 3 findings (Pons reverse-engineering, blocked on credentials)
+
+Probed Pons V2 factory `0x7eD5…ec7e` on mainnet: it's busy (7.6k events/300k
+blocks) but none of the frequent events carry launch metadata (no strings, no
+token addresses) — topic0 catalog:
+- `0x8d4aad49…` ×7659, `0x308c390e…` ×2323 — curve trades (amount-only data)
+- `0xcdb72f15…`, `0xa0a18f5b…`, `0x0a44ef75…` ×167 each — per-token trio,
+  amounts only (graduation/settlement)
+- `0x67d517ee…`/`0x060d1992…` ×7 — batch fee/epoch settlements
+Launch discovery therefore needs Bitquery's Pons API (`TokenLaunched`) or
+Mobula — both need API keys. 6551 sentiment + GMGN research likewise need
+tokens. Next session with credentials: wire Bitquery Pons launches into the
+same digest pipeline, add GMGN security check as a pre-entry risk gate.
+
 ## What already works (verified in code)
 
 - **Discovery** — `src/long/fetch-launches.ts`: DexScreener search over hardcoded stock queries, stock-paired filter, launch-time backfill, `data/launches.json` + `web/data/launches.json`.
