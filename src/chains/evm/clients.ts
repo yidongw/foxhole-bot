@@ -6,7 +6,8 @@ import type { ChainId } from "../adapter.js";
 /** Public RPC defaults; override per chain with {BSC,BASE,ETH}_RPC env vars. */
 const RPC_DEFAULTS: Partial<Record<ChainId, { url: string; envVar: string }>> = {
   bsc: { url: "https://bsc.publicnode.com", envVar: "BSC_RPC" },
-  base: { url: "https://base.publicnode.com", envVar: "BASE_RPC" },
+  // publicnode gates Base getLogs behind a token; the official RPC allows it
+  base: { url: "https://mainnet.base.org", envVar: "BASE_RPC" },
   ethereum: { url: "https://ethereum.publicnode.com", envVar: "ETH_RPC" },
 };
 

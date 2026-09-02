@@ -30,6 +30,12 @@ export const V2_ROUTERS: Partial<
     nativeSymbol: "BNB",
     keyVar: "BSC_PRIVATE_KEY",
   },
+  base: {
+    router: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24", // Uniswap v2 (Base)
+    wrappedNative: "0x4200000000000000000000000000000000000006", // WETH
+    nativeSymbol: "ETH",
+    keyVar: "BASE_PRIVATE_KEY",
+  },
   ethereum: {
     router: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D", // Uniswap v2
     wrappedNative: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH

@@ -24,6 +24,8 @@ export interface MonitorState {
   lastFactoryBlock?: string;
   /** Last BSC block scanned for Four.meme TokenCreate events. */
   lastFourmemeBlock?: string;
+  /** Last Base block scanned for Clanker TokenCreated events. */
+  lastClankerBlock?: string;
   tokens: Record<string, TokenSnapshot>;
   /** alertKey -> last sent ISO timestamp */
   alertHistory: Record<string, string>;

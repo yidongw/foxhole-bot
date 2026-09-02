@@ -49,11 +49,26 @@ const bscAdapter: ChainAdapter = {
     ),
 };
 
+// Base: v2-router execution covers v2-pooled tokens; Clanker v4-pool-only
+// tokens have no v2 route and will revert on quote (surfaced, not swallowed).
+const baseAdapter: ChainAdapter = {
+  ...genericAdapter("base", "Base"),
+  buy: async (token, priceUsd, usd, config) =>
+    v2Buy("base", token as Address, usd, config.slippageBps),
+  sell: async (position, fraction, _currentPriceUsd, config) =>
+    v2Sell(
+      "base",
+      position.token as Address,
+      position.amountTokens * fraction,
+      config.slippageBps,
+    ),
+};
+
 const ADAPTERS: Record<ChainId, ChainAdapter> = {
   robinhood: robinhoodAdapter,
   solana: genericAdapter("solana", "Solana"),
   bsc: bscAdapter,
-  base: genericAdapter("base", "Base"),
+  base: baseAdapter,
   ethereum: genericAdapter("ethereum", "Ethereum"),
 };
 

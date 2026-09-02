@@ -35,6 +35,11 @@ import {
   formatFourmemeDigest,
   getBscLatestBlock,
 } from "../chains/bsc/fourmeme.js";
+import {
+  fetchClankerLaunches,
+  formatClankerDigest,
+  getBaseLatestBlock,
+} from "../chains/base/clanker.js";
 import { loadTradeConfig } from "../trade/config.js";
 import { managePositions, processSignals } from "../trade/engine.js";
 import type { LaunchRecord, LaunchesPayload, TokenAnalysis } from "../types.js";
@@ -306,6 +311,30 @@ async function checkFourmemeLaunches(
   }
 }
 
+/** Base first-run lookback ≈1h at 2s blocks. */
+const CLANKER_FIRST_RUN_LOOKBACK = 1_800n;
+
+async function checkClankerLaunches(
+  state: MonitorState,
+  options: ScanOptions,
+): Promise<void> {
+  const mode = process.env.LAUNCH_ALERT_MODE ?? "digest";
+  const latest = await getBaseLatestBlock();
+  const from = state.lastClankerBlock
+    ? BigInt(state.lastClankerBlock) + 1n
+    : latest - CLANKER_FIRST_RUN_LOOKBACK;
+  if (from > latest) return;
+
+  const launches = await fetchClankerLaunches(from, latest);
+  if (launches.length && mode !== "off") {
+    await deliverAlert(formatClankerDigest(launches), options);
+  }
+  state.lastClankerBlock = latest.toString();
+  if (launches.length) {
+    console.log(`clanker watcher: ${launches.length} new launch(es)`);
+  }
+}
+
 async function scanChainTrending(
   chain: ChainId,
   state: MonitorState,
@@ -319,6 +348,13 @@ async function scanChainTrending(
       await checkFourmemeLaunches(state, options);
     } catch (err) {
       console.error("fourmeme watcher failed (continuing):", (err as Error).message);
+    }
+  }
+  if (chain === "base") {
+    try {
+      await checkClankerLaunches(state, options);
+    } catch (err) {
+      console.error("clanker watcher failed (continuing):", (err as Error).message);
     }
   }
 
