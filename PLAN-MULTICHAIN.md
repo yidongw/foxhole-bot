@@ -173,7 +173,18 @@ Used by BSC/Base/ETH (Robinhood migrates onto it later):
 P0 pays off immediately (alerts for all four chains through the existing
 engine) and de-risks everything after it.
 
-## 7. Needs from the user (none block P0–P4)
+## 7. Code reuse & license audit (checked 2026-09-02)
+
+| Repo | License | Reuse verdict |
+|---|---|---|
+| chainstacklabs/pumpfun-bonkfun-bot | Apache-2.0 ✅ | **Vendor the pump.fun IDLs** (`idl/pump*.json`), port curve math + discriminators + logsSubscribe listener to TS, with attribution |
+| @fnzero/four-trading-sdk | MIT ✅ | **Use as npm dependency** for Four.meme curve trading (ethers stays isolated in the BSC adapter); port to viem later if desired |
+| clanker-sdk | MIT ✅ | Deploy functions useless to us; **mine its v3/v4 modules for Base factory addresses + ABIs** |
+| moonbags | **Private — no redistribution** ⛔ | Patterns only (already done: our stops/TPs/LLM advisor were written from scratch). Never copy code |
+| hoodchain | Apache-2.0 ✅ | Already a dependency (Robinhood quotes/swaps) |
+| GMGN/OKX skills, 6551 MCPs | n/a | API-key-gated services, not code |
+
+## 8. Needs from the user (none block P0–P4)
 
 - Nice-to-have keys: Helius (SOL rate limits), PumpPortal (0.02 SOL),
   GoPlus if the keyless tier proves limited, GMGN/OKX for enrichment.
