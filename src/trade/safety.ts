@@ -82,12 +82,23 @@ export async function checkTokenSafety(
           freezable?: { status?: string };
           transfer_fee_upgradable?: { status?: string };
           closable?: { status?: string };
+          holders?: Array<{ percent?: string; is_locked?: number }>;
         };
         const flags: string[] = [];
         if (d.mintable?.status === "1") flags.push("mintable");
         if (d.freezable?.status === "1") flags.push("freezable");
         if (d.closable?.status === "1") flags.push("closable");
         if (d.transfer_fee_upgradable?.status === "1") flags.push("fee_upgradable");
+        // A single unlocked wallet with a supermajority of supply is a dump
+        // bomb even when every authority is revoked (seen live: "TSLA" mint
+        // 5PiMV…, one wallet held 80% while the pool held 1.6%). Threshold
+        // sits above typical AMM-pool holdings to avoid vetoing normal
+        // graduated tokens.
+        const top = d.holders?.[0];
+        const topPct = Number(top?.percent ?? 0);
+        if (top && topPct >= 0.6 && top.is_locked !== 1) {
+          flags.push(`top_holder ${(topPct * 100).toFixed(0)}% unlocked`);
+        }
         verdict = { ok: flags.length === 0, flags, source: "goplus-solana" };
       }
     } else if (GOPLUS_CHAIN_IDS[chain]) {
