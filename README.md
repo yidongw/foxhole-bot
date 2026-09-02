@@ -68,27 +68,42 @@ Public fallback: `https://rpc.mainnet.chain.robinhood.com` (rate limited).
 
 ## Roadmap
 
-### Phase 1 — Monitor (done / in progress)
+### Phase 1 — Monitor (done)
 - [x] TypeScript rewrite
 - [x] `analyze` — quote lock ratio + volume signals
 - [x] Signal engine + BONER backtest (`npm run backtest`)
 - [x] Monitor loop + Discord alerts (`npm run monitor`)
-- [ ] Long Factory `Created` event watcher
-- [ ] Dashboard: lock ratio column
+- [x] Long Factory launch watcher (verified `Created` topic; digest alerts + `npm run factory:backfill`)
+- [x] Dashboard: lock ratio + signal columns (from `web/data/signals.json`)
+- [x] Lock-ratio *rising* trigger (the actual BONER pattern)
+- [x] Unit tests (`npm test`) + GitHub Actions CI
 
 ```bash
 npm run backtest          # real historical replay (DexPaprika OHLCV)
 npm run scan              # one-shot scan all Long.xyz tokens
 npm run monitor:once      # single monitor cycle
 npm run monitor           # continuous (set DISCORD_WEBHOOK_URL)
+npm run factory:backfill -- --days=30   # seed launch list from factory events
+npm test                  # vitest unit suite
 ```
 
+Run the monitor as a service: `cp deploy/bot.foxhole.monitor.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/bot.foxhole.monitor.plist`
+
 ### Phase 2 — Auto-trading (RB chain)
-- [ ] `hoodchain` swap integration (quote → sign → execute)
-- [ ] Position tracker + trail/stop exit (ref: [moonbags](https://github.com/fciaf420/moonbags))
-- [ ] Risk engine: max spend, paper mode (ref: [robinhood-chain-trading-bot](https://github.com/nirholas/robinhood-chain-trading-bot))
-- [ ] Entry signals: launch snipe + squeeze trigger (BONER-style lock ratio rise)
+- [x] `hoodchain` swap integration (quote → sign → execute; live mode)
+- [x] Position tracker + trail/hard stop + tiered take-profits (ref: [moonbags](https://github.com/fciaf420/moonbags))
+- [x] Risk engine: per-trade/daily caps, position limits, denylist, **paper mode default** (ref: [robinhood-chain-trading-bot](https://github.com/nirholas/robinhood-chain-trading-bot))
+- [x] Entry signals: squeeze triggers (lock_strong / lock_rising_strong / boner_composite)
+- [ ] Live-mode gate: ≥2 weeks clean paper trading first (see `.env.example` TRADE_* vars)
 - [ ] Optional: LLM exit advisor
+
+```bash
+TRADE_MODE=paper npm run monitor   # simulated entries/exits + daily P&L to Discord
+npm run positions                  # portfolio report
+```
+
+Note: Long.xyz pools are Uniswap v4; hoodchain routes v3, so live swaps only
+work for tokens with a v3 route — `NoRouteError` is surfaced, never swallowed.
 
 ### Phase 3 — Multi-signal
 - [ ] Pons launchpad module
