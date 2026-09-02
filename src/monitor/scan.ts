@@ -9,11 +9,12 @@ import {
   evaluateSignal,
   formatSignalAlert,
 } from "../signals/evaluate.js";
-import { SIGNAL_CONFIG } from "../signals/config.js";
+import { SIGNAL_CONFIG, loadSignalConfig } from "../signals/config.js";
 import type { AlertLevel, SignalEvaluation } from "../signals/types.js";
 import { LEVEL_RANK } from "../signals/types.js";
 import { sendDiscordMessage } from "../notify/discord.js";
 import { appendAlertLog } from "../notify/alert-log.js";
+import { recordAlertOutcome } from "../review/ledger.js";
 import {
   isLevelUpgrade,
   loadMonitorState,
@@ -175,6 +176,11 @@ function snapshotAndRow(
   evaluation: SignalEvaluation,
   rows: SignalRow[],
 ): void {
+  // Alert-level signals feed the outcome ledger even when delivery is
+  // cooldown-suppressed — the review grades signal quality, not delivery.
+  recordAlertOutcome(analysis, evaluation).catch((err) =>
+    console.error("outcome record failed:", (err as Error).message),
+  );
   state.tokens[key] = {
     volume24hUsd: evaluation.input.volume24hUsd,
     lockRatio: analysis.quoteLockRatio,
@@ -282,7 +288,7 @@ async function scanRobinhood(
         dexUrl: launch.dex_url,
         longUrl: launch.long_url,
       });
-      const evaluation = evaluateSignal(input);
+      const evaluation = evaluateSignal(input, loadSignalConfig());
       snapshotAndRow(state, key, analysis, evaluation, rows);
 
       const hit = await maybeAlert(state, evaluation, key, prev?.level, minRank, options);
@@ -421,7 +427,7 @@ async function scanChainTrending(
         dexUrl: `https://dexscreener.com/${chain}/${address}`,
         longUrl: undefined,
       });
-      const evaluation = evaluateSignal(input);
+      const evaluation = evaluateSignal(input, loadSignalConfig());
       snapshotAndRow(state, key, analysis, evaluation, rows);
 
       const hit = await maybeAlert(state, evaluation, key, prev?.level, minRank, options);
@@ -482,6 +488,20 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
         { dryRun: options.dryRun, webhookUrl: options.webhookUrl },
         tradeConfig,
       );
+    }
+
+    // Daily self-review: grade alerts, hunt missed 暴涨, auto-tune (gated).
+    try {
+      const state = await loadMonitorState();
+      const dayMs = 24 * 60 * 60 * 1000;
+      if (!state.lastReviewAt || Date.now() - new Date(state.lastReviewAt).getTime() > dayMs) {
+        state.lastReviewAt = new Date().toISOString();
+        await saveMonitorState(state);
+        const { runDailyReview } = await import("../review/daily.js");
+        await runDailyReview({ dryRun: options.dryRun, webhookUrl: options.webhookUrl });
+      }
+    } catch (err) {
+      console.error("daily review failed (continuing):", (err as Error).message);
     }
   };
 

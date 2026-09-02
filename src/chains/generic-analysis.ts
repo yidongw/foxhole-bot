@@ -58,6 +58,7 @@ export async function analyzeTokenGeneric(
     symbol: base?.symbol,
     name: base?.name,
     primaryPair: `${base?.symbol}/${quoteSymbol}`,
+    primaryPairAddress: primary.pairAddress,
     priceUsd: primary.priceUsd ? Number(primary.priceUsd) : undefined,
     fdvUsd: primary.fdv,
     volume24hUsd: volume24h,

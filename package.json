@@ -16,6 +16,7 @@
     "monitor:once": "tsx src/cli/monitor.ts --once",
     "backtest": "tsx src/cli/backtest.ts",
     "backtest:grid": "tsx src/cli/backtest-grid.ts",
+    "review": "tsx src/cli/review.ts",
     "factory:backfill": "tsx src/cli/factory-backfill.ts",
     "positions": "tsx src/cli/positions.ts",
     "deploy": "bash scripts/deploy-local.sh",

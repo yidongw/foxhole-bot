@@ -7,6 +7,7 @@ import type { ChainAdapter, ChainId } from "./adapter.js";
 import { analyzeTokenGeneric } from "./generic-analysis.js";
 import { v2Buy, v2Sell } from "./evm/v2-swap.js";
 import { getPumpCurveState } from "./solana/pumpfun.js";
+import { fetchMoverCandidates } from "../review/movers.js";
 import { jupiterBuy, jupiterSell } from "./solana/jupiter.js";
 
 const robinhoodAdapter: ChainAdapter = {
@@ -28,8 +29,21 @@ function genericAdapter(id: ChainId, displayName: string): ChainAdapter {
   return {
     id,
     displayName,
-    trendingCandidates: async () =>
-      (await fetchTrendingTokens(id)).map((t) => t.tokenAddress),
+    // Two discovery feeds: DexScreener boosts (promoted) + DexPaprika top
+    // movers (actual 暴涨) — the movers feed exists to close coverage misses.
+    trendingCandidates: async () => {
+      const [boosted, movers] = await Promise.all([
+        fetchTrendingTokens(id).then((t) => t.map((x) => x.tokenAddress)),
+        fetchMoverCandidates(id),
+      ]);
+      const seen = new Set<string>();
+      return [...movers, ...boosted].filter((a) => {
+        const k = a.toLowerCase();
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    },
     analyze: (address) => analyzeTokenGeneric(id, address),
     priceUsd: (address) => fetchTokenPriceUsd(address, id),
     // No live execution yet (P1+); paper mode works through the engine.

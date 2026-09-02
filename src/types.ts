@@ -65,6 +65,8 @@ export interface TokenAnalysis {
   symbol?: string;
   name?: string;
   primaryPair?: string;
+  /** DexScreener pairAddress of the primary pair (usable as DexPaprika pool id). */
+  primaryPairAddress?: string;
   priceUsd?: number;
   fdvUsd?: number;
   volume24hUsd?: number;

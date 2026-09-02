@@ -1,4 +1,47 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 export type SignalConfig = typeof SIGNAL_CONFIG;
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+export const OVERRIDES_PATH = path.resolve(
+  __dirname,
+  "../../data/signal-overrides.json",
+);
+
+export interface SignalOverridesFile {
+  updated_at: string;
+  reason: string;
+  /** Partial config diff vs the compiled SIGNAL_CONFIG defaults. */
+  config: Partial<SignalConfig>;
+  history?: Array<{ at: string; reason: string; config: Partial<SignalConfig> }>;
+}
+
+let cached: { config: SignalConfig; at: number } | undefined;
+const CACHE_MS = 60_000;
+
+/**
+ * Runtime signal config: compiled defaults merged with the auto-tuner's
+ * data/signal-overrides.json (config-as-data — revert by deleting the file).
+ */
+export function loadSignalConfig(): SignalConfig {
+  if (cached && Date.now() - cached.at < CACHE_MS) return cached.config;
+  let config: SignalConfig = SIGNAL_CONFIG;
+  try {
+    const raw = JSON.parse(readFileSync(OVERRIDES_PATH, "utf8")) as SignalOverridesFile;
+    config = { ...SIGNAL_CONFIG, ...raw.config };
+  } catch {
+    // no overrides — defaults
+  }
+  cached = { config, at: Date.now() };
+  return config;
+}
+
+/** Test hook. */
+export function clearSignalConfigCache(): void {
+  cached = undefined;
+}
 
 /** Tunable thresholds — calibrated against BONER Aug 2026 squeeze case study. */
 export const SIGNAL_CONFIG = {

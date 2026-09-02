@@ -28,6 +28,8 @@ export interface MonitorState {
   lastClankerBlock?: string;
   /** Last ETH block scanned for Uniswap pair creations. */
   lastUniswapBlock?: string;
+  /** Last daily self-review run. */
+  lastReviewAt?: string;
   tokens: Record<string, TokenSnapshot>;
   /** alertKey -> last sent ISO timestamp */
   alertHistory: Record<string, string>;
