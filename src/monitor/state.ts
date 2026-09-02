@@ -19,6 +19,8 @@ export interface TokenSnapshot {
 export interface MonitorState {
   version: 1;
   lastRunAt?: string;
+  /** Last factory block scanned for Created events (bigint as string). */
+  lastFactoryBlock?: string;
   tokens: Record<string, TokenSnapshot>;
   /** alertKey -> last sent ISO timestamp */
   alertHistory: Record<string, string>;

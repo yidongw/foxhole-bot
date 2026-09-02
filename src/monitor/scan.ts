@@ -22,6 +22,12 @@ import {
   type MonitorState,
 } from "./state.js";
 import { sleep } from "../lib/utils.js";
+import {
+  fetchCreatedEvents,
+  formatLaunchAlert,
+  getLatestBlock,
+  type FactoryLaunch,
+} from "../long/factory-watcher.js";
 import type { LaunchRecord, LaunchesPayload } from "../types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -60,10 +66,81 @@ function rankLaunches(launches: LaunchRecord[]): LaunchRecord[] {
   return [...launches].sort((a, b) => b.volume_24h - a.volume_24h);
 }
 
+/** Default first-run lookback ≈2.5h at ~100ms Robinhood Chain blocks. */
+const FACTORY_FIRST_RUN_LOOKBACK = 90_000n;
+
+async function deliverAlert(
+  body: string,
+  options: Pick<ScanOptions, "dryRun" | "webhookUrl">,
+): Promise<void> {
+  if (options.dryRun) {
+    console.log("--- DRY RUN ALERT ---\n" + body + "\n");
+    return;
+  }
+  const url = options.webhookUrl ?? process.env.DISCORD_WEBHOOK_URL;
+  if (url) await sendDiscordMessage(url, body);
+  else console.log(body);
+}
+
+function formatLaunchDigest(events: FactoryLaunch[]): string {
+  const stockPaired = events.filter(
+    (e) => e.pairSymbol && e.pairSymbol !== "USDG",
+  );
+  const sample = stockPaired.slice(0, 8).map((e) => `${e.symbol}/${e.pairSymbol}`);
+  const lines = [
+    `🚀 **Long.xyz launches**: ${events.length} new (${stockPaired.length} stock-paired)`,
+  ];
+  if (sample.length) lines.push(sample.join(", "));
+  return lines.join("\n");
+}
+
+/**
+ * Check the Long Factory for new Created events since the last scanned block —
+ * catches every launch, including pairs DexScreener doesn't index yet.
+ *
+ * Launch volume is high (~2-3k/day observed), so the default alert mode is a
+ * single digest message per tick. Set LAUNCH_ALERT_MODE=each for individual
+ * alerts, or =off to only track without alerting.
+ */
+export async function checkFactoryLaunches(
+  state: MonitorState,
+  options: Pick<ScanOptions, "dryRun" | "webhookUrl"> = {},
+): Promise<FactoryLaunch[]> {
+  const mode = process.env.LAUNCH_ALERT_MODE ?? "digest";
+  const latest = await getLatestBlock();
+  const from = state.lastFactoryBlock
+    ? BigInt(state.lastFactoryBlock) + 1n
+    : latest - FACTORY_FIRST_RUN_LOOKBACK;
+
+  let events: FactoryLaunch[] = [];
+  if (from <= latest) {
+    events = await fetchCreatedEvents({ fromBlock: from, toBlock: latest });
+    if (events.length && mode === "each") {
+      for (const event of events) {
+        await deliverAlert(formatLaunchAlert(event), options);
+      }
+    } else if (events.length && mode === "digest") {
+      await deliverAlert(formatLaunchDigest(events), options);
+    }
+    state.lastFactoryBlock = latest.toString();
+  }
+  return events;
+}
+
 export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]> {
   const minLevel = options.minLevel ?? "watch";
   const minRank = LEVEL_RANK[minLevel];
   const state = await loadMonitorState();
+
+  try {
+    const fresh = await checkFactoryLaunches(state, options);
+    if (fresh.length) {
+      console.log(`factory watcher: ${fresh.length} new launch(es) alerted`);
+    }
+  } catch (err) {
+    console.error("factory watcher failed (continuing):", (err as Error).message);
+  }
+
   const launches = rankLaunches(await loadLaunches(options.refreshLaunches ?? false));
   const limit = options.limit ?? launches.length;
   const hits: ScanHit[] = [];

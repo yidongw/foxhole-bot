@@ -6,8 +6,16 @@ export const LONG_FACTORY =
 export const LONG_AIRLOCK =
   "0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862" as const;
 
-export const LONG_CREATED_EVENT =
-  "Created(address,address,address,bytes32,uint256,uint256,string)" as const;
+/**
+ * topic0 of the Long Factory launch event, verified on-chain 2026-09-02
+ * (1000+ matching logs; BONER/AI decode correctly). Canonical signature name
+ * unknown — logs are fetched by raw topic and decoded manually:
+ *   topics[1] = token, topics[2] = token (dup), topics[3] = pair target
+ *   data = (address auctionNumeraire, address hook, bytes32 auctionPoolId,
+ *           uint256 epochStart, uint256 epochEnd, string symbol)
+ */
+export const LONG_CREATED_TOPIC0 =
+  "0xadc6f1f726f7c710f77ec06adc75f3bb964e5be19581b072c67f7b9b4039267b" as const;
 
 export const DEFAULT_PUBLIC_RPC =
   "https://rpc.mainnet.chain.robinhood.com";

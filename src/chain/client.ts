@@ -1,4 +1,4 @@
-import { type Address, erc20Abi } from "viem";
+import { type Address, type PublicClient, erc20Abi } from "viem";
 import { createHoodClient, getQuote } from "hoodchain";
 import { LONG_AIRLOCK } from "../long/constants.js";
 
@@ -16,6 +16,23 @@ function getHoodClient() {
     hoodClient = createHoodClient({ rpcUrl: getRpcUrl() });
   }
   return hoodClient;
+}
+
+/** Raw viem public client for log queries and reads. */
+export function getPublicClient(): PublicClient {
+  return getHoodClient().public as unknown as PublicClient;
+}
+
+export async function getErc20Symbol(token: Address): Promise<string | undefined> {
+  try {
+    return await getHoodClient().public.readContract({
+      address: token,
+      abi: erc20Abi,
+      functionName: "symbol",
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 export async function getErc20Balance(
