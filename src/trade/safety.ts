@@ -1,6 +1,7 @@
 import { GoPlus } from "@goplus/sdk-node";
 
 import { fetchPoolOhlcv } from "../dex/dexpaprika.js";
+import { isDenylisted } from "../review/denylist.js";
 import { fetchGtOhlcv } from "../dex/geckoterminal.js";
 import { detectLadderPump } from "../signals/ladder.js";
 
@@ -102,6 +103,16 @@ export async function checkTokenSafety(
   const key = `${chain}:${token.toLowerCase()}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.verdict;
+
+  if (await isDenylisted(chain, token)) {
+    const verdict: SafetyVerdict = {
+      ok: false,
+      flags: ["user_denylisted"],
+      source: "unsupported",
+    };
+    cache.set(key, { verdict, at: Date.now() });
+    return verdict;
+  }
 
   let verdict: SafetyVerdict;
   try {

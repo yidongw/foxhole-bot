@@ -6,6 +6,7 @@ import { fetchDexJson } from "../dex/dexscreener.js";
 import { fetchPoolOhlcv } from "../dex/dexpaprika.js";
 import { fetchGtOhlcv, fetchGtTrendingPools } from "../dex/geckoterminal.js";
 import { detectLadderPump } from "../signals/ladder.js";
+import { loadDenylist } from "./denylist.js";
 import { sleep } from "../lib/utils.js";
 import type { MonitorState } from "../monitor/state.js";
 import type { DexPair } from "../types.js";
@@ -104,6 +105,9 @@ function passesMoverFilters(chg: number, liq: number, vol: number): boolean {
  */
 export async function fetchTopMovers(chain: string, limit = 12): Promise<Mover[]> {
   const seen = new Set<string>();
+  for (const d of await loadDenylist()) {
+    if (d.chain === chain) seen.add(d.address.toLowerCase());
+  }
   const movers: Mover[] = [];
 
   // Source 1: DexPaprika top-by-volume, 3 pages = 300 pools
@@ -280,7 +284,8 @@ export async function scanMissedMovers(
     }
     await sleep(300);
   }
-  await saveMissedCases(classified);
+  // NOTE: persistence to missed-cases happens in the review confirm phase —
+  // candidates require human sign-off before they become tuner training data.
   return classified;
 }
 

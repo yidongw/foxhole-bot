@@ -53,6 +53,14 @@ const COMMANDS = [
   new SlashCommandBuilder()
     .setName("status")
     .setDescription("Monitor + trading status"),
+  new SlashCommandBuilder()
+    .setName("review-confirm")
+    .setDescription("确认每日暴涨候选清单(剔除的进永久黑名单)")
+    .addStringOption((o) =>
+      o
+        .setName("exclude")
+        .setDescription("要剔除的编号,逗号分隔,如 1,3(留空=全部通过)"),
+    ),
 ].map((c) => c.toJSON());
 
 let started = false;
@@ -109,6 +117,23 @@ export async function startControlBot(): Promise<void> {
           await setTradingPaused(false);
           reply = "▶️ New entries resumed.";
           break;
+        case "review-confirm": {
+          const raw = interaction.options.getString("exclude") ?? "";
+          const exclude = raw
+            .split(",")
+            .map((s) => Number(s.trim()))
+            .filter((n) => Number.isFinite(n) && n > 0);
+          const { confirmMovers } = await import("../review/daily.js");
+          const result = await confirmMovers(exclude);
+          reply =
+            "error" in result
+              ? result.error
+              : `已确认 ${result.confirmed.length} 个, 剔除 ${result.excluded.length} 个进黑名单。` +
+                (result.tune.adopted
+                  ? `\n🔧 调参已采纳: ${JSON.stringify(result.tune.changes)}`
+                  : `\n🔧 调参: 无变更 — ${result.tune.reason}`);
+          break;
+        }
         case "status": {
           const config = loadTradeConfig();
           reply = [
