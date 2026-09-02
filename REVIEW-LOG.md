@@ -50,3 +50,11 @@ trending(有机热度源, 修正按量排序被刷量垃圾霸榜的问题)。
 - 暴涨扫描: 1 个, 自动过滤 0 个, 待人工确认 1 个
   - 1. ORBIO [robinhood] +471% coverage_miss `0xAa07A0e9209e16aC99708C3EC70159c6eF3128A3`
 
+## 2026-09-02 — Discord 频道分配
+
+- **#trade-signal** ← 信号警报 (DISCORD_WEBHOOK_URL)。用户纠正: 信号必须是
+  暴涨**前**的预警, 不是暴涨后的播报 — 复盘循环的优化目标即信号提前量。
+- **#filter-log** ← 过滤明细 + 复盘确认清单 (FILTER + REVIEW webhook)
+- **#trade-log** ← 交易日志 (TRADE webhook)
+- 三个 webhook 已用运行时 bot 令牌创建并写入主 checkout `.env`
+  (该文件另已含自动开通的 Alchemy RPC)。各频道已收到接入验证消息。
