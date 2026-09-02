@@ -19,7 +19,8 @@
     "deploy": "bash scripts/deploy-local.sh",
     "serve": "python3 -m http.server 8787 --directory web",
     "dev": "npm run fetch:long && npm run serve",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "hoodchain": "^0.1.1",
@@ -28,6 +29,7 @@
   "devDependencies": {
     "@types/node": "^22.13.10",
     "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vitest": "^4.1.11"
   }
 }
