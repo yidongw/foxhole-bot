@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { appendAiInboxNews } from "../notify/ai-inbox.js";
+import { maybeSpawnDecider } from "../trade/decider.js";
 import { sendDiscordMessage } from "../notify/discord.js";
 import { resolveWebhook } from "../notify/routes.js";
 import {
@@ -164,6 +165,7 @@ export async function newsTick(options: {
           negative: cls.negative,
           note: verdict?.note,
         }).catch((err) => console.error("news inbox append failed:", err.message));
+        void maybeSpawnDecider("news");
 
         // trade-signal 频道是分币的（每币一张卡片+thread）—— 新闻只允许
         // 发进已有卡片的币的 thread；对不上的去 filter-log，不发散消息

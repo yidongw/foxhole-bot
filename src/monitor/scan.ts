@@ -51,6 +51,7 @@ import { loadTradeConfig } from "../trade/config.js";
 import { checkTokenSafety } from "../trade/safety.js";
 import { resolveWebhook } from "../notify/routes.js";
 import { appendAiInbox } from "../notify/ai-inbox.js";
+import { maybeSpawnDecider } from "../trade/decider.js";
 import { postThreadedSignal } from "../notify/signal-threads.js";
 import {
   fetchNewV4PoolTokens,
@@ -255,11 +256,13 @@ async function maybeAlert(
         } else {
           await appendAlertLog(formatTradeSignal(evaluation));
         }
-        // Wake the AI decision session (background probe watches this file)
+        // Wake the AI decision layer: inbox entry + headless decider spawn
+        // (session probes die with their session — the monitor owns the wake)
         if (!options.dryRun) {
           await appendAiInbox(evaluation).catch((err) =>
             console.error("ai inbox write failed:", (err as Error).message),
           );
+          void maybeSpawnDecider("signal");
         }
       } else {
         await deliverFeed(

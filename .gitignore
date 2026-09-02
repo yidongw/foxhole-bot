@@ -16,3 +16,5 @@ data/ai-inbox.jsonl
 data/ai-inbox-processed.jsonl
 .playwright-mcp/
 data/v4-watch.json
+data/decider.lock
+data/decider-logs/

@@ -7,6 +7,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 
 import { aiBuy, formatPortfolioReport, manualExit } from "../trade/engine.js";
 import { archiveAiInbox, readAiInbox } from "../notify/ai-inbox.js";
+import { postToSignalThread } from "../notify/signal-threads.js";
 import { getEvmClient } from "../chains/evm/clients.js";
 import { getPublicClient } from "../chain/client.js";
 import { privateKeyToAccount } from "viem/accounts";
@@ -19,6 +20,7 @@ import { privateKeyToAccount } from "viem/accounts";
  *   ai-trade archive             信号归档 (决策完成后)
  *   ai-trade buy <chain> <address> <usd> <reason...>
  *   ai-trade sell <symbol|address> <percent>
+ *   ai-trade note <chain> <address> <text...>   决策摘要写进该币 thread
  *   ai-trade status              仓位 + 余额
  */
 
@@ -90,13 +92,23 @@ async function main() {
       console.log(await manualExit(query, (Number(percent) || 100) / 100));
       break;
     }
+    case "note": {
+      const [chain, address, ...text] = args;
+      if (!chain || !address || !text.length) {
+        console.error("用法: ai-trade note <chain> <address> <text...>");
+        process.exit(1);
+      }
+      const ok = await postToSignalThread(chain, address, `🤖 ${text.join(" ")}`);
+      console.log(ok ? "posted to thread" : "该币无 thread(或缺 bot token)");
+      break;
+    }
     case "status":
       console.log(await formatPortfolioReport());
       console.log("\n=== 钱包余额 ===");
       console.log(await balances());
       break;
     default:
-      console.error("用法: ai-trade inbox|archive|buy|sell|status");
+      console.error("用法: ai-trade inbox|archive|buy|sell|note|status");
       process.exit(1);
   }
 }
