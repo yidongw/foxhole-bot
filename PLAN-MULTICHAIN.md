@@ -175,14 +175,23 @@ engine) and de-risks everything after it.
 
 ## 7. Code reuse & license audit (checked 2026-09-02)
 
-| Repo | License | Reuse verdict |
-|---|---|---|
-| chainstacklabs/pumpfun-bonkfun-bot | Apache-2.0 ✅ | **Vendor the pump.fun IDLs** (`idl/pump*.json`), port curve math + discriminators + logsSubscribe listener to TS, with attribution |
-| @fnzero/four-trading-sdk | MIT ✅ | **Use as npm dependency** for Four.meme curve trading (ethers stays isolated in the BSC adapter); port to viem later if desired |
-| clanker-sdk | MIT ✅ | Deploy functions useless to us; **mine its v3/v4 modules for Base factory addresses + ABIs** |
-| moonbags | **Private — no redistribution** ⛔ | Patterns only (already done: our stops/TPs/LLM advisor were written from scratch). Never copy code |
-| hoodchain | Apache-2.0 ✅ | Already a dependency (Robinhood quotes/swaps) |
-| GMGN/OKX skills, 6551 MCPs | n/a | API-key-gated services, not code |
+| Repo | License | Maintenance (checked 2026-09-02) | Reuse verdict |
+|---|---|---|---|
+| chainstacklabs/pumpfun-bonkfun-bot | Apache-2.0 ✅ | Active, ~970 stars | **Vendor the pump.fun IDLs** (`idl/pump*.json`), port curve math + discriminators + logsSubscribe listener to TS, with attribution |
+| @fnzero/four-trading-sdk | MIT ✅ | ⚠️ stale: last publish 2025-10, 46 dl/mo, 5 versions | **Vendor/port the curve math + event decoding to viem** — do NOT take as a runtime dependency (abandonment + supply-chain risk, and it drags in ethers) |
+| clanker-sdk | MIT ✅ | Healthy: publish 2026-08-31, 52k dl/mo, 119 versions | Still prefer **mining v3/v4 modules for Base factory addresses + ABIs** over a runtime dep — we need constants, not its deploy machinery |
+| meme-sdk/fourmeme-trading | — | **404 — repo deleted** | Gone; reinforces vendor-don't-depend for meme-repo code |
+| moonbags | **Private — no redistribution** ⛔ | n/a | Patterns only (already done: our stops/TPs/LLM advisor were written from scratch). Never copy code |
+| hoodchain | Apache-2.0 ✅ | Small (2 versions, 217 dl/mo) but it IS the RB SDK | Keep as dependency, **pin exact version** |
+| @solana/web3.js | MIT ✅ | 9.4M dl/mo, publish 2026-09-01 | Safe dependency (1.x line; ecosystem/pump.fun examples target it). Note: it was supply-chain-compromised once (Dec 2024) — pin + lockfile |
+| GMGN/OKX skills, 6551 MCPs | n/a | n/a | API-key-gated services, not code |
+
+**Dependency policy for this repo** (we hold private keys — crypto npm is a
+top supply-chain target): big actively-maintained libs (viem, @solana/web3.js,
+@anthropic-ai/sdk) as pinned dependencies with lockfile; small/stale/hobby
+packages get vendored (license + attribution header) instead of installed;
+`npm ci` only in CI; review diffs on upgrades; no packages with postinstall
+scripts.
 
 ## 8. Needs from the user (none block P0–P4)
 
