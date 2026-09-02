@@ -1,6 +1,7 @@
 import { GoPlus } from "@goplus/sdk-node";
 
 import { fetchPoolOhlcv } from "../dex/dexpaprika.js";
+import { fetchGtOhlcv } from "../dex/geckoterminal.js";
 import { detectLadderPump } from "../signals/ladder.js";
 
 /**
@@ -62,22 +63,33 @@ export function safetyGateEnabled(): boolean {
   return process.env.TRADE_SAFETY_GATE !== "0";
 }
 
-/** 24h+ of near-perfect staircase = wash bots painting the chart. */
-async function checkLadder(chain: string, poolId: string): Promise<string | undefined> {
+/**
+ * Chart checks at two granularities: slow ladders show on 1h candles
+ * (AVANT: 22h staircase), fast ladders only on 15m (Pumpcat: 3h staircase
+ * then rug). Both candle sources empty on a trading token usually means a
+ * drained pool — veto rather than assume clean.
+ */
+async function checkChart(chain: string, poolId: string): Promise<string | undefined> {
+  let hourly: Awaited<ReturnType<typeof fetchPoolOhlcv>> = [];
+  let fine: typeof hourly = [];
   try {
     const start = new Date(Date.now() - 36 * 3_600_000).toISOString().slice(0, 10);
-    const candles = await fetchPoolOhlcv(poolId, {
-      start,
-      interval: "1h",
-      limit: 48,
-      network: chain,
-    });
+    hourly = await fetchPoolOhlcv(poolId, { start, interval: "1h", limit: 48, network: chain });
+  } catch {}
+  try {
+    fine = await fetchGtOhlcv(chain, poolId, { timeframe: "minute", aggregate: 15, limit: 100 });
+  } catch {}
+
+  if (!hourly.length && !fine.length) return "no_chart_history";
+
+  for (const [candles, label] of [
+    [hourly, "1h"],
+    [fine, "15m"],
+  ] as const) {
     const verdict = detectLadderPump(candles);
     if (verdict.isLadder && verdict.metrics) {
-      return `ladder_pump (${verdict.metrics.candles}h straight, ${(verdict.metrics.greenRatio * 100).toFixed(0)}% green)`;
+      return `ladder_pump (${verdict.metrics.candles}×${label} straight, ${(verdict.metrics.greenRatio * 100).toFixed(0)}% green)`;
     }
-  } catch {
-    // no candles — other gates still apply
   }
   return undefined;
 }
@@ -148,9 +160,9 @@ export async function checkTokenSafety(
   }
 
   if (poolId) {
-    const ladderFlag = await checkLadder(chain, poolId);
-    if (ladderFlag) {
-      verdict = { ...verdict, ok: false, flags: [...verdict.flags, ladderFlag] };
+    const chartFlag = await checkChart(chain, poolId);
+    if (chartFlag) {
+      verdict = { ...verdict, ok: false, flags: [...verdict.flags, chartFlag] };
     }
   }
 

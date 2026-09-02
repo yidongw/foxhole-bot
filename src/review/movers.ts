@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { fetchDexJson } from "../dex/dexscreener.js";
 import { fetchPoolOhlcv } from "../dex/dexpaprika.js";
+import { fetchGtOhlcv, fetchGtTrendingPools } from "../dex/geckoterminal.js";
 import { detectLadderPump } from "../signals/ladder.js";
 import { sleep } from "../lib/utils.js";
 import type { MonitorState } from "../monitor/state.js";
@@ -48,37 +49,87 @@ export interface ClassifiedMover extends Mover {
   kind: MissKind;
   /** Wash-bot staircase chart — excluded from tuner cases and entries. */
   ladder?: boolean;
+  /** Last price fell >60% from window high — pump already unwound/rugged. */
+  collapsed?: boolean;
+  /** No OHLCV from any source — usually a drained/delisted pool. */
+  noData?: boolean;
+}
+
+/** Chart health from both candle sources at two granularities. */
+export async function assessMoverChart(
+  chain: string,
+  poolId: string,
+): Promise<{ ladder: boolean; collapsed: boolean; noData: boolean }> {
+  let hourly: Awaited<ReturnType<typeof fetchPoolOhlcv>> = [];
+  let fine: typeof hourly = [];
+  try {
+    const start = new Date(Date.now() - 48 * 3_600_000).toISOString().slice(0, 10);
+    hourly = await fetchPoolOhlcv(poolId, { start, interval: "1h", limit: 60, network: chain });
+  } catch {}
+  await sleep(400);
+  try {
+    fine = await fetchGtOhlcv(chain, poolId, { timeframe: "minute", aggregate: 15, limit: 100 });
+  } catch {}
+
+  const all = hourly.length ? hourly : fine;
+  if (!all.length) return { ladder: false, collapsed: false, noData: true };
+
+  const ladder =
+    detectLadderPump(hourly).isLadder || detectLadderPump(fine).isLadder;
+  const maxHigh = Math.max(...all.map((c) => c.high));
+  const last = all[all.length - 1].close;
+  const collapsed = maxHigh > 0 && last < maxHigh * 0.4;
+  return { ladder, collapsed, noData: false };
 }
 
 export interface MissedCase extends ClassifiedMover {
   detectedAt: string;
 }
 
-/**
- * Top 暴涨 tokens on a chain in the last 24h. Volume-sorted (price-change
- * sorting on DexPaprika surfaces broken pools), then filtered, then the
- * base token resolved via DexScreener.
- */
-export async function fetchTopMovers(chain: string, limit = 8): Promise<Mover[]> {
-  const res = await fetch(
-    `https://api.dexpaprika.com/networks/${chain}/pools/search?limit=100&order_by=volume_usd_24h&sort=desc`,
-    { headers: { "User-Agent": "foxhole-bot/0.3" } },
+function passesMoverFilters(chg: number, liq: number, vol: number): boolean {
+  return (
+    chg >= MOVER_MIN_CHANGE_PCT &&
+    chg <= MOVER_MAX_CHANGE_PCT &&
+    liq >= MOVER_MIN_LIQUIDITY_USD &&
+    vol >= MOVER_MIN_VOLUME_USD
   );
-  if (!res.ok) throw new Error(`DexPaprika movers ${res.status} for ${chain}`);
-  const data = (await res.json()) as { results?: PaprikaPool[] };
+}
 
-  const candidates = (data.results ?? []).filter((p) => {
-    const chg = p.price_change_percentage_24h ?? 0;
-    return (
-      chg >= MOVER_MIN_CHANGE_PCT &&
-      chg <= MOVER_MAX_CHANGE_PCT &&
-      (p.liquidity_usd ?? 0) >= MOVER_MIN_LIQUIDITY_USD &&
-      (p.volume_usd_24h ?? 0) >= MOVER_MIN_VOLUME_USD
-    );
-  });
-
+/**
+ * Top 暴涨 tokens on a chain in the last 24h, from two sources:
+ * 1. DexPaprika pages 1-3 by volume (volume-sorted because price-change
+ *    sorting surfaces broken pools) — catches big-volume movers
+ * 2. GeckoTerminal trending pools — catches organic movers that volume
+ *    ranking buries under wash-traded garbage
+ */
+export async function fetchTopMovers(chain: string, limit = 12): Promise<Mover[]> {
+  const seen = new Set<string>();
   const movers: Mover[] = [];
-  for (const pool of candidates.slice(0, limit * 2)) {
+
+  // Source 1: DexPaprika top-by-volume, 3 pages = 300 pools
+  const paprika: PaprikaPool[] = [];
+  for (let page = 1; page <= 3; page++) {
+    try {
+      const res = await fetch(
+        `https://api.dexpaprika.com/networks/${chain}/pools/search?limit=100&order_by=volume_usd_24h&sort=desc&page=${page}`,
+        { headers: { "User-Agent": "foxhole-bot/0.3" } },
+      );
+      if (!res.ok) break;
+      const data = (await res.json()) as { results?: PaprikaPool[] };
+      paprika.push(...(data.results ?? []));
+      await sleep(400);
+    } catch {
+      break;
+    }
+  }
+  const candidates = paprika.filter((p) =>
+    passesMoverFilters(
+      p.price_change_percentage_24h ?? 0,
+      p.liquidity_usd ?? 0,
+      p.volume_usd_24h ?? 0,
+    ),
+  );
+  for (const pool of candidates) {
     if (movers.length >= limit) break;
     try {
       const pair = await fetchDexJson<{ pairs?: DexPair[] }>(
@@ -87,9 +138,9 @@ export async function fetchTopMovers(chain: string, limit = 8): Promise<Mover[]>
       const p = pair.pairs?.[0];
       const symbol = p?.baseToken?.symbol;
       const address = p?.baseToken?.address;
-      if (!address || (symbol && EXCLUDED_SYMBOLS.has(symbol.toUpperCase()))) {
-        continue;
-      }
+      if (!address || seen.has(address.toLowerCase())) continue;
+      if (symbol && EXCLUDED_SYMBOLS.has(symbol.toUpperCase())) continue;
+      seen.add(address.toLowerCase());
       movers.push({
         chain,
         poolId: pool.id,
@@ -104,6 +155,29 @@ export async function fetchTopMovers(chain: string, limit = 8): Promise<Mover[]>
     }
     await sleep(200);
   }
+
+  // Source 2: GeckoTerminal trending (organic hotness)
+  try {
+    for (const t of await fetchGtTrendingPools(chain)) {
+      if (movers.length >= limit * 2) break;
+      if (!passesMoverFilters(t.priceChange24h, t.liquidityUsd, t.volume24hUsd)) continue;
+      if (seen.has(t.address.toLowerCase())) continue;
+      if (t.symbol && EXCLUDED_SYMBOLS.has(t.symbol.toUpperCase())) continue;
+      seen.add(t.address.toLowerCase());
+      movers.push({
+        chain,
+        poolId: t.poolId,
+        address: t.address,
+        symbol: t.symbol,
+        priceChange24h: t.priceChange24h,
+        volume24hUsd: t.volume24hUsd,
+        liquidityUsd: t.liquidityUsd,
+      });
+    }
+  } catch (err) {
+    console.error(`${chain} GT trending failed:`, (err as Error).message);
+  }
+
   return movers;
 }
 
@@ -161,7 +235,9 @@ export async function saveMissedCases(
     if (m.kind === "alerted") continue;
     // Ladder pumps are not real misses — training the tuner to capture
     // wash-painted charts would optimize toward exit-liquidity traps.
-    if (m.ladder) continue;
+    // No-data pools can't be replayed at all. (Collapsed pumps stay: we
+    // should have alerted before the collapse — that's a real miss.)
+    if (m.ladder || m.noData) continue;
     const key = `${m.chain}:${m.address.toLowerCase()}:${today}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -191,20 +267,10 @@ export async function scanMissedMovers(
       for (const m of movers) {
         const entry: ClassifiedMover = { ...m, kind: classifyMover(m, state, ledger) };
         if (entry.kind !== "alerted") {
-          try {
-            const start = new Date(Date.now() - 48 * 3_600_000)
-              .toISOString()
-              .slice(0, 10);
-            const candles = await fetchPoolOhlcv(m.poolId, {
-              start,
-              interval: "1h",
-              limit: 60,
-              network: chain,
-            });
-            entry.ladder = detectLadderPump(candles).isLadder;
-          } catch {
-            // no candles — leave undetected
-          }
+          const health = await assessMoverChart(chain, m.poolId);
+          entry.ladder = health.ladder;
+          entry.collapsed = health.collapsed;
+          entry.noData = health.noData;
           await sleep(600);
         }
         classified.push(entry);
