@@ -141,41 +141,62 @@ export async function postThreadedSignal(ev: SignalEvaluation): Promise<boolean>
   const map = await loadMap();
   const now = new Date().toISOString();
 
+  const createThreadOffCard = async (entry: ThreadEntry): Promise<void> => {
+    const tres = await discordApi(
+      `/channels/${channelId}/messages/${entry.messageId}/threads`,
+      "POST",
+      { name: `${ev.input.symbol ?? ev.input.address.slice(0, 8)}·${chain}` },
+    );
+    if (tres.ok) {
+      entry.threadId = ((await tres.json()) as { id: string }).id;
+    }
+  };
+
+  const createCard = async (): Promise<ThreadEntry | undefined> => {
+    const entry: ThreadEntry = {
+      messageId: "",
+      threadId: "",
+      symbol: ev.input.symbol,
+      firstAt: now,
+      lastAt: now,
+      count: 1,
+    };
+    const res = await fetch(`${webhook}?wait=true`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: formatCard(ev, entry) }),
+    });
+    if (!res.ok) return undefined;
+    entry.messageId = ((await res.json()) as { id: string }).id;
+    await createThreadOffCard(entry);
+    map[key] = entry;
+    await saveMap(map);
+    return entry;
+  };
+
   try {
     let entry = map[key];
     if (!entry) {
-      // 1. parent card via webhook (?wait=true → message id)
-      entry = { messageId: "", threadId: "", symbol: ev.input.symbol, firstAt: now, lastAt: now, count: 1 };
-      const res = await fetch(`${webhook}?wait=true`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: formatCard(ev, entry) }),
-      });
-      if (!res.ok) return false;
-      const msg = (await res.json()) as { id: string };
-      entry.messageId = msg.id;
-
-      // 2. open the thread off the card
-      const tres = await discordApi(
-        `/channels/${channelId}/messages/${msg.id}/threads`,
-        "POST",
-        { name: `${ev.input.symbol ?? ev.input.address.slice(0, 8)}·${chain}` },
-      );
-      if (tres.ok) {
-        entry.threadId = ((await tres.json()) as { id: string }).id;
-      }
-      map[key] = entry;
-      await saveMap(map);
+      entry = await createCard();
+      if (!entry) return false;
     } else {
       // repeat trigger: bump card + count
       entry.count += 1;
       entry.lastAt = now;
-      await fetch(`${webhook}/messages/${entry.messageId}`, {
+      const patch = await fetch(`${webhook}/messages/${entry.messageId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: formatCard(ev, entry) }),
-      }).catch(() => {});
-      await saveMap(map);
+      }).catch(() => undefined);
+      if (patch && (patch.status === 404 || patch.status === 403)) {
+        // card was deleted manually — heal by rebuilding it
+        delete map[key];
+        entry = await createCard();
+        if (!entry) return false;
+      } else {
+        if (!entry.threadId) await createThreadOffCard(entry); // heal missing thread
+        await saveMap(map);
+      }
     }
 
     // 3. detail into the thread
