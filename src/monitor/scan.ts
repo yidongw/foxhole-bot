@@ -48,6 +48,7 @@ import {
   getEthLatestBlock,
 } from "../chains/ethereum/uniswap-watcher.js";
 import { loadTradeConfig } from "../trade/config.js";
+import { checkTokenSafety } from "../trade/safety.js";
 import { managePositions, processSignals } from "../trade/engine.js";
 import type { LaunchRecord, LaunchesPayload, TokenAnalysis } from "../types.js";
 
@@ -127,18 +128,52 @@ function rankLaunches(launches: LaunchRecord[]): LaunchRecord[] {
   return [...launches].sort((a, b) => b.volume_24h - a.volume_24h);
 }
 
-async function deliverAlert(
+/**
+ * #trade-signal 语义: 每条消息 = 触发交易。只有满足开仓条件的信号
+ * (strong + pre-pump 入场触发器 + 通过安全门) 才走这里。
+ */
+async function deliverTradeSignal(
   body: string,
   options: Pick<ScanOptions, "dryRun" | "webhookUrl">,
 ): Promise<void> {
   if (options.dryRun) {
-    console.log("--- DRY RUN ALERT ---\n" + body + "\n");
+    console.log("--- DRY RUN TRADE SIGNAL ---\n" + body + "\n");
     return;
   }
   await appendAlertLog(body);
   const url = options.webhookUrl ?? process.env.DISCORD_WEBHOOK_URL;
   if (url) await sendDiscordMessage(url, body);
   else console.log(body);
+}
+
+/**
+ * 信息流 (launch digests, watch/alert 级、动量追认型 strong): 默认不上
+ * Discord — 记入 alerts.json + 日志, 仪表盘可见。想看流水可配
+ * DISCORD_FEED_WEBHOOK_URL 单独频道。
+ */
+async function deliverFeed(
+  body: string,
+  options: Pick<ScanOptions, "dryRun" | "webhookUrl">,
+): Promise<void> {
+  if (options.dryRun) {
+    console.log("--- DRY RUN FEED ---\n" + body + "\n");
+    return;
+  }
+  await appendAlertLog(body);
+  const url = process.env.DISCORD_FEED_WEBHOOK_URL;
+  if (url) await sendDiscordMessage(url, body);
+  else console.log(body);
+}
+
+/** Entry-grade = same bar as opening a position: strong + pre-pump trigger. */
+function isTradeGrade(evaluation: SignalEvaluation): boolean {
+  if (evaluation.level !== "strong") return false;
+  const entryTriggers = loadTradeConfig().entryTriggers;
+  return evaluation.triggers.some((t) => entryTriggers.includes(t));
+}
+
+function formatTradeSignal(ev: SignalEvaluation): string {
+  return "🎯 **交易触发 / TRADE SIGNAL**\n" + formatSignalAlert(ev);
 }
 
 /** Shared dedup + delivery for one evaluated token. */
@@ -160,7 +195,28 @@ async function maybeAlert(
   if (!upgraded && !canSend) {
     skippedReason = "cooldown / no level upgrade";
   } else if (canSend) {
-    await deliverAlert(formatSignalAlert(evaluation), options);
+    if (isTradeGrade(evaluation)) {
+      // Trade-grade must ALSO clear the safety gate before pinging the
+      // user — a signal that the engine would veto is not a trade trigger.
+      const input = evaluation.input;
+      const safety = await checkTokenSafety(
+        input.chain ?? "robinhood",
+        input.address,
+        input.primaryPairAddress,
+      );
+      if (safety.ok) {
+        await deliverTradeSignal(formatTradeSignal(evaluation), options);
+      } else {
+        await deliverFeed(
+          `⛔ 信号被安全门拦截 ${input.symbol} [${input.chain}]: ${safety.flags.join(", ")}\n` +
+            formatSignalAlert(evaluation),
+          options,
+        );
+        skippedReason = `safety veto: ${safety.flags.join(",")}`;
+      }
+    } else {
+      await deliverFeed(formatSignalAlert(evaluation), options);
+    }
     sent = true;
     recordAlert(state, key, evaluation.level, evaluation.triggers);
   } else {
@@ -239,10 +295,10 @@ export async function checkFactoryLaunches(
     events = await fetchCreatedEvents({ fromBlock: from, toBlock: latest });
     if (events.length && mode === "each") {
       for (const event of events) {
-        await deliverAlert(formatLaunchAlert(event), options);
+        await deliverFeed(formatLaunchAlert(event), options);
       }
     } else if (events.length && mode === "digest") {
-      await deliverAlert(formatLaunchDigest(events), options);
+      await deliverFeed(formatLaunchDigest(events), options);
     }
     state.lastFactoryBlock = latest.toString();
   }
@@ -316,7 +372,7 @@ async function checkFourmemeLaunches(
 
   const launches = await fetchFourmemeLaunches(from, latest);
   if (launches.length && mode !== "off") {
-    await deliverAlert(formatFourmemeDigest(launches), options);
+    await deliverFeed(formatFourmemeDigest(launches), options);
   }
   state.lastFourmemeBlock = latest.toString();
   if (launches.length) {
@@ -340,7 +396,7 @@ async function checkClankerLaunches(
 
   const launches = await fetchClankerLaunches(from, latest);
   if (launches.length && mode !== "off") {
-    await deliverAlert(formatClankerDigest(launches), options);
+    await deliverFeed(formatClankerDigest(launches), options);
   }
   state.lastClankerBlock = latest.toString();
   if (launches.length) {
@@ -364,7 +420,7 @@ async function checkEthNewPairs(
 
   const pairs = await fetchNewWethPairs(from, latest);
   if (pairs.length && mode !== "off") {
-    await deliverAlert(await formatEthPairDigest(pairs), options);
+    await deliverFeed(await formatEthPairDigest(pairs), options);
   }
   state.lastUniswapBlock = latest.toString();
   if (pairs.length) {
@@ -552,7 +608,11 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
       consecutiveFailures++;
       console.error(`monitor tick error (${consecutiveFailures} in a row):`, err);
       if (consecutiveFailures === 3) {
-        const url = options.webhookUrl ?? process.env.DISCORD_WEBHOOK_URL;
+        // Ops warning — goes to #filter-log, not the trade-signal channel
+        const url =
+          process.env.DISCORD_FILTER_WEBHOOK_URL ??
+          options.webhookUrl ??
+          process.env.DISCORD_WEBHOOK_URL;
         if (url && !options.dryRun) {
           await sendDiscordMessage(
             url,
