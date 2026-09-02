@@ -11,6 +11,8 @@ export interface SignalInput {
   liquidityUsd: number;
   fdvUsd?: number;
   priceChange24h?: number;
+  /** Short-term momentum for fast pumps (1h lookback). */
+  priceChange1h?: number;
   quoteLockRatio?: number;
   quotePremium?: number;
   /** Max pair volume / avg other pair volume on same token. */

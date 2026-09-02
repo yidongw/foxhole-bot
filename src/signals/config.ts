@@ -20,6 +20,10 @@ export const SIGNAL_CONFIG = {
   priceMomentumAlert: 20,
   priceMomentumStrong: 40,
 
+  /** Fast pump: price change in last 1h (minute-level replay / monitor). */
+  priceMomentum1hAlert: 15,
+  priceMomentum1hStrong: 30,
+
   /** New Long.xyz stock-paired launch watch window. */
   launchWatchDays: 14,
 
@@ -28,6 +32,9 @@ export const SIGNAL_CONFIG = {
 
   /** Re-alert cooldown per token+level (ms). */
   alertCooldownMs: 6 * 60 * 60 * 1000,
+
+  /** Absolute 24h volume on stock pairs (mature tokens). */
+  highVolumeAlertUsd: 750_000,
 
   /** Poll interval default (ms). */
   pollIntervalMs: 5 * 60 * 1000,

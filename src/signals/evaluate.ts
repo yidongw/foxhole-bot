@@ -71,7 +71,10 @@ export function evaluateSignal(input: SignalInput): SignalEvaluation {
     volumeAccelStrong,
     priceMomentumAlert,
     priceMomentumStrong,
+    priceMomentum1hAlert,
+    priceMomentum1hStrong,
     launchWatchDays,
+    highVolumeAlertUsd,
   } = SIGNAL_CONFIG;
 
   if (input.liquidityUsd < minLiquidityUsd) {
@@ -83,6 +86,7 @@ export function evaluateSignal(input: SignalInput): SignalEvaluation {
   const spike = input.volumeSpikeRatio;
   const accel = input.volumeAccelRatio;
   const pct = input.priceChange24h;
+  const pct1h = input.priceChange1h;
   const days = input.daysSinceLaunch;
 
   // --- New stock-paired launch (early radar) ---
@@ -148,7 +152,7 @@ export function evaluateSignal(input: SignalInput): SignalEvaluation {
     }
   }
 
-  // --- Price momentum ---
+  // --- Price momentum (24h) ---
   if (pct != null && vol >= minVolumeUsd) {
     if (pct >= priceMomentumStrong) {
       level = maxLevel(level, "strong");
@@ -160,6 +164,21 @@ export function evaluateSignal(input: SignalInput): SignalEvaluation {
       score += 12;
       reasons.push(`price +${pct.toFixed(0)}% 24h`);
       triggers.push("momentum_alert");
+    }
+  }
+
+  // --- Fast pump: 1h momentum (minute replay) ---
+  if (pct1h != null && vol >= minVolumeUsd) {
+    if (pct1h >= priceMomentum1hStrong) {
+      level = maxLevel(level, "strong");
+      score += 25;
+      reasons.push(`price +${pct1h.toFixed(0)}% 1h — fast pump`);
+      triggers.push("momentum_1h_strong");
+    } else if (pct1h >= priceMomentum1hAlert) {
+      level = maxLevel(level, "alert");
+      score += 15;
+      reasons.push(`price +${pct1h.toFixed(0)}% 1h`);
+      triggers.push("momentum_1h_alert");
     }
   }
 
@@ -186,7 +205,7 @@ export function evaluateSignal(input: SignalInput): SignalEvaluation {
   }
 
   // High absolute volume alone on stock pairs
-  if (input.isStockPaired && vol >= 1_000_000) {
+  if (input.isStockPaired && vol >= highVolumeAlertUsd) {
     level = maxLevel(level, "alert");
     score += 10;
     if (!triggers.includes("volume_spike_alert")) {

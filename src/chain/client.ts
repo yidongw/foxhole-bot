@@ -1,12 +1,27 @@
 import { type Address, erc20Abi } from "viem";
+import { createPublicClient, http, type PublicClient } from "viem";
 import { createHoodClient, getQuote } from "hoodchain";
-import { LONG_AIRLOCK } from "../long/constants.js";
+import { LONG_AIRLOCK, ROBINHOOD_CHAIN_ID, DEFAULT_PUBLIC_RPC } from "../long/constants.js";
 
 export function getRpcUrl(): string {
-  return (
-    process.env.ROBINHOOD_RPC ??
-    "https://rpc.mainnet.chain.robinhood.com"
-  );
+  return process.env.ROBINHOOD_RPC ?? DEFAULT_PUBLIC_RPC;
+}
+
+const robinhood = {
+  id: ROBINHOOD_CHAIN_ID,
+  name: "Robinhood Chain",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: {
+    default: { http: [getRpcUrl()] },
+    public: { http: [getRpcUrl()] },
+  },
+} as const;
+
+export function createRobinhoodPublicClient(): PublicClient {
+  return createPublicClient({
+    chain: robinhood,
+    transport: http(getRpcUrl()),
+  });
 }
 
 let hoodClient: ReturnType<typeof createHoodClient> | undefined;

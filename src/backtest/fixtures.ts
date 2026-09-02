@@ -11,6 +11,11 @@ export const PUMP_FIXTURES: TokenBacktestFixture[] = [
     quoteSymbol: "HIMS",
     launchAt: "2026-08-20T20:59:46.000Z",
     ohlcvStart: "2026-08-15",
+    squeezeWindow: {
+      warmupStart: "2026-08-27T00:00:00Z",
+      start: "2026-08-28T00:00:00Z",
+      end: "2026-08-30T00:00:00Z",
+    },
     notes: "Aug 28 volume breakout → Aug 30–31 weekend squeeze",
   },
   {
@@ -21,6 +26,11 @@ export const PUMP_FIXTURES: TokenBacktestFixture[] = [
     quoteSymbol: "NVDA",
     launchAt: "2026-07-14T00:00:00.000Z",
     ohlcvStart: "2026-07-10",
+    squeezeWindow: {
+      warmupStart: "2026-07-20T00:00:00Z",
+      start: "2026-07-21T00:00:00Z",
+      end: "2026-07-24T00:00:00Z",
+    },
     notes: "Jul 21–22 first major pump; Aug 26–28 second leg",
   },
   {
@@ -31,6 +41,11 @@ export const PUMP_FIXTURES: TokenBacktestFixture[] = [
     quoteSymbol: "SPCX",
     launchAt: "2026-07-14T00:00:00.000Z",
     ohlcvStart: "2026-07-10",
+    squeezeWindow: {
+      warmupStart: "2026-08-27T00:00:00Z",
+      start: "2026-08-28T00:00:00Z",
+      end: "2026-08-30T00:00:00Z",
+    },
     notes: "Aug 28 volume acceleration",
   },
 ];
