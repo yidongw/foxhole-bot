@@ -17,8 +17,13 @@ import {
   type PositionsFile,
 } from "./positions.js";
 import { checkEntry } from "./risk.js";
-import { evaluateExits } from "./exits.js";
+import { evaluateExits, type ExitAction } from "./exits.js";
 import { buy, sell } from "./execute.js";
+import {
+  ADVISOR_COOLDOWN_MS,
+  adviseExit,
+  advisorAvailable,
+} from "./advisor.js";
 
 export interface EngineOptions {
   dryRun?: boolean;
@@ -133,7 +138,26 @@ export async function managePositions(
     if (price == null || price <= 0) continue;
 
     position.highWaterUsd = Math.max(position.highWaterUsd, price);
-    const actions = evaluateExits(position, price, config);
+    const actions: ExitAction[] = evaluateExits(position, price, config);
+
+    // Optional LLM advisor: may recommend an EARLY exit when the deterministic
+    // rails haven't fired; it can never cancel or delay them.
+    if (
+      !actions.length &&
+      advisorAvailable() &&
+      (!position.lastAdvisorAt ||
+        Date.now() - new Date(position.lastAdvisorAt).getTime() >
+          ADVISOR_COOLDOWN_MS)
+    ) {
+      position.lastAdvisorAt = new Date().toISOString();
+      const decision = await adviseExit(position, { currentPriceUsd: price });
+      if (decision.action === "exit" && decision.confidence >= 0.6) {
+        actions.push({
+          fraction: remainingFraction(position),
+          reason: `advisor (${decision.confidence.toFixed(2)}): ${decision.reason}`,
+        });
+      }
+    }
 
     for (const action of actions) {
       try {

@@ -33,6 +33,8 @@ export interface Position {
   status: "open" | "closed";
   closedAt?: string;
   txHash?: string;
+  /** Last LLM advisor consultation (throttling). */
+  lastAdvisorAt?: string;
 }
 
 export interface PositionsFile {
