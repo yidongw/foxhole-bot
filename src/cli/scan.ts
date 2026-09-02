@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { loadEnv } from "../lib/env.js";
+loadEnv();
+
 import { scanLaunches } from "../monitor/scan.js";
 import type { AlertLevel } from "../signals/types.js";
 import { formatSignalAlert } from "../signals/evaluate.js";

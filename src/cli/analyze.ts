@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { loadEnv } from "../lib/env.js";
+loadEnv();
+
 import { analyzeToken, formatAnalysisReport } from "../long/analyze-token.js";
 
 async function main() {

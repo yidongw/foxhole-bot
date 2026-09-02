@@ -140,6 +140,7 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
 
 export async function runMonitorLoop(options: ScanOptions & { once?: boolean }): Promise<void> {
   const interval = Number(process.env.POLL_INTERVAL_MS ?? SIGNAL_CONFIG.pollIntervalMs);
+  let consecutiveFailures = 0;
 
   const tick = async () => {
     console.log(`[${new Date().toISOString()}] scanning Long.xyz launches…`);
@@ -148,10 +149,30 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     console.log(`done: ${hits.length} signals ≥${options.minLevel ?? "watch"}, ${alerted.length} alerts sent`);
   };
 
-  await tick();
-  if (options.once) return;
-
-  setInterval(() => {
-    tick().catch((err) => console.error("monitor tick error:", err));
-  }, interval);
+  // Sequential loop (not setInterval): a slow scan must finish before the
+  // next one starts, otherwise ticks overlap and double-alert.
+  while (true) {
+    try {
+      await tick();
+      consecutiveFailures = 0;
+    } catch (err) {
+      consecutiveFailures++;
+      console.error(`monitor tick error (${consecutiveFailures} in a row):`, err);
+      if (consecutiveFailures === 3) {
+        const url = options.webhookUrl ?? process.env.DISCORD_WEBHOOK_URL;
+        if (url && !options.dryRun) {
+          await sendDiscordMessage(
+            url,
+            `⚠️ **FOXHOLE MONITOR** unhealthy — 3 consecutive scan failures. Last error: ${(err as Error).message}`,
+          ).catch(() => {});
+        }
+      }
+    }
+    if (options.once) return;
+    const backoff =
+      consecutiveFailures > 0
+        ? Math.min(interval * 2 ** Math.min(consecutiveFailures, 4), 30 * 60_000)
+        : interval;
+    await sleep(backoff);
+  }
 }

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { loadEnv } from "../lib/env.js";
+loadEnv();
+
 import { collectLaunches, writeLaunchesJson } from "../long/fetch-launches.js";
 
 async function main() {
