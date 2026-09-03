@@ -15,10 +15,24 @@ export interface ProfitWallet {
   profitUsd?: number;
   buyTx?: number;
   sellTx?: number;
+  totalCost?: number;
+  buyVolume?: number;
   suspicious?: boolean;
   isContract?: boolean;
   tags: string[];
   source: string;
+}
+
+/**
+ * Coarse per-token quality score for ranking the candidate pool — ROI (profit
+ * per $ spent), NOT raw profit (which surfaces high-frequency bots/arbitragers
+ * that win on volume). A `smart_degen` tag adds a bonus.
+ */
+export function coarseScore(w: ProfitWallet): number {
+  const basis = Math.max(w.totalCost ?? 0, w.buyVolume ?? 0, 1);
+  const roi = (w.profitUsd ?? 0) / basis;
+  const smartBonus = w.tags.includes("smart_degen") ? 1 : 0;
+  return roi + smartBonus;
 }
 
 interface ProfitProvider {
@@ -39,6 +53,8 @@ const gmgnProvider: ProfitProvider = {
       profitUsd: Number(r.profit ?? 0),
       buyTx: Number(r.buy_tx_count_cur ?? 0),
       sellTx: Number(r.sell_tx_count_cur ?? 0),
+      totalCost: Number(r.total_cost ?? 0),
+      buyVolume: Number(r.buy_volume_cur ?? 0),
       suspicious: Boolean(r.is_suspicious),
       isContract: r.addr_type === 2 || Boolean(r.exchange),
       tags: (r.tags ?? []) as string[],

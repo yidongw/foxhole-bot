@@ -73,6 +73,7 @@ async function saveState(s: SmState): Promise<void> {
 class RbBuyWatcher {
   tracked = new Set<string>();
   labels = new Map<string, string>();
+  tiers = new Map<string, string | undefined>();
   private poolCache = new Map<string, PoolPair>();
 
   async reloadWallets(): Promise<boolean> {
@@ -81,6 +82,7 @@ class RbBuyWatcher {
     );
     const next = new Set(wallets.map((w) => w.address.toLowerCase()));
     this.labels = new Map(wallets.map((w) => [w.address.toLowerCase(), w.label]));
+    this.tiers = new Map(wallets.map((w) => [w.address.toLowerCase(), w.tier]));
     const changed =
       next.size !== this.tracked.size ||
       [...next].some((a) => !this.tracked.has(a));
@@ -167,6 +169,7 @@ class RbBuyWatcher {
       txHash: buy.txHash,
       ts: Date.now(),
       source: "rpc",
+      tier: this.tiers.get(buy.wallet.toLowerCase()),
     };
     await smartMoneyEngine.handleBuy(sm);
   }

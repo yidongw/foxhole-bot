@@ -93,6 +93,7 @@ export async function startActivityWatcher(): Promise<void> {
                 txHash: a.tx_hash,
                 ts: a.timestamp * 1000,
                 source: "gmgn",
+                tier: w.tier,
               };
               await smartMoneyEngine.handleBuy(buy);
             }

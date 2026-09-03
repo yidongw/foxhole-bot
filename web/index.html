@@ -442,7 +442,7 @@
           <div style="margin-bottom:10px;">
             <div style="font-size:13px;font-weight:600;color:${smColor(c)};margin-bottom:4px;">${c.toUpperCase()} · ${ws.length}</div>
             ${ws.map(w => `<div style="font-size:12px;padding:3px 0;border-bottom:1px solid #222;">
-              <span style="color:var(--muted);">${smShort(w.address)}</span>
+              ${w.tier ? `<b style="color:${w.tier==='S'?'#00C805':w.tier==='A'?'#F0B90B':'#888'};">[${w.tier}]</b> ` : ''}<span style="color:var(--muted);">${smShort(w.address)}</span>
               &nbsp;<b>${esc(w.label)}</b>
               &nbsp;<span style="color:var(--muted);">警报≥$${(w.filter.alertMinUsd||0).toLocaleString()} · AI≥$${(w.filter.aiMinUsd||0).toLocaleString()}${w.filter.soloTrigger?' · solo':''}</span>
             </div>`).join('')}

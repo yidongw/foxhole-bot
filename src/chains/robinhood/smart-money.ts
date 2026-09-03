@@ -122,6 +122,8 @@ export async function addTrackedWallet(
   label: string,
   addedBy?: string,
   chain = "robinhood",
+  tier?: string,
+  realizedUsd?: number,
 ): Promise<{ added: boolean; wallets: TrackedWallet[] }> {
   // Solana addresses are base58 (not 0x); only checksum EVM-style ones.
   const norm = address.startsWith("0x") ? getAddress(address) : address;
@@ -133,6 +135,8 @@ export async function addTrackedWallet(
     address: norm,
     label,
     chain: chain.toLowerCase(),
+    tier,
+    realizedUsd,
     addedAt: new Date().toISOString(),
     addedBy,
   });

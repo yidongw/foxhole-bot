@@ -32,6 +32,8 @@ export interface SmartMoneyBuy {
   txHash: string;
   ts: number;
   source: string; // "rpc" | "gmgn" | "cielo"
+  /** Quality tier from the winner-finder; "S" acts as a solo trigger. */
+  tier?: string;
 }
 
 /** Per-chain brand color (embed border) + emoji, so alerts are distinguishable. */
@@ -128,11 +130,10 @@ export class SmartMoneyEngine {
       distinct,
     });
 
-    // --- AI-trigger gate (strict). Solo-trigger wallets bypass conviction. ---
+    // --- AI-trigger gate (strict). Solo-trigger (config or tier-S) bypasses conviction. ---
     const bigEnough = (buy.usd ?? Infinity) >= filter.aiMinUsd;
-    const meets =
-      bigEnough &&
-      (filter.soloTrigger || distinct >= filter.aiConvictionN);
+    const solo = filter.soloTrigger || buy.tier === "S";
+    const meets = bigEnough && (solo || distinct >= filter.aiConvictionN);
     if (meets) await this.escalate(buy, distinct, filter.aiWindowMin);
   }
 

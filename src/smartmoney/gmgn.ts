@@ -94,13 +94,70 @@ export async function gmgnTokenTraders(
   return (d.list as GmgnTrader[]) ?? [];
 }
 
+export interface GmgnStats {
+  realized_profit: number;
+  realized_profit_pnl: number; // ROI ratio (2.35 = +235%)
+  total_cost: number;
+  last_timestamp: number;
+  pnl_stat: {
+    token_num: number;
+    winrate: number;
+    pnl_lt_nd5_num: number; // tokens with loss < -50%
+    pnl_nd5_0x_num: number; // loss -50%..0
+    pnl_0x_2x_num: number; // 0..2x
+    pnl_2x_5x_num: number; // 2x..5x
+    pnl_gt_5x_num: number; // > 5x
+    avg_holding_period: number;
+  };
+  tags: string[];
+}
+
+export async function gmgnPortfolioStats(
+  chain: string,
+  wallet: string,
+  period: "7d" | "30d" = "30d",
+): Promise<GmgnStats | undefined> {
+  const d = unwrap(
+    await run([
+      "portfolio",
+      "stats",
+      "--chain",
+      chain,
+      "--wallet",
+      normAddr(wallet),
+      "--period",
+      period,
+    ]),
+  );
+  const pnl = (d.pnl_stat ?? {}) as Record<string, number>;
+  if (d.pnl_stat === undefined) return undefined;
+  const common = (d.common ?? {}) as { tags?: string[] };
+  return {
+    realized_profit: Number(d.realized_profit ?? 0),
+    realized_profit_pnl: Number(d.realized_profit_pnl ?? 0),
+    total_cost: Number(d.total_cost ?? 0),
+    last_timestamp: Number(d.last_timestamp ?? 0),
+    pnl_stat: {
+      token_num: Number(pnl.token_num ?? 0),
+      winrate: Number(pnl.winrate ?? 0),
+      pnl_lt_nd5_num: Number(pnl.pnl_lt_nd5_num ?? 0),
+      pnl_nd5_0x_num: Number(pnl.pnl_nd5_0x_num ?? 0),
+      pnl_0x_2x_num: Number(pnl.pnl_0x_2x_num ?? 0),
+      pnl_2x_5x_num: Number(pnl.pnl_2x_5x_num ?? 0),
+      pnl_gt_5x_num: Number(pnl.pnl_gt_5x_num ?? 0),
+      avg_holding_period: Number(pnl.avg_holding_period ?? 0),
+    },
+    tags: common.tags ?? [],
+  };
+}
+
 export interface GmgnActivity {
   wallet: string;
   chain: string;
   tx_hash: string;
   timestamp: number;
   event_type: string; // buy | sell | ...
-  token: { address: string; symbol?: string };
+  token: { address: string; symbol?: string; total_supply?: string };
   token_amount?: string;
   quote_amount?: string;
   cost_usd?: string;

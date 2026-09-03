@@ -49,6 +49,7 @@ function normChain(c: unknown): string {
 export function parseCieloBuy(
   msg: Record<string, unknown>,
   labelFor: (wallet: string) => string,
+  tierFor?: (wallet: string) => string | undefined,
 ): SmartMoneyBuy | null {
   const d = ((msg.data as Record<string, unknown>) ?? msg) as Record<string, unknown>;
   if (String(d.tx_type ?? "").toLowerCase() !== "swap") return null;
@@ -74,6 +75,7 @@ export function parseCieloBuy(
     txHash: String(d.tx_hash ?? ""),
     ts: Number.isFinite(ts) ? ts : Date.now(),
     source: "cielo",
+    tier: tierFor?.(wallet),
   };
 }
 
@@ -81,12 +83,15 @@ export async function startCieloWatcher(): Promise<void> {
   if (!cieloEnabled()) return;
   const covered = cieloCoveredChains();
   let labels = new Map<string, string>();
+  let tiers = new Map<string, string | undefined>();
   const labelFor = (w: string) => labels.get(w.toLowerCase()) ?? "wallet";
+  const tierFor = (w: string) => tiers.get(w.toLowerCase());
 
   const cieloWallets = async (): Promise<TrackedWallet[]> => {
     const all = await loadTrackedWallets();
     const list = all.filter((w) => covered.has(walletChain(w)));
     labels = new Map(list.map((w) => [w.address.toLowerCase(), w.label]));
+    tiers = new Map(list.map((w) => [w.address.toLowerCase(), w.tier]));
     return list;
   };
 
@@ -128,7 +133,7 @@ export async function startCieloWatcher(): Promise<void> {
           } catch {
             return;
           }
-          const buy = parseCieloBuy(msg, labelFor);
+          const buy = parseCieloBuy(msg, labelFor, tierFor);
           if (buy && covered.has(buy.chain)) void smartMoneyEngine.handleBuy(buy);
         });
         socket.on("close", () => resolve());

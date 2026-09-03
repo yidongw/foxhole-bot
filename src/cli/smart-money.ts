@@ -15,6 +15,12 @@ import {
   saveConfig,
   type SmartMoneyFilter,
 } from "../smartmoney/config.js";
+import { findWorthTracking } from "../smartmoney/winner-finder.js";
+import {
+  addGoodToken,
+  goodTokensForChain,
+  loadGoodTokens,
+} from "../smartmoney/good-tokens.js";
 
 const KNOWN_CHAINS = new Set([
   "robinhood",
@@ -187,7 +193,78 @@ async function main() {
     return;
   }
 
-  console.error(`未知命令: ${cmd}。可用: list | add | rm | find | config | filter`);
+  if (cmd === "good") {
+    const [sub, chain, address, ...rest2] = rest;
+    if (sub === "add") {
+      if (!chain || !address) {
+        console.error("用法: smartmoney good add <chain> <address> [symbol] [--mcap N]");
+        process.exit(1);
+      }
+      const symbol = rest2.find((a) => !a.startsWith("--"));
+      const { added, tokens } = await addGoodToken({
+        chain,
+        address,
+        symbol,
+        peakMcap: flag("mcap") ? Number(flag("mcap")) : undefined,
+        addedBy: "cli",
+      });
+      console.log(added ? `✅ 已记入好币 [${chain}] ${symbol ?? address}（共 ${tokens.length}）` : "已存在。");
+      return;
+    }
+    const tokens = await loadGoodTokens();
+    for (const t of tokens) console.log(`[${t.chain}] ${t.symbol ?? ""} ${t.address}${t.peakMcap ? ` peak=$${t.peakMcap.toLocaleString()}` : ""}`);
+    console.log(`\n共 ${tokens.length} 个好币。`);
+    return;
+  }
+
+  if (cmd === "find2") {
+    const [chain, tokenArg] = rest;
+    if (!chain) {
+      console.error("用法: smartmoney find2 <chain> <token,...|--good> [--add-top N]");
+      process.exit(1);
+    }
+    let tokens: { address: string; label?: string }[];
+    if (tokenArg && tokenArg !== "--good") {
+      tokens = tokenArg.split(",").map((address) => ({ address }));
+    } else {
+      tokens = (await goodTokensForChain(chain)).map((t) => ({ address: t.address, label: t.symbol ?? t.address.slice(0, 8) }));
+    }
+    if (!tokens.length) {
+      console.error(`没有源代币。给 <token,...> 或先 \`smartmoney good add ${chain} <addr>\``);
+      process.exit(1);
+    }
+    console.log(`winner-finder v2:${chain} 上 ${tokens.length} 个好币 → 找值得追踪的钱包…`);
+    const { candidates } = await findWorthTracking(chain, tokens, {
+      onProgress: (m) => console.log("  " + m),
+    });
+    console.log(`\n=== 值得追踪 ${candidates.length} 个（tier · 分数 · 胜率 · 币种数 · 跨币）===`);
+    for (const c of candidates) {
+      const mm = c.verdict.metrics;
+      console.log(
+        `[${c.tier}] ${c.address}  ${c.score}分 · 胜率${(mm.winrate * 100).toFixed(0)}% · ${mm.tokenNum}币 · realized$${Math.round(mm.realizedUsd).toLocaleString()} · 跨${c.crossTokens.length}${mm.medianEntryMcap ? ` · 入场mc$${Math.round(mm.medianEntryMcap).toLocaleString()}` : ""}`,
+      );
+    }
+    const addTop = Number(flag("add-top") ?? 0);
+    if (addTop > 0) {
+      let added = 0;
+      const config = await loadConfig();
+      for (const c of candidates.slice(0, addTop)) {
+        const label = `${c.tier} v2 胜率${(c.verdict.metrics.winrate * 100).toFixed(0)}% $${Math.round(c.verdict.metrics.realizedUsd / 1000)}k`;
+        const r = await addTrackedWallet(c.address, label, "winner-finder-v2", chain, c.tier, c.verdict.metrics.realizedUsd);
+        if (r.added) {
+          added++;
+          if (c.tier === "S") config.wallets[c.address.toLowerCase()] = { ...(config.wallets[c.address.toLowerCase()] ?? {}), soloTrigger: true };
+        }
+      }
+      await saveConfig(config);
+      console.log(`\n✅ 已加入追踪 ${added} 个（S 级设为 soloTrigger）。`);
+    } else {
+      console.log(`\n(加 --add-top N 自动把前 N 个加入追踪；S 级会设 soloTrigger)`);
+    }
+    return;
+  }
+
+  console.error(`未知命令: ${cmd}。可用: list | add | rm | find | find2 | good | config | filter`);
   process.exit(1);
 }
 

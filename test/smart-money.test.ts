@@ -17,6 +17,7 @@ import {
 import { qualifyWallet, type ProfitWallet } from "../src/smartmoney/profit.js";
 import { parseCieloBuy } from "../src/smartmoney/cielo.js";
 import { resolveFilterSync, type SmartMoneyConfig } from "../src/smartmoney/config.js";
+import { scoreWallet, type WalletMetrics } from "../src/smartmoney/wallet-quality.js";
 import { encodeAbiParameters, parseAbiParameters } from "viem";
 
 const WALLET = "0x1111111111111111111111111111111111111111";
@@ -220,6 +221,51 @@ describe("resolveFilterSync (per-chain / per-wallet filters)", () => {
     expect(resolveFilterSync(cfg, "bsc", "0xZZZ").alertMinUsd).toBe(2000);
     expect(resolveFilterSync(cfg, "bsc", "0xABC").alertMinUsd).toBe(9000);
     expect(resolveFilterSync(cfg, "bsc", "0xABC").soloTrigger).toBe(true);
+  });
+});
+
+describe("scoreWallet — worth-tracking filter (v2)", () => {
+  const good: WalletMetrics = {
+    winrate: 0.5,
+    tokenNum: 30,
+    realizedUsd: 50_000,
+    roi: 1.5,
+    bigWins: 3,
+    losers: 5,
+    avgBuyUsd: 2_000,
+    medianEntryMcap: 200_000,
+    lastActiveDays: 2,
+    tags: ["fomo"],
+  };
+  it("accepts a focused, active, copyable winner", () => {
+    const v = scoreWallet(good);
+    expect(v.pass).toBe(true);
+  });
+  it("accepts a low-winrate HIGH-ROI meme winner (the point of v2)", () => {
+    // 0x776b: 19% winrate but 3.4x ROI, $455k — skilled, must pass.
+    const v = scoreWallet({ ...good, winrate: 0.19, roi: 3.4, realizedUsd: 455_000, tokenNum: 227, bigWins: 2 });
+    expect(v.pass).toBe(true);
+  });
+  it("rejects the classic false positives", () => {
+    // arbitrager bot (the real 牛来 #1 profit wallet)
+    expect(scoreWallet({ ...good, tokenNum: 335, tags: ["arbitrager"] }).pass).toBe(false);
+    // churn: positive but low ROI (made little per $ spent)
+    expect(scoreWallet({ ...good, roi: 0.3 }).pass).toBe(false);
+    // win rate below the noise floor
+    expect(scoreWallet({ ...good, winrate: 0.05 }).pass).toBe(false);
+    // egregious spray (bot-like / un-copyable)
+    expect(scoreWallet({ ...good, tokenNum: 500 }).pass).toBe(false);
+    // one-hit / churn: never caught a >2x
+    expect(scoreWallet({ ...good, bigWins: 0 }).pass).toBe(false);
+    // dust trader
+    expect(scoreWallet({ ...good, avgBuyUsd: 50 }).pass).toBe(false);
+    // dormant
+    expect(scoreWallet({ ...good, lastActiveDays: 30 }).pass).toBe(false);
+  });
+  it("scores ROI over win rate", () => {
+    const hiRoi = scoreWallet({ ...good, winrate: 0.3, roi: 4, bigWins: 5 });
+    const loRoi = scoreWallet({ ...good, winrate: 0.6, roi: 1.1, bigWins: 1 });
+    expect(hiRoi.score).toBeGreaterThan(loRoi.score);
   });
 });
 

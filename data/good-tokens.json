@@ -1,0 +1,18 @@
+{
+  "tokens": [
+    {
+      "chain": "bsc",
+      "address": "0xbeea1d618e533a387d941f58a7d4c9b7bd377777",
+      "symbol": "牛来",
+      "addedBy": "cli",
+      "addedAt": "2026-09-03T14:04:08.633Z"
+    },
+    {
+      "chain": "bsc",
+      "address": "0xfe189e97832da1573e4e4ff034f4ffc3a15c7777",
+      "symbol": "marscoin",
+      "addedBy": "cli",
+      "addedAt": "2026-09-03T14:04:09.032Z"
+    }
+  ]
+}
