@@ -1,6 +1,6 @@
 import { sendDiscordEmbed, sendDiscordMessage } from "../notify/discord.js";
 import { resolveWebhook } from "../notify/routes.js";
-import { appendAiInboxNews } from "../notify/ai-inbox.js";
+import { appendAiInboxSmartMoney } from "../notify/ai-inbox.js";
 import { appendSmLog } from "./log.js";
 import { resolveFilter } from "./config.js";
 
@@ -197,15 +197,17 @@ export class SmartMoneyEngine {
       );
     }
 
-    // 2) Wake the AI decision layer (writes inbox; spawns decider if keyed).
-    await appendAiInboxNews({
-      title: `🎯 交易信号:${distinct} 个聪明钱买入 $${buy.symbol} [${buy.chain}] — 需决策`,
-      url: link,
+    // 2) Wake the AI decision layer as a COIN signal so the decider runs its
+    //    per-token buy/skip path (live price check), not the news path.
+    await appendAiInboxSmartMoney({
+      chain: buy.chain,
+      address: buy.token,
+      symbol: buy.symbol,
+      distinct,
+      usd: buy.usd,
       reasons: [
-        `smart-money trade signal: ${distinct} tracked wallets bought ${buy.token} on ${buy.chain} within ${windowMin}min${usdStr}. Decide buy or skip.`,
+        `smart-money: ${distinct} tracked wallets bought ${buy.symbol} on ${buy.chain} within ${windowMin}min${usdStr} — latest ${buy.walletLabel}. Decide buy or skip.`,
       ],
-      negative: false,
-      note: `CA ${buy.token}`,
     }).catch((err) =>
       console.error("smart-money inbox failed:", (err as Error).message),
     );
@@ -231,13 +233,14 @@ export class SmartMoneyEngine {
       }
     }
 
-    if (process.env.ANTHROPIC_API_KEY) {
-      try {
-        const { maybeSpawnDecider } = await import("../trade/decider.js");
-        void maybeSpawnDecider("signal");
-      } catch (err) {
-        console.error("smart-money decider spawn failed:", (err as Error).message);
-      }
+    // Wake the AI decision layer. This spawns a headless `claude -p` run
+    // (Claude Code, OAuth) that reads the AI inbox and decides buy/skip — it
+    // does NOT use ANTHROPIC_API_KEY, so it fires on every trade signal.
+    try {
+      const { maybeSpawnDecider } = await import("../trade/decider.js");
+      void maybeSpawnDecider("signal");
+    } catch (err) {
+      console.error("smart-money decider spawn failed:", (err as Error).message);
     }
 
     await appendSmLog({
@@ -250,7 +253,7 @@ export class SmartMoneyEngine {
       usd: buy.usd,
       txHash: buy.txHash,
       distinct,
-      reason: process.env.ANTHROPIC_API_KEY ? "trade-signal+ai-woken" : "trade-signal (ai-key-missing)",
+      reason: "trade-signal + ai-woken",
     });
     console.log(`[smart-money] TRADE SIGNAL $${buy.symbol} [${buy.chain}] → ${style.name} channel`);
   }

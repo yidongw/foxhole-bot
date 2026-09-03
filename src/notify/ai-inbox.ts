@@ -70,6 +70,37 @@ export async function appendAiInboxNews(
   await appendFile(INBOX_PATH, JSON.stringify(line) + "\n", "utf8");
 }
 
+/**
+ * Smart-money trade signal → the AI inbox as a COIN signal (not news), so the
+ * decider's per-token path runs (live price check → buy/skip), rather than the
+ * news path which skips generic positive items. Liquidity/volume are left 0 —
+ * the decider fetches live DexScreener data itself.
+ */
+export async function appendAiInboxSmartMoney(entry: {
+  chain: string;
+  address: string;
+  symbol?: string;
+  reasons: string[];
+  distinct: number;
+  usd?: number;
+  poolId?: string;
+}): Promise<void> {
+  const line: InboxSignal = {
+    at: new Date().toISOString(),
+    chain: entry.chain,
+    address: entry.address,
+    symbol: entry.symbol,
+    liquidityUsd: 0,
+    volume24hUsd: 0,
+    score: 50 + entry.distinct * 10,
+    triggers: ["smart_money"],
+    reasons: entry.reasons,
+    poolId: entry.poolId,
+  };
+  await mkdir(path.dirname(INBOX_PATH), { recursive: true });
+  await appendFile(INBOX_PATH, JSON.stringify(line) + "\n", "utf8");
+}
+
 export async function readAiInbox(): Promise<Array<InboxSignal | InboxNews>> {
   try {
     const raw = await readFile(INBOX_PATH, "utf8");
