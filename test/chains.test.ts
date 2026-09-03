@@ -110,3 +110,19 @@ describe("post-pump entry veto", () => {
     expect(v.reason).toMatch(/post-pump/);
   });
 });
+
+describe("falling-knife entry veto", () => {
+  it("refuses entries carrying the falling_knife trigger", () => {
+    process.env.TRADE_CHAINS = "robinhood,solana";
+    const v = checkEntry(CONFIG, { version: 1, positions: [] }, {
+      token: "0xAbC0000000000000000000000000000000000003",
+      chain: "solana",
+      symbol: "KNIFE",
+      priceUsd: 1,
+      liquidityUsd: 100_000,
+      triggers: ["lock_strong", "falling_knife"],
+    });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/falling knife/);
+  });
+});

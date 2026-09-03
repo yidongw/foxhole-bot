@@ -82,6 +82,7 @@ export function evaluateSignal(
     priceMomentumAlert,
     priceMomentumStrong,
     postPumpMaxChangePct,
+    fallingKnifeDropPct,
     launchWatchDays,
   } = config;
 
@@ -259,6 +260,15 @@ export function evaluateSignal(
     level = "alert";
     reasons.push(`+${pct.toFixed(0)}% 24h 已走完 — 事后信号降级, 不入场`);
     triggers.push("post_pump");
+  }
+
+  // --- Falling-knife demotion: volume triggers on a dropping token ---
+  // Spike/accel baselines (peer pairs, last snapshot) can't tell breakout
+  // volume from sell-off volume; price direction can.
+  if (pct != null && pct <= -fallingKnifeDropPct && level === "strong") {
+    level = "alert";
+    reasons.push(`${pct.toFixed(0)}% 24h 下跌中放量 = 派发, 不入场`);
+    triggers.push("falling_knife");
   }
 
   return { level, score, reasons, triggers, input };

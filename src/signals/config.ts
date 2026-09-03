@@ -82,6 +82,16 @@ export const SIGNAL_CONFIG = {
    */
   postPumpMaxChangePct: 500,
 
+  /**
+   * 24h drop beyond this while volume triggers fire = distribution, not a
+   * breakout. The spike/accel triggers compare against peer pairs or the
+   * last scan snapshot, so sell-off volume on a falling token reads as
+   * "acceleration" (BONER 2026-09-03: -24% 24h yet score 160 with
+   * volume_accel 3.8× — the decider had to veto it from live orderflow).
+   * Cap at alert + falling_knife trigger; engine refuses the entry.
+   */
+  fallingKnifeDropPct: 10,
+
   /** New Long.xyz stock-paired launch watch window. */
   launchWatchDays: 14,
 

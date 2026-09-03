@@ -40,6 +40,9 @@ export function checkEntry(
   if (candidate.triggers.includes("post_pump")) {
     return { ok: false, reason: "post-pump signal — move already happened" };
   }
+  if (candidate.triggers.includes("falling_knife")) {
+    return { ok: false, reason: "falling knife — volume is distribution, price dropping" };
+  }
   if (config.denylist.includes(candidate.token.toLowerCase())) {
     return { ok: false, reason: "token on denylist" };
   }

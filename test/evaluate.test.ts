@@ -139,3 +139,28 @@ describe("post-pump demotion (DIDDY lesson)", () => {
     expect(ev.triggers).not.toContain("post_pump");
   });
 });
+
+describe("falling-knife demotion (BONER 2026-09-03 lesson)", () => {
+  it("caps volume-driven strong signals to alert when price is dropping", () => {
+    const ev = evaluateSignal(
+      baseInput({
+        quoteLockRatio: SIGNAL_CONFIG.lockStrong,
+        volumeSpikeRatio: SIGNAL_CONFIG.volumeSpikeStrong,
+        priceChange24h: -24, // BONER: sell-off volume read as acceleration
+      }),
+    );
+    expect(ev.level).toBe("alert");
+    expect(ev.triggers).toContain("falling_knife");
+  });
+
+  it("tolerates shallow dips", () => {
+    const ev = evaluateSignal(
+      baseInput({
+        quoteLockRatio: SIGNAL_CONFIG.lockStrong,
+        priceChange24h: -5,
+      }),
+    );
+    expect(ev.level).toBe("strong");
+    expect(ev.triggers).not.toContain("falling_knife");
+  });
+});
