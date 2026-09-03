@@ -126,6 +126,20 @@ describe("classifyFlash", () => {
     expect(c2.reasons.join()).not.toContain("NVDA");
   });
 
+  it("keeps short quoted token names but drops long CJK promo phrases", () => {
+    // 「牛来」是真 meme 名要留;「交易赚币」「借壳收割」是促销/叙事短语,种进
+    // hotSymbols 会自我循环误叫醒(2026-09-03 R3 教训)。
+    expect(extractSymbols("「牛来」市值短时跌破7000万美元")).toContain("牛来");
+    expect(
+      extractSymbols("OKX闪赚上线CP「交易赚币」，总奖池达10,000,000 CP"),
+    ).not.toContain("交易赚币");
+    expect(extractSymbols("假币股Meme炒作被疑「借壳收割」")).not.toContain(
+      "借壳收割",
+    );
+    // 含拉丁/数字的引号名仍保留(可能是真 ticker)
+    expect(extractSymbols("新币「AB12」上线")).toContain("AB12");
+  });
+
   it("does not seed exchange/index tickers as hot symbols", () => {
     // extractSymbols 曾把 OKX/SPY/QQQ 抓成 hotSymbols → 后续误叫醒
     for (const junk of ["OKX", "SPY", "QQQ", "BITGET", "UPBIT"]) {

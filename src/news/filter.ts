@@ -185,7 +185,12 @@ export function extractSymbols(title: string): string[] {
     out.push(m[1]);
   }
   for (const m of title.matchAll(/「([^」\s]{1,12})」/g)) {
-    out.push(m[1]);
+    const name = m[1];
+    // 真 meme 名(「牛来」)一般 ≤3 个汉字或含拉丁/数字;≥4 的纯中文引号内容多是
+    // 促销/叙事短语(「交易赚币」「借壳收割」),别当 token 种进 hotSymbols 自我循环叫醒。
+    const pureCjk = /^[一-鿿]+$/.test(name);
+    if (pureCjk && name.length >= 4) continue;
+    out.push(name);
   }
   return [
     ...new Set(out.filter((s) => !SYMBOL_STOPLIST.has(s.toUpperCase()))),
