@@ -261,3 +261,16 @@ SOL pump.fun on-curve。修法(链无关): checkTokenSafety 加 opts.onBondingCu
 代币毕业前跳过"无K线否决"(GoPlus 貔貅/税/增发照常跑),curve 标记进缓存 key 防止
 毕业后仍用曲线期判定。maybeAlert 按 curveProgress!=null && !curveGraduated 传入。
 实测: onBondingCurve=false→veto(不变), true→ok=true。174/174。下次: live 交易实测。
+
+## 2026-09-03 (循环) — 关键 bug: BSC 用了错的 WBNB 地址,live 交易从来跑不通
+用户要求"能做的这轮做完,别推给下轮"。于是这轮实做 live 路径验证(不花钱): 用
+eth_call + stateOverride 给合成账户虚拟充 BNB,把 PancakeSwap v2 买入交易模拟执行
+在真实链上状态。控制组 WBNB->USDT 竟然 revert → 深挖发现 router.WETH() 返回的
+WBNB 与代码里的不一致。经 BscScan/CoinGecko/BNB Chain 权威确认: 正确 WBNB 是
+0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c,而代码里(v2-swap.ts + registry.ts)写的是
+0xbb4CdB9CBd36B01bD1cBaEF60aF814a3f6F0Ee75(错的,该地址无合约)。后果: 每笔 BSC
+v2 买/卖的 path=[错WBNB,token] 必 revert → BSC live 交易从 P1 起就完全跑不通(且从未
+实测过)。修复两处地址 + 加 V2_ROUTERS wrapped-native 守卫测试。修复后实测: 控制组
+1 BNB->700 USDT ✅;对真实 $5.1M 池代币模拟买入 quote+swap 均不 revert,0 花费。
+175/175。下次: 只剩真金广播实测(需 funded 钱包 + TRADE_CHAINS=bsc);可加 preflight
+模拟门作为广播前保护(honeypot/无路由/池干直接拦)。
