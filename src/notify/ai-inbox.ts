@@ -56,6 +56,10 @@ export interface InboxNews {
   /** true = 危险信号（关注币暴跌/rug/造假）→ 优先考虑退出而非进场 */
   negative: boolean;
   note?: string;
+  /** 主体币名（有则可 note 回它的 news-radar 研究 thread）。 */
+  symbol?: string;
+  /** true = 值得做但没解析出合约 → decider 需先深挖找 CA 再判断。 */
+  needsResearch?: boolean;
 }
 
 export async function appendAiInboxNews(

@@ -176,3 +176,79 @@ checkChart(collapsed_pump veto):信号在投递与入场之前就被拦截。102
 4 笔已全部平仓回款,真实敞口 ~$0,是毛周转 $200 触顶,不是风险触顶。
 改为按"仍在风险中的资金"计算: 每笔入场净掉已实现回款(全 rug 时回款为 0,
 最坏情况仍被 $200 硬顶住,保护不变)。学习循环不再被回收资金饿死。104/104。
+## 2026-09-03 — 微盘 dust 降级(用户指出 token "I")
+用户问"I"(0xe9ae…1E18)为什么会来信号。查明: 单字母 meme, FDV $28.8万,
+主池 $13.7万碎在 14 池,已 +450%,却因 momentum+volume+stock-pair(NU 被当股票)
+触发全套 trade 级信号并被引擎 02:49 自动买入。根因: 信号引擎对市值无下限,
+$28.8万 dust 与 $7000万 JINQIAN 同套阈值。修复: FDV < $1M 的 strong 降为
+alert + micro_cap 触发器, checkEntry 拒绝入场(FDV 缺失则 fail-open)。
+实测 I→alert/micro_cap, PONS($340M)不受影响。112/112。
+## 2026-09-03 — 引擎机械入场 vs AI 决策的冲突(用户指出)
+用户看 "I" thread 问为什么 AI 分析没起作用。真相: thread 里 02:48 决策进程
+明确"跳过"(事后警报+微盘),02:49 引擎却自动买入 $50 —— 两条路径互不通气,
+AI 的判断对执行毫无约束力。根因: processSignals 机械自动入场,与 AI 决策进程
+并行运行且优先。修复: 新增 TRADE_AUTO_ENTRY(默认关),AI 决策进程成为唯一买家,
+其 buy/skip 判断即最终执行; 引擎仍机械管理出场(快速止损保留)。113/113。
+
+## 2026-09-03 — BSC four.meme 补齐: 从 digest 升级为 probation→verify→analyze→分级警报
+BSC 之前只有 generic 发现 + four.meme launch 的 digest 流水,新铸代币发完就
+不管了。对齐 RB v4-watcher 模式: 新增 data/fourmeme-watch.json 观察名单,每次
+tick 把新 TokenCreate 挂到 probation; 用 DexScreener 批量查询(chainId=bsc,
+流动性≥$15K)筛选毕业到真实 PancakeSwap 池的代币 → verified 后每 tick 走
+adapter.analyze + evaluateSignal + maybeAlert,得到与 RB 同级的分级警报(含
+量能加速)。12h 窗口、40 verified 上限、按新鲜度截断。新增 addFourmemeProbation
+的去重测试。134/134,typecheck 绿。下次: four.meme 债券曲线毕业进度接入
+analysis(类比 pump.fun curveProgress),或 BSC live 交易路径实测/GoPlus 安全门。
+
+## 2026-09-03 (续) — BSC 分析能力补齐: 多链 analyze CLI + four.meme 毕业标记
+用户要求"这次全做完"。盘点确认: BSC 安全门早已就位(GoPlus chain 56,honeypot/
+税/mintable 等全套 veto + chart ladder/collapse + 缓存),live 交易 PancakeSwap v2
+路径完整(仅未用真金实测)。剩余真缺口是"手动分析": `npm run analyze` 只认
+Robinhood。改造 cli/analyze.ts 支持 `--chain <id>` 路由到 getAdapter(chain).analyze
+(默认 robinhood 向后兼容),BSC/solana/base/ethereum 均可手动分析;实测
+`analyze --chain bsc <CAKE>` 返回真实 DexScreener 数据,RB 专属字段优雅降级为"—"。
+另: scanFourmemeWatch 里 verified 代币标记 curveGraduated=true + "four.meme:
+graduated to PancakeSwap" 信号(事实——有真实 PancakeSwap 池即已脱离债券曲线)。
+README 加多链 analyze 示例。134/134,typecheck 绿。未做(需真实资金/未验证常量):
+live 交易实测、four.meme 债券曲线进度链上读取(合约 view 函数未核实,不臆造)。
+
+## 2026-09-03 (续2) — v2 成交记账修正 + BSC 端到端实跑验证
+发现真实 bug: v2Buy/v2Sell 用 getAmountsOut(pre-trade 模拟报价)当实际成交量,
+但故意调的是 SupportingFeeOnTransferTokens 变体——收税代币实收 < 报价,导致仓位
+被高估、P&L 和卖出数量全错。修正: 买入读 balanceOf 前后差值取真实到账;卖出读
+native 余额差 + 回执 gasUsed*effectiveGasPrice 还原真实收入。对齐 RB execute.ts
+用 SDK 实际成交额的做法。bsc/base/ethereum 三条 v2 路径同时受益。
+端到端实跑 `CHAINS=bsc monitor:once --dry-run`: four.meme watcher 抓到 59 个新盘
+全部入 probation;BSC 发现→分析→分级警报(STRONG/ALERT)全部正常触发,含事后
+信号降级、量能倍数、FDV 微盘下限——BSC 已达 RB 同级发现/分析/警报能力。134/134。
+## 2026-09-03 09:18 UTC — Phase 1 — 扫描
+- 警报评分: 0 (赢 0 / 假 0)
+- 暴涨扫描: 9 个, 自动过滤 0 个, 待人工确认 0 个
+
+
+## 2026-09-03 (循环) — four.meme 债券曲线进度接入 = BSC 首个 pre-pump 信号源
+诊断确认: BSC 一直出不了 #trade-signal 是因为 isTradeGrade 要求 strong + 入场
+触发器(lock_*/boner/curve_near_grad_strong/ai_decision),而 BSC 只能产 momentum/
+volume(事后回声,故意排除)。缺的是 pre-pump 信号源。修法: 接入 four.meme 曲线。
+先从 BscScan/文档拿到 TokenManagerHelper3(0xF251F83e...E46034)的 getTokenInfo,
+再链上实测核实(不臆造): on-curve 返回 version=2/liquidityAdded=false/funds→maxFunds,
+非 four.meme 返回 version=0/maxFunds=0(不 revert)。新增 getFourmemeCurveState +
+纯函数 fourmemeCurveProgress(funds/maxFunds)。bscAdapter.analyze 接入(对称 Solana
+pumpfun): 设 curveProgress/curveGraduated,并用 funds(BNB 深度)覆盖 DexScreener
+对 curve token 报 null 的 liquidity,让临近毕业的 token 过流动性门。曲线≥92%+有量
+即触发 curve_near_grad_strong → BSC 终于能出 pre-pump 交易信号。实测 analyze 一个
+on-curve token 显示"four.meme curve X% to graduation",CAKE 不误报。143/143。
+下次: BSC-specific 曲线量能阈值(curve trigger 的 vol 门 $50K 对 curve token 偏高),
+或 live 交易实测。
+
+## 2026-09-03 (循环) — 解锁 curve_near_grad_strong: 分析临近毕业的 on-curve four.meme
+上次接了曲线进度但触发不了——scanFourmemeWatch 只分析 verified(=已毕业)token,
+而 curve_near_grad_strong 要求 !curveGraduated,所以那个 pre-pump 触发器从没真正
+触发过(和 SOL 循环 51c58db 发现的同一根因)。镜像 SOL 的解法到 four.meme:
+screenFourmemeProbation 现在同时记录每个 probation token 的 pre-grad 24h 量
+(lastVol24hUsd);新增 nearGradFourmemeCandidates 按量取 top-N(≥
+FOURMEME_NEAR_GRAD_MIN_VOLUME_USD 默认$20K,capped FOURMEME_NEAR_GRAD_MAX_CANDIDATES
+默认6)。scanFourmemeWatch 现在分析 verified + 这批 on-curve 临近毕业候选(按地址去重),
+它们带 curveProgress+curveGraduated=false → 曲线≥92%+量≥$50K 即触发 curve_near_grad
+_strong,BSC 终于有可发的 pre-pump 交易触发器。RPC 成本限定在真正在冲刺毕业的少数几个。
+实测 dry-run 无错。155/155。下次: live 交易实测,或 BSC safety 门在 curve token 上的表现。

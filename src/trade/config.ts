@@ -15,6 +15,14 @@ export interface TradeConfig {
   maxDailySpendUsd: number;
   /** Paper account starting cash (USD) — the balance we track P&L against. */
   paperStartUsd: number;
+  /**
+   * Mechanically auto-enter on every trade-grade signal. Default OFF: the
+   * AI decider is the sole buyer, so its skip/buy judgement is authoritative
+   * (the engine still manages exits/stops mechanically). When this was on,
+   * the engine bought "I" one minute after the decider posted "跳过" to the
+   * thread — the analysis had no power over execution.
+   */
+  autoEntry: boolean;
   maxOpenPositions: number;
   /** Don't enter tokens thinner than this. */
   minEntryLiquidityUsd: number;
@@ -44,6 +52,7 @@ export function loadTradeConfig(): TradeConfig {
     usdPerTrade: num("TRADE_USD_PER_TRADE", 50),
     maxDailySpendUsd: num("TRADE_MAX_DAILY_USD", 200),
     paperStartUsd: num("TRADE_PAPER_START_USD", 1000),
+    autoEntry: process.env.TRADE_AUTO_ENTRY === "1",
     maxOpenPositions: num("TRADE_MAX_OPEN_POSITIONS", 3),
     minEntryLiquidityUsd: num("TRADE_MIN_LIQUIDITY_USD", 50_000),
     slippageBps: num("TRADE_SLIPPAGE_BPS", 100),

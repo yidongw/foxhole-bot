@@ -302,6 +302,11 @@ export async function processSignals(
   config: TradeConfig = loadTradeConfig(),
 ): Promise<Position[]> {
   if (config.mode === "off") return [];
+  if (!config.autoEntry) {
+    // AI decider owns entries — mechanical auto-entry would override its
+    // skip decisions (it bought "I" 1 min after the decider said skip).
+    return [];
+  }
   if (tradingPaused()) {
     console.log("trading paused — skipping entries (exits still active)");
     return [];

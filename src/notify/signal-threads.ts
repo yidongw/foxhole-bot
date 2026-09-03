@@ -244,6 +244,90 @@ export async function findSignalThreadBySymbol(
   return undefined;
 }
 
+/** 新闻来源卡片（无链上评分，只有 token 身份 + 首条新闻）。 */
+function formatNewsCard(
+  ref: { chain: string; address: string; symbol?: string },
+  entry: ThreadEntry,
+  headline: string,
+): string {
+  const { chain, address } = ref;
+  const links = [`[📈 DexScreener](https://dexscreener.com/${chain}/${address})`];
+  if (GMGN_CHAIN[chain]) {
+    links.push(`[🔍 GMGN](https://gmgn.ai/${GMGN_CHAIN[chain]}/token/${address})`);
+  }
+  if (chain === "robinhood") {
+    links.push(
+      `[🔗 Explorer](https://robinhoodchain.blockscout.com/token/${address})`,
+      `[🏠 Long](https://app.long.xyz/tokens/${address})`,
+    );
+  }
+  return [
+    `📰 **${ref.symbol ?? "?"}** [${chain.toUpperCase()}] — 新闻来源`,
+    `CA: \`${address}\``,
+    links.join(" · "),
+    `首条新闻: ${ts(entry.firstAt)} — ${headline}`,
+  ].join("\n");
+}
+
+/**
+ * 为一条新闻的 token 开（或复用）trade-signal 卡片+thread，把新闻发进去。
+ * 只有“值得”的新闻才该调用（调用方判定：关注币/负面/上所/动能 + 解析出了地址）。
+ * 返回 true = thread 模式已投递；false = 调用方回落 #news-radar。
+ */
+export async function postNewsCardThread(
+  ref: { chain: string; address: string; symbol?: string },
+  headline: string,
+  body: string,
+): Promise<boolean> {
+  const chain = ref.chain;
+  const webhook = resolveWebhook("signal", chain);
+  const channelId = SIGNAL_CHANNEL_IDS[chain];
+  if (!webhook || !channelId || !process.env.DISCORD_BOT_TOKEN) return false;
+
+  const key = `${chain}:${ref.address.toLowerCase()}`;
+  const map = await loadMap();
+  const now = new Date().toISOString();
+  let entry = map[key];
+
+  try {
+    if (!entry?.threadId) {
+      entry = {
+        messageId: "",
+        threadId: "",
+        symbol: ref.symbol,
+        firstAt: now,
+        lastAt: now,
+        count: 1,
+      };
+      const res = await fetch(`${webhook}?wait=true`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: formatNewsCard(ref, entry, headline) }),
+      });
+      if (!res.ok) return false;
+      entry.messageId = ((await res.json()) as { id: string }).id;
+      const tres = await discordApi(
+        `/channels/${channelId}/messages/${entry.messageId}/threads`,
+        "POST",
+        { name: `${ref.symbol ?? ref.address.slice(0, 8)}·${chain}` },
+      );
+      if (!tres.ok) return false;
+      entry.threadId = ((await tres.json()) as { id: string }).id;
+      map[key] = entry;
+      await saveMap(map);
+    }
+    const res = await fetch(`${webhook}?thread_id=${entry.threadId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: body }),
+    }).catch(() => undefined);
+    return Boolean(res?.ok);
+  } catch (err) {
+    console.error("news card thread failed:", (err as Error).message);
+    return false;
+  }
+}
+
 /** Post trade/AI activity into a token's signal thread (best-effort). */
 export async function postToSignalThread(
   chain: string,

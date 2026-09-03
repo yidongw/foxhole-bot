@@ -1,4 +1,8 @@
-import { Connection, PublicKey } from "@solana/web3.js";
+import {
+  Connection,
+  PublicKey,
+  type ParsedAccountData,
+} from "@solana/web3.js";
 import { OnlinePumpSdk, bondingCurvePda, type Global } from "@pump-fun/pump-sdk";
 
 export function getSolanaRpcUrl(): string {
@@ -9,6 +13,32 @@ let connection: Connection | undefined;
 export function getSolanaConnection(): Connection {
   if (!connection) connection = new Connection(getSolanaRpcUrl(), "confirmed");
   return connection;
+}
+
+const decimalsCache = new Map<string, number>();
+
+/**
+ * SPL mint decimals, cached per-mint. pump.fun mints are 6, but graduated /
+ * non-pump SPL tokens are commonly 9 (or other) — assuming 6 corrupts token
+ * amount accounting (position size, P&L) on any non-6-decimal mint. Falls back
+ * to 6 only when the account can't be read (a wrong guess is bounded by the
+ * risk caps; the fallback is logged upstream via the throw path when critical).
+ */
+export async function getMintDecimals(mint: string): Promise<number> {
+  const cached = decimalsCache.get(mint);
+  if (cached != null) return cached;
+  const info = await getSolanaConnection().getParsedAccountInfo(
+    new PublicKey(mint),
+  );
+  const data = info.value?.data;
+  let decimals = 6;
+  if (data && typeof data === "object" && "parsed" in data) {
+    const parsed = (data as ParsedAccountData).parsed;
+    const d = parsed?.info?.decimals;
+    if (typeof d === "number") decimals = d;
+  }
+  decimalsCache.set(mint, decimals);
+  return decimals;
 }
 
 let sdk: OnlinePumpSdk | undefined;

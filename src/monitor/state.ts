@@ -29,6 +29,8 @@ export interface MonitorState {
   lastClankerBlock?: string;
   /** Last ETH block scanned for Uniswap pair creations. */
   lastUniswapBlock?: string;
+  /** Last pump.fun launch created_timestamp (ms) scanned on Solana. */
+  lastPumpLaunchAt?: number;
   /** Last daily self-review run. */
   lastReviewAt?: string;
   /** Last RB block scanned for v4 pool Initialize events. */

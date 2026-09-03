@@ -80,6 +80,24 @@ export interface V2Fill {
   txHash: `0x${string}`;
 }
 
+/** Real tokens received across a buy = post-swap balance minus pre-swap. */
+export function tokensReceived(before: bigint, after: bigint): bigint {
+  return after > before ? after - before : 0n;
+}
+
+/**
+ * Real native proceeds from a sell = balance delta plus the gas this swap
+ * burned (the raw delta is net of gas, so add it back). Never negative.
+ */
+export function nativeProceeds(
+  before: bigint,
+  after: bigint,
+  gasCost: bigint,
+): bigint {
+  const received = after + gasCost - before;
+  return received > 0n ? received : 0n;
+}
+
 /** Buy `usd` worth of `token` with native currency through the v2 router. */
 export async function v2Buy(
   chainId: ChainId,
@@ -105,6 +123,22 @@ export async function v2Buy(
   const minOut = (quotedOut * BigInt(10_000 - slippageBps)) / 10_000n;
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
 
+  // Measure the real balance delta, not the pre-trade quote: we call the
+  // fee-on-transfer swap variant precisely because many BSC memes tax
+  // transfers, so tokens actually received are < quotedOut. Recording
+  // quotedOut would overstate the position and corrupt P&L + sell sizing.
+  const decimals = await client.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: "decimals",
+  });
+  const balBefore = await client.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [account.address],
+  });
+
   const hash = await wallet.writeContract({
     address: cfg.router,
     abi: ROUTER_ABI,
@@ -116,12 +150,14 @@ export async function v2Buy(
   });
   await client.waitForTransactionReceipt({ hash });
 
-  const decimals = await client.readContract({
+  const balAfter = await client.readContract({
     address: token,
     abi: erc20Abi,
-    functionName: "decimals",
+    functionName: "balanceOf",
+    args: [account.address],
   });
-  const amountTokens = Number(formatUnits(quotedOut, decimals));
+  const received = tokensReceived(balBefore, balAfter);
+  const amountTokens = Number(formatUnits(received, decimals));
   return {
     priceUsd: amountTokens > 0 ? usd / amountTokens : 0,
     amountTokens,
@@ -176,6 +212,11 @@ export async function v2Sell(
   const minOut = (quotedOut * BigInt(10_000 - slippageBps)) / 10_000n;
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
 
+  // Real proceeds = native balance delta + gas spent on this swap (the delta
+  // is net of gas). Measured here, after any approve tx, so approval gas is
+  // excluded. Beats the pre-trade quote for the same fee-on-transfer reason
+  // as the buy side.
+  const nativeBefore = await client.getBalance({ address: account.address });
   const hash = await wallet.writeContract({
     address: cfg.router,
     abi: ROUTER_ABI,
@@ -184,10 +225,13 @@ export async function v2Sell(
     chain: wallet.chain,
     account,
   });
-  await client.waitForTransactionReceipt({ hash });
+  const receipt = await client.waitForTransactionReceipt({ hash });
+  const nativeAfter = await client.getBalance({ address: account.address });
+  const gasCost = receipt.gasUsed * receipt.effectiveGasPrice;
+  const proceedsNative = nativeProceeds(nativeBefore, nativeAfter, gasCost);
 
   const native = await nativePriceUsd(chainId);
-  const proceedsUsd = Number(formatUnits(quotedOut, 18)) * native;
+  const proceedsUsd = Number(formatUnits(proceedsNative, 18)) * native;
   return {
     priceUsd: amountTokens > 0 ? proceedsUsd / amountTokens : 0,
     amountTokens,

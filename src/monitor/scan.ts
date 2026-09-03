@@ -33,9 +33,14 @@ import {
 import { enabledChains, type ChainId } from "../chains/adapter.js";
 import { getAdapter } from "../chains/registry.js";
 import {
+  addFourmemeProbation,
   fetchFourmemeLaunches,
   formatFourmemeDigest,
   getBscLatestBlock,
+  loadFourmemeWatch,
+  nearGradFourmemeCandidates,
+  saveFourmemeWatch,
+  screenFourmemeProbation,
 } from "../chains/bsc/fourmeme.js";
 import {
   fetchClankerLaunches,
@@ -47,12 +52,23 @@ import {
   formatEthPairDigest,
   getEthLatestBlock,
 } from "../chains/ethereum/uniswap-watcher.js";
+import {
+  addPumpProbation,
+  fetchRecentPumpLaunches,
+  formatPumpLaunchDigest,
+  loadPumpWatch,
+  nearGradCandidates,
+  savePumpWatch,
+  screenPumpProbation,
+} from "../chains/solana/pumpfun-launches.js";
 import { loadTradeConfig } from "../trade/config.js";
 import { checkTokenSafety } from "../trade/safety.js";
 import { resolveWebhook } from "../notify/routes.js";
 import { appendAiInbox } from "../notify/ai-inbox.js";
 import { maybeSpawnDecider } from "../trade/decider.js";
 import { postThreadedSignal } from "../notify/signal-threads.js";
+import { diffStockRegistry, newlyListedQuote } from "../chains/robinhood/stock-watch.js";
+import { postNewStock } from "../notify/stock-threads.js";
 import {
   fetchNewV4PoolTokens,
   getV4LatestBlock,
@@ -241,6 +257,21 @@ async function maybeAlert(
       // Trade-grade must ALSO clear the safety gate before pinging the
       // user — a signal that the engine would veto is not a trade trigger.
       const input = evaluation.input;
+      // ② Gate 0: a meme that clears the trade-grade bar AND pairs a
+      // freshly-listed official stock token is the squeeze-play footprint —
+      // badge it and bump to strong so it stands out among the day's signals.
+      if (input.isStockPaired) {
+        const fresh = await newlyListedQuote(input.quoteSymbol).catch(() => undefined);
+        if (fresh) {
+          const age = fresh.ageDays < 1 ? "今日" : `${Math.floor(fresh.ageDays)}d 前`;
+          const badge = `⭐ 底池新股 ${input.quoteSymbol}（${age}上榜官方股票）`;
+          if (!evaluation.reasons.includes(badge)) evaluation.reasons.unshift(badge);
+          if (!evaluation.triggers.includes("new_stock_quote")) {
+            evaluation.triggers.unshift("new_stock_quote");
+          }
+          evaluation.level = "strong";
+        }
+      }
       const safety = await checkTokenSafety(
         input.chain ?? "robinhood",
         input.address,
@@ -511,8 +542,168 @@ async function checkFourmemeLaunches(
   }
   state.lastFourmemeBlock = latest.toString();
   if (launches.length) {
-    console.log(`fourmeme watcher: ${launches.length} new launch(es)`);
+    // Track every mint on probation so the ones that graduate to a real
+    // PancakeSwap pool get analyzed + signal-graded (the squeeze moment) —
+    // symmetric to the RB v4-watcher, not just a fire-and-forget digest.
+    const entries = await loadFourmemeWatch();
+    const added = await addFourmemeProbation(launches, entries);
+    if (added) await saveFourmemeWatch(entries);
+    console.log(
+      `fourmeme watcher: ${launches.length} new launch(es), ${added} on probation`,
+    );
   }
+}
+
+/**
+ * Screen probation four.meme tokens, then analyze + signal-grade each tick:
+ *  - verified (graduated, DexScreener-liquid) tokens, and
+ *  - the top near-graduation probation tokens still on the bonding curve —
+ *    the only window where `curve_near_grad_strong` (a BSC trade-grade entry
+ *    trigger) can fire, since post-graduation it's disabled and the trending
+ *    feed only ever surfaces already-graduated tokens.
+ * The BSC analogue of scanV4Watch / scanPumpWatch.
+ */
+async function scanFourmemeWatch(
+  state: MonitorState,
+  options: ScanOptions,
+  minRank: number,
+  hits: ScanHit[],
+  rows: SignalRow[],
+): Promise<void> {
+  const entries = await loadFourmemeWatch();
+  if (!entries.length) return;
+
+  const promoted = await screenFourmemeProbation(entries);
+  if (promoted) {
+    console.log(`fourmeme watcher: ${promoted} token(s) verified — tracking`);
+  }
+
+  const adapter = getAdapter("bsc");
+  // Verified (post-graduation) + near-graduation on-curve candidates. Dedup by
+  // address so a token promoted this tick isn't analyzed twice.
+  const targets = [
+    ...entries.filter((e) => e.verified),
+    ...nearGradFourmemeCandidates(entries),
+  ];
+  const seen = new Set<string>();
+  for (const entry of targets) {
+    if (seen.has(entry.address.toLowerCase())) continue;
+    seen.add(entry.address.toLowerCase());
+    try {
+      // adapter.analyze reads the four.meme curve on-chain, so graduation and
+      // curve-progress signals are populated authoritatively here.
+      const analysis = await adapter.analyze(entry.address);
+      const key = stateKey("bsc", entry.address);
+      const prev = state.tokens[key];
+      const accel =
+        prev && prev.volume24hUsd > 0
+          ? (analysis.volume24hUsd ?? 0) / prev.volume24hUsd
+          : undefined;
+      const input = analysisToSignalInput(analysis, {
+        volumeAccelRatio: accel,
+        isStockPaired: false,
+        dexUrl: `https://dexscreener.com/bsc/${entry.address}`,
+      });
+      const evaluation = evaluateSignal(input, loadSignalConfig());
+      snapshotAndRow(state, key, analysis, evaluation, rows);
+      const hit = await maybeAlert(state, evaluation, key, prev?.level, minRank, options);
+      if (hit) hits.push(hit);
+    } catch {
+      entry.attempts++;
+    }
+    await sleep(250);
+  }
+  await saveFourmemeWatch(entries);
+}
+
+/** Solana first-run lookback for pump.fun launches (30 min). */
+const PUMP_FIRST_RUN_LOOKBACK_MS = 30 * 60_000;
+
+async function checkPumpLaunches(
+  state: MonitorState,
+  options: ScanOptions,
+): Promise<void> {
+  const mode = process.env.LAUNCH_ALERT_MODE ?? "digest";
+  const since =
+    state.lastPumpLaunchAt ?? Date.now() - PUMP_FIRST_RUN_LOOKBACK_MS;
+
+  const launches = await fetchRecentPumpLaunches(since);
+  if (launches.length && mode !== "off") {
+    await deliverFeed(formatPumpLaunchDigest(launches), options, "solana");
+  }
+  // Advance the cursor to the newest launch seen this pass (or keep it if none).
+  state.lastPumpLaunchAt = launches.reduce(
+    (max, l) => Math.max(max, l.createdAt),
+    state.lastPumpLaunchAt ?? since,
+  );
+  if (launches.length) {
+    // Track every fresh mint on probation so the ones that graduate to a real
+    // PumpSwap/Raydium pool get analyzed + signal-graded (the squeeze moment) —
+    // symmetric to the four.meme watcher, not just a fire-and-forget digest.
+    const entries = await loadPumpWatch();
+    const added = addPumpProbation(launches, entries);
+    if (added) await savePumpWatch(entries);
+    console.log(
+      `pump.fun watcher: ${launches.length} new launch(es), ${added} on probation`,
+    );
+  }
+}
+
+/**
+ * Screen probation pump.fun tokens, then analyze + signal-grade each tick:
+ *  - verified (graduated, DexScreener-liquid) tokens, and
+ *  - the top near-graduation probation tokens still on the bonding curve —
+ *    the only window where `curve_near_grad_strong` (the Solana trade-grade
+ *    entry trigger) can fire, since post-graduation it's disabled and the
+ *    trending feed only ever surfaces already-graduated tokens.
+ * The Solana analogue of scanFourmemeWatch.
+ */
+async function scanPumpWatch(
+  state: MonitorState,
+  options: ScanOptions,
+  minRank: number,
+  hits: ScanHit[],
+  rows: SignalRow[],
+): Promise<void> {
+  const entries = await loadPumpWatch();
+  if (!entries.length) return;
+
+  const promoted = await screenPumpProbation(entries);
+  if (promoted) {
+    console.log(`pump.fun watcher: ${promoted} token(s) verified — tracking`);
+  }
+
+  const adapter = getAdapter("solana");
+  // Verified (post-graduation) + near-graduation on-curve candidates. Dedup by
+  // address so a token promoted this tick isn't analyzed twice.
+  const targets = [...entries.filter((e) => e.verified), ...nearGradCandidates(entries)];
+  const seen = new Set<string>();
+  for (const entry of targets) {
+    if (seen.has(entry.address.toLowerCase())) continue;
+    seen.add(entry.address.toLowerCase());
+    try {
+      const analysis = await adapter.analyze(entry.address);
+      const key = stateKey("solana", entry.address);
+      const prev = state.tokens[key];
+      const accel =
+        prev && prev.volume24hUsd > 0
+          ? (analysis.volume24hUsd ?? 0) / prev.volume24hUsd
+          : undefined;
+      const input = analysisToSignalInput(analysis, {
+        volumeAccelRatio: accel,
+        isStockPaired: false,
+        dexUrl: `https://dexscreener.com/solana/${entry.address}`,
+      });
+      const evaluation = evaluateSignal(input, loadSignalConfig());
+      snapshotAndRow(state, key, analysis, evaluation, rows);
+      const hit = await maybeAlert(state, evaluation, key, prev?.level, minRank, options);
+      if (hit) hits.push(hit);
+    } catch {
+      entry.attempts++;
+    }
+    await sleep(250);
+  }
+  await savePumpWatch(entries);
 }
 
 /** Base first-run lookback ≈1h at 2s blocks. */
@@ -574,8 +765,17 @@ async function scanChainTrending(
   if (chain === "bsc") {
     try {
       await checkFourmemeLaunches(state, options);
+      await scanFourmemeWatch(state, options, minRank, hits, rows);
     } catch (err) {
       console.error("fourmeme watcher failed (continuing):", (err as Error).message);
+    }
+  }
+  if (chain === "solana") {
+    try {
+      await checkPumpLaunches(state, options);
+      await scanPumpWatch(state, options, minRank, hits, rows);
+    } catch (err) {
+      console.error("pump.fun watcher failed (continuing):", (err as Error).message);
     }
   }
   if (chain === "base") {
@@ -675,13 +875,44 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
 export async function runMonitorLoop(options: ScanOptions & { once?: boolean }): Promise<void> {
   const interval = Number(process.env.POLL_INTERVAL_MS ?? SIGNAL_CONFIG.pollIntervalMs);
   const positionInterval = Number(process.env.POSITION_TICK_MS ?? 15_000);
+  const stockInterval = Number(process.env.STOCK_POLL_MS ?? 15_000);
   let consecutiveFailures = 0;
   let stopped = false;
+
+  // New official RH stock listings — the earliest footprint of the tokenized-
+  // stock squeeze play (the meme can't pair a real stock token until the stock
+  // is minted here). Its own fast loop (~15s, the RH API's server-cache floor)
+  // so a fresh listing surfaces promptly; the first run seeds silently.
+  const stockTick = async () => {
+    if (!enabledChains().includes("robinhood")) return;
+    const { newStocks, bootstrap } = await diffStockRegistry();
+    if (bootstrap) {
+      console.log("stock registry: seeded snapshot (first run)");
+    } else if (newStocks.length) {
+      console.log(
+        `stock registry: ${newStocks.length} new listing(s): ${newStocks.map((s) => s.symbol).join(", ")}`,
+      );
+      if (!options.dryRun) {
+        for (const stock of newStocks) await postNewStock(stock);
+      }
+    }
+  };
+  const stockLoop = async () => {
+    while (!stopped) {
+      try {
+        await stockTick();
+      } catch (err) {
+        console.error("stock registry watch error:", (err as Error).message);
+      }
+      await sleep(stockInterval);
+    }
+  };
 
   const discoveryTick = async () => {
     console.log(
       `[${new Date().toISOString()}] scanning chains: ${enabledChains().join(", ")}…`,
     );
+
     const hits = await scanLaunches({ ...options, refreshLaunches: true });
     const alerted = hits.filter((h) => h.sent);
     console.log(
@@ -751,6 +982,9 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
   };
 
   if (options.once) {
+    await stockTick().catch((err) =>
+      console.error("stock registry watch error:", (err as Error).message),
+    );
     await discoveryTick();
     const tradeConfig = loadTradeConfig();
     if (tradeConfig.mode !== "off") {
@@ -793,6 +1027,8 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
   const positionLoopPromise = positionLoop();
   const newsLoopPromise = newsLoop();
   void newsLoopPromise;
+  const stockLoopPromise = stockLoop();
+  void stockLoopPromise;
 
   while (true) {
     try {

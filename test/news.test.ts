@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { classifyFlash, extractSymbols, usableSymbols } from "../src/news/filter.js";
+import { extractTokenRefs } from "../src/news/blockbeats.js";
 
 // 2026-09-02 真实快讯标题回归测试
 const WATCHED = ["FAMI", "BONER", "MU", "JINQIAN"];
@@ -73,6 +74,77 @@ describe("classifyFlash", () => {
     const c = classifyFlash("ARB 24小时涨超12%，Robinhood链上热潮带来新增收入", []);
     expect(c.action).toBe("note");
     expect(c.reasons).not.toContain("momentum");
+  });
+
+  it("does not wake on stoplisted tickers even when in the watched set", () => {
+    // stale hotSymbols(ARB/HOOD/OKX/SPY)在 Robinhood 语境里曾被当 watched 误叫醒
+    // (2026-09-03)。停用词内的主流币/交易所/指数代码即便进了 watched 也不算命中。
+    const watched = ["ARB", "HOOD", "OKX", "SPY", "QQQ", "JINQIAN"];
+    expect(
+      classifyFlash("ARB 24小时涨超12%，Robinhood链上热潮带来新增收入", watched)
+        .reasons,
+    ).not.toContain("watched:ARB");
+    expect(
+      classifyFlash("Ansem：Robinhood股价「筑底收敛」，有望在Q4创新高", watched)
+        .action,
+    ).toBe("drop");
+    expect(
+      classifyFlash("OKX闪赚上线CP「交易赚币」，总奖池达10,000,000 CP", watched)
+        .action,
+    ).toBe("drop");
+    expect(
+      classifyFlash(
+        "Predict.fun宣布上线SPY/USDT、QQQ/USDT 15分钟涨跌预测市场",
+        watched,
+      ).action,
+    ).toBe("drop");
+    // 真 meme 仍照常叫醒
+    expect(
+      classifyFlash("Meme币JINQIAN短时较高点跌超70%", watched).action,
+    ).toBe("wake");
+  });
+
+  it("only matches watched symbols in the title, not the article body", () => {
+    // 2026-09-03: 股票同名 meme(NVDA/SPCX/TSLA)在美股宏观快讯正文里被提及 →
+    // watched 命中误叫醒。watched 只能看标题;正文只参与 rb-chain/动能/负面。
+    const watched = ["NVDA", "SPCX", "TSLA", "JINQIAN"];
+    const c = classifyFlash(
+      "美股三大股指收涨，戴尔大涨15%，加密概念股普跌",
+      watched,
+      "英伟达(NVDA)涨近5%，特斯拉(TSLA)微跌，SpaceX(SPCX)未上市。",
+    );
+    expect(c.reasons.some((r) => r.startsWith("watched:"))).toBe(false);
+    expect(c.action).toBe("drop");
+    // 标题真点名了 meme → 照常叫醒(正文的无关 ticker 不额外加噪)
+    const c2 = classifyFlash(
+      "Robinhood链Meme币JINQIAN市值突破7000万美元",
+      watched,
+      "英伟达NVDA今日下跌。",
+    );
+    expect(c2.action).toBe("wake");
+    expect(c2.reasons).toContain("watched:JINQIAN");
+    expect(c2.reasons.join()).not.toContain("NVDA");
+  });
+
+  it("keeps short quoted token names but drops long CJK promo phrases", () => {
+    // 「牛来」是真 meme 名要留;「交易赚币」「借壳收割」是促销/叙事短语,种进
+    // hotSymbols 会自我循环误叫醒(2026-09-03 R3 教训)。
+    expect(extractSymbols("「牛来」市值短时跌破7000万美元")).toContain("牛来");
+    expect(
+      extractSymbols("OKX闪赚上线CP「交易赚币」，总奖池达10,000,000 CP"),
+    ).not.toContain("交易赚币");
+    expect(extractSymbols("假币股Meme炒作被疑「借壳收割」")).not.toContain(
+      "借壳收割",
+    );
+    // 含拉丁/数字的引号名仍保留(可能是真 ticker)
+    expect(extractSymbols("新币「AB12」上线")).toContain("AB12");
+  });
+
+  it("does not seed exchange/index tickers as hot symbols", () => {
+    // extractSymbols 曾把 OKX/SPY/QQQ 抓成 hotSymbols → 后续误叫醒
+    for (const junk of ["OKX", "SPY", "QQQ", "BITGET", "UPBIT"]) {
+      expect(extractSymbols(`${junk}上线新活动`)).not.toContain(junk);
+    }
   });
 
   it("still counts ≥50% pumps and cap breakouts as momentum", () => {
@@ -167,6 +239,30 @@ describe("classifyFlash momentum without meme keyword", () => {
       [],
     );
     expect(c.action).toBe("wake");
+  });
+});
+
+describe("extractTokenRefs", () => {
+  it("parses GMGN robinhood links with the i_xxx_ prefix", () => {
+    // 真实 BlockBeats 正文格式
+    const html =
+      '据 <a href="https://gmgn.ai/robinhood/token/i_m4TE56o8_0x56910d4409f3a0c78c64dd8d0545ff0705389870">GMGN</a> 显示';
+    expect(extractTokenRefs(html)).toEqual([
+      { chain: "robinhood", address: "0x56910d4409f3a0c78c64dd8d0545ff0705389870" },
+    ]);
+  });
+
+  it("parses solana GMGN links and dedupes", () => {
+    const html =
+      'gmgn.ai/sol/token/i_m4TE56o8_9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM ' +
+      'dexscreener.com/solana/9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
+    const refs = extractTokenRefs(html);
+    expect(refs).toHaveLength(1);
+    expect(refs[0].chain).toBe("solana");
+  });
+
+  it("returns empty when no chain-carrying link is present", () => {
+    expect(extractTokenRefs("市值突破 4000 万美元，无链接")).toEqual([]);
   });
 });
 

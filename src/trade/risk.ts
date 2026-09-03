@@ -43,6 +43,9 @@ export function checkEntry(
   if (candidate.triggers.includes("falling_knife")) {
     return { ok: false, reason: "falling knife — volume is distribution, price dropping" };
   }
+  if (candidate.triggers.includes("micro_cap")) {
+    return { ok: false, reason: "micro-cap — FDV below the nano-dust floor" };
+  }
   if (config.denylist.includes(candidate.token.toLowerCase())) {
     return { ok: false, reason: "token on denylist" };
   }

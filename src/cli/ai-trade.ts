@@ -8,6 +8,9 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { aiBuy, formatPortfolioReport, manualExit } from "../trade/engine.js";
 import { archiveAiInbox, readAiInbox } from "../notify/ai-inbox.js";
 import { postToSignalThread } from "../notify/signal-threads.js";
+import { postToNewsResearchThread } from "../notify/news-threads.js";
+import { resolveWebhook } from "../notify/routes.js";
+import { sendDiscordMessage } from "../notify/discord.js";
 import { getEvmClient } from "../chains/evm/clients.js";
 import { getPublicClient } from "../chain/client.js";
 import { privateKeyToAccount } from "viem/accounts";
@@ -102,13 +105,49 @@ async function main() {
       console.log(ok ? "posted to thread" : "该币无 thread(或缺 bot token)");
       break;
     }
+    case "note-news": {
+      // News signals carry no address/thread — trace their decisions to
+      // #news-radar so negative-news exit calls aren't lost to log files.
+      const text = args.join(" ");
+      if (!text) {
+        console.error("用法: ai-trade note-news <text...>");
+        process.exit(1);
+      }
+      const url = resolveWebhook("news");
+      if (!url) {
+        console.log("未配置 DISCORD_NEWS_WEBHOOK_URL,跳过留痕");
+        break;
+      }
+      await sendDiscordMessage(url, `🤖📰 ${text}`);
+      console.log("posted to #news-radar");
+      break;
+    }
+    case "research-note": {
+      // 把研究结论写进某个待研究币的 #news-radar thread（needsResearch 信号）。
+      // 该币没有 thread 时回落到平消息，避免结论丢进日志。
+      const [symbol, ...text] = args;
+      if (!symbol || !text.length) {
+        console.error("用法: ai-trade research-note <symbol> <text...>");
+        process.exit(1);
+      }
+      const line = text.join(" ");
+      const ok = await postToNewsResearchThread(symbol, `🤖🔬 ${line}`);
+      if (!ok) {
+        const url = resolveWebhook("news");
+        if (url) await sendDiscordMessage(url, `🤖🔬 ${symbol}: ${line}`);
+      }
+      console.log(ok ? "posted to research thread" : "该币无研究 thread(已回落平消息)");
+      break;
+    }
     case "status":
       console.log(await formatPortfolioReport());
       console.log("\n=== 钱包余额 ===");
       console.log(await balances());
       break;
     default:
-      console.error("用法: ai-trade inbox|archive|buy|sell|note|status");
+      console.error(
+        "用法: ai-trade inbox|archive|buy|sell|note|note-news|research-note|status",
+      );
       process.exit(1);
   }
 }

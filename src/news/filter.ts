@@ -27,6 +27,9 @@ const LISTING =
 // “涨超X%”必须 ≥50 — ARB 涨 12% 这种主流币日常波动不算（2026-09-03 教训）
 const CAP_BREAKOUT = /(市值|价格)[^，。]{0,10}(突破|速通|创历史新高)|短时暴涨/;
 
+// 交易所储蓄/活动促销措辞 — 会撞 LISTING 的“上线”，但非可交易标的上所
+const SAVINGS_PROMO = /闪赚|活期理财|理财|Simple\s*Earn|余币宝|赚币|奖池|空投活动|返利/i;
+
 function hasMomentum(text: string): boolean {
   if (CAP_BREAKOUT.test(text)) return true;
   for (const m of text.matchAll(/(涨超|涨幅[达超]?)\s*(\d+(?:\.\d+)?)\s*%/g)) {
@@ -84,8 +87,15 @@ export function classifyFlash(
   const title = content ? `${rawTitle} ${content}` : rawTitle;
   const reasons: string[] = [];
   const memeContext = MEME_CONTEXT.test(title);
+  // “具体点名了哪个币”只看标题：正文常引用 NVDA/TSLA/AAPL/SPCX 等无关 ticker
+  // (美股宏观快讯正文提一句 NVIDIA → 撞股票同名 meme 误叫醒 — 2026-09-03 教训)。
+  // rb-chain/动能/负面 仍看标题+正文(正文才有“Robinhood 生态”字样)。
+  // 停用词里的主流币/交易所/指数代码永远不是我们盯的 meme,即便 memeContext 也不命中。
   const hitSymbols = watched.filter(
-    (s) => symbolPattern(s).test(title) && (memeContext || !isAmbiguous(s)),
+    (s) =>
+      symbolPattern(s).test(rawTitle) &&
+      !SYMBOL_STOPLIST.has(s.toUpperCase()) &&
+      (memeContext || !isAmbiguous(s)),
   );
   const rbChain = RB_CHAIN.test(title);
   const negative = NEGATIVE.test(title);
@@ -113,7 +123,9 @@ export function classifyFlash(
     return { action: "note", negative: false, reasons };
   }
 
-  if (LISTING.test(title)) {
+  // “闪赚/理财/奖池”类是交易所储蓄·活动促销,不是可交易标的的现货/Alpha 上线
+  // (OKX闪赚上线CP「交易赚币」曾以 listing 误叫醒 — 2026-09-03)
+  if (LISTING.test(title) && !SAVINGS_PROMO.test(title)) {
     reasons.push("listing");
     return { action: "wake", negative: false, reasons };
   }
@@ -152,6 +164,10 @@ const SYMBOL_STOPLIST = new Set([
   "DEX", "CEX", "ETF", "FDV", "IPO", "KOL", "LP", "NFT", "NYSE", "OG",
   "OTC", "PVP", "RWA", "TGE", "TVL", "WTI", "ADP", "GDP", "FOMC", "SEC",
   "HOOD", "MEME", "GMGN", "FOMO",
+  // 交易所名 / 指数·ETF 代码 — 常出现在“上线/预测市场”类快讯里，
+  // 会被 extractSymbols 当 token 抓进 hotSymbols → 后续误叫醒(2026-09-03)
+  "OKX", "BINANCE", "COINBASE", "UPBIT", "BITHUMB", "BITGET", "BYBIT", "KRAKEN",
+  "SPY", "QQQ", "DIA", "IWM", "VIX", "NDX",
   // 主流币 — 不是我们交易的 meme，点名它们不构成“具体标的”
   "ARB", "OP", "SUI", "APT", "TON", "TRX", "XRP", "ADA", "AVAX", "DOT",
   "LINK", "UNI", "AAVE", "LDO", "CRV",
@@ -169,7 +185,12 @@ export function extractSymbols(title: string): string[] {
     out.push(m[1]);
   }
   for (const m of title.matchAll(/「([^」\s]{1,12})」/g)) {
-    out.push(m[1]);
+    const name = m[1];
+    // 真 meme 名(「牛来」)一般 ≤3 个汉字或含拉丁/数字;≥4 的纯中文引号内容多是
+    // 促销/叙事短语(「交易赚币」「借壳收割」),别当 token 种进 hotSymbols 自我循环叫醒。
+    const pureCjk = /^[一-鿿]+$/.test(name);
+    if (pureCjk && name.length >= 4) continue;
+    out.push(name);
   }
   return [
     ...new Set(out.filter((s) => !SYMBOL_STOPLIST.has(s.toUpperCase()))),

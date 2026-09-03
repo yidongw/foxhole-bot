@@ -301,5 +301,157 @@
     "volume24hUsd": 215621.88,
     "liquidityUsd": 122375.09,
     "poolId": "3w7NMJECsezNurAb3MbvTiEtVeayhqNXgXXcqiK5qwwj"
+  },
+  {
+    "id": "bsc:0x0c630fbdbf24c470fa97b043b7f12042d9bb89bf:2026-09-03T08",
+    "chain": "bsc",
+    "address": "0x0c630fbdBF24c470Fa97b043b7f12042D9bB89Bf",
+    "symbol": "牛妈",
+    "at": "2026-09-03T08:53:12.580Z",
+    "level": "alert",
+    "score": 20,
+    "triggers": [
+      "momentum_strong",
+      "post_pump"
+    ],
+    "priceUsd": 5.56,
+    "volume24hUsd": 44768335.17,
+    "liquidityUsd": 713734.52,
+    "poolId": "0x78e51f64b39B0ED619E2c7640797341a581fb847"
+  },
+  {
+    "id": "bsc:0x9212cf1f9f4a9c69bb010146ba5b0725169d4444:2026-09-03T08",
+    "chain": "bsc",
+    "address": "0x9212cF1f9f4A9c69Bb010146Ba5b0725169D4444",
+    "symbol": "bibi",
+    "at": "2026-09-03T08:53:13.442Z",
+    "level": "strong",
+    "score": 55,
+    "triggers": [
+      "momentum_strong",
+      "volume_spike_strong"
+    ],
+    "priceUsd": 0.00135,
+    "volume24hUsd": 4574274.34,
+    "liquidityUsd": 297291.51,
+    "poolId": "0xb2505B8a1AB470aCfbC12dD255E7Fa298a23aB67"
+  },
+  {
+    "id": "bsc:0x4ee989085464d21a0f2a283df5c8b4e005283c14:2026-09-03T08",
+    "chain": "bsc",
+    "address": "0x4eE989085464d21A0f2A283df5C8B4E005283C14",
+    "symbol": "牛来",
+    "at": "2026-09-03T08:53:13.988Z",
+    "level": "alert",
+    "score": 20,
+    "triggers": [
+      "momentum_strong",
+      "post_pump"
+    ],
+    "priceUsd": 0.07488,
+    "volume24hUsd": 2431098.73,
+    "liquidityUsd": 391691.12,
+    "poolId": "0x42e756feB3475089588B2b785962a40Bb66748e9"
+  },
+  {
+    "id": "bsc:0x6ff45323817d1d53bbb8a8dfba9245ae74057777:2026-09-03T08",
+    "chain": "bsc",
+    "address": "0x6FF45323817d1d53bbb8A8dFbA9245aE74057777",
+    "symbol": "memestock",
+    "at": "2026-09-03T08:53:14.302Z",
+    "level": "strong",
+    "score": 55,
+    "triggers": [
+      "momentum_strong",
+      "volume_spike_strong"
+    ],
+    "priceUsd": 1.15,
+    "volume24hUsd": 249182266,
+    "liquidityUsd": 45025759.99,
+    "poolId": "0x7BDc9582aca6CA25E5Db1f2c8e59003b880672CB"
+  },
+  {
+    "id": "bsc:0x219f2620f3379b156c385c0de0b3a1d0a6e24dc0:2026-09-03T09",
+    "chain": "bsc",
+    "address": "0x219f2620F3379b156c385C0dE0B3a1d0A6e24dc0",
+    "symbol": "币安证券",
+    "at": "2026-09-03T09:18:03.054Z",
+    "level": "strong",
+    "score": 20,
+    "triggers": [
+      "momentum_strong"
+    ],
+    "priceUsd": 0.003996,
+    "volume24hUsd": 2291538.52,
+    "liquidityUsd": 125319.24,
+    "poolId": "0x5Aef760dc2e79B144224d796290D70330e61ACC6"
+  },
+  {
+    "id": "bsc:0xabe5facace17bedd56b89454e95ef253e085e2a6:2026-09-03T09",
+    "chain": "bsc",
+    "address": "0xaBe5facACe17BEDD56B89454E95EF253e085e2a6",
+    "symbol": "机器人时代",
+    "at": "2026-09-03T09:18:04.512Z",
+    "level": "strong",
+    "score": 20,
+    "triggers": [
+      "momentum_strong"
+    ],
+    "priceUsd": 0.000001999,
+    "volume24hUsd": 1215757.41,
+    "liquidityUsd": 176098.83,
+    "poolId": "0x6b211BfF0144df0210d9aCf9099F0a974F8755fF"
+  },
+  {
+    "id": "bsc:0xdfee3d5478818b7c1fe15d2315416db81da07777:2026-09-03T09",
+    "chain": "bsc",
+    "address": "0xDFEE3d5478818b7C1fe15d2315416Db81Da07777",
+    "symbol": "QUBY",
+    "at": "2026-09-03T09:18:05.196Z",
+    "level": "alert",
+    "score": 55,
+    "triggers": [
+      "micro_cap",
+      "momentum_strong",
+      "volume_spike_strong"
+    ],
+    "priceUsd": 0.0002665,
+    "volume24hUsd": 1232587.96,
+    "liquidityUsd": 50752.3,
+    "poolId": "0xeD0B46440E0cf0e6B720E7b71Dc4cE96c279A323"
+  },
+  {
+    "id": "bsc:0x3efbfff95576e1d23cf6ead0acd2e73f4d6a7777:2026-09-03T09",
+    "chain": "bsc",
+    "address": "0x3efbfff95576e1d23cf6ead0acd2e73f4d6a7777",
+    "symbol": "BNBCAT",
+    "at": "2026-09-03T09:18:05.707Z",
+    "level": "strong",
+    "score": 55,
+    "triggers": [
+      "momentum_strong",
+      "volume_spike_strong"
+    ],
+    "priceUsd": 0.002108,
+    "volume24hUsd": 691758.57,
+    "liquidityUsd": 186320.23,
+    "poolId": "0x8650e3EdE7C2d45F89dbbe108BD6568f414167cb"
+  },
+  {
+    "id": "bsc:0x9b7a8126cc5768d665f7fd2bd416efee93eb7777:2026-09-03T09",
+    "chain": "bsc",
+    "address": "0x9B7a8126Cc5768D665F7fd2bD416eFEE93eB7777",
+    "symbol": "Bibi",
+    "at": "2026-09-03T09:18:06.140Z",
+    "level": "alert",
+    "score": 20,
+    "triggers": [
+      "micro_cap",
+      "momentum_strong"
+    ],
+    "priceUsd": 0.0002265,
+    "volume24hUsd": 820737.08,
+    "liquidityUsd": 46691.89,
+    "poolId": "0x1CDA6AFdd823c6E007874108853D5A8f7f502AaA"
   }
 ]

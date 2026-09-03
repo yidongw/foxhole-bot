@@ -6,6 +6,7 @@ import { buy as hoodBuy, sell as hoodSell } from "../trade/execute.js";
 import type { ChainAdapter, ChainId } from "./adapter.js";
 import { analyzeTokenGeneric } from "./generic-analysis.js";
 import { v2Buy, v2Sell } from "./evm/v2-swap.js";
+import { getFourmemeCurveState } from "./bsc/fourmeme.js";
 import { getPumpCurveState } from "./solana/pumpfun.js";
 import { fetchMoverCandidates } from "../review/movers.js";
 import { jupiterBuy, jupiterSell } from "./solana/jupiter.js";
@@ -50,10 +51,47 @@ function genericAdapter(id: ChainId, displayName: string): ChainAdapter {
   };
 }
 
-// BSC: generic discovery/analysis + PancakeSwap v2 live execution.
+const WBNB = "0xbb4CdB9CBd36B01bD1cBaEF60aF814a3f6F0Ee75";
+
+// BSC: generic discovery/analysis + four.meme bonding-curve extras +
+// PancakeSwap v2 live execution.
 // ⚠️ Live path untested with real funds — paper first (see README).
 const bscAdapter: ChainAdapter = {
   ...genericAdapter("bsc", "BNB Chain"),
+  analyze: async (address) => {
+    // Read the four.meme curve first: on-curve tokens have real BNB depth
+    // that DexScreener reports as null liquidity, so we need it to survive
+    // the signal engine's liquidity gate.
+    const curve = await getFourmemeCurveState(address).catch(
+      () => ({ isFourmemeToken: false }) as Awaited<
+        ReturnType<typeof getFourmemeCurveState>
+      >,
+    );
+    const analysis = await analyzeTokenGeneric("bsc", address);
+    if (curve.isFourmemeToken) {
+      analysis.curveProgress = curve.progress;
+      analysis.curveGraduated = curve.graduated;
+      if (curve.graduated) {
+        analysis.signals.push("four.meme: graduated to PancakeSwap");
+      } else {
+        if (curve.progress != null) {
+          analysis.signals.push(
+            `four.meme curve ${(curve.progress * 100).toFixed(0)}% to graduation`,
+          );
+        }
+        // Curve funds (BNB raised) are the token's real economic depth pre-
+        // graduation — surface them as liquidity so near-graduation tokens
+        // clear the min-liquidity gate.
+        if (curve.fundsRaised && (analysis.liquidityUsd ?? 0) <= 0) {
+          const bnb = await fetchTokenPriceUsd(WBNB, "bsc").catch(
+            () => undefined,
+          );
+          if (bnb) analysis.liquidityUsd = curve.fundsRaised * bnb;
+        }
+      }
+    }
+    return analysis;
+  },
   buy: async (token, priceUsd, usd, config) =>
     v2Buy("bsc", token as Address, usd, config.slippageBps),
   sell: async (position, fraction, _currentPriceUsd, config) =>

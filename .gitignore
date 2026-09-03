@@ -16,8 +16,13 @@ data/ai-inbox.jsonl
 data/ai-inbox-processed.jsonl
 .playwright-mcp/
 data/v4-watch.json
+data/fourmeme-watch.json
+data/pumpfun-watch.json
 data/decider.lock
 data/decider-logs/
 data/smart-money-state.json
 data/smart-money-activity-state.json
 data/smart-money-log.jsonl
+data/news-threads.json
+data/rh-stock-registry.json
+data/stock-threads.json

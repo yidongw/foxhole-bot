@@ -8,6 +8,7 @@ import {
   type Position,
   type PositionsFile,
 } from "../src/trade/positions.js";
+import { processSignals } from "../src/trade/engine.js";
 import { checkEntry } from "../src/trade/risk.js";
 import { evaluateExits } from "../src/trade/exits.js";
 
@@ -16,6 +17,7 @@ const CONFIG: TradeConfig = {
   usdPerTrade: 50,
   maxDailySpendUsd: 200,
   paperStartUsd: 1000,
+  autoEntry: true,
   maxOpenPositions: 3,
   minEntryLiquidityUsd: 50_000,
   slippageBps: 100,
@@ -208,5 +210,16 @@ describe("paperCashUsd + cap opt-out", () => {
       makePosition({ id: "a", token: "0x1000000000000000000000000000000000000000", costUsd: 5000 }),
     ]);
     expect(checkEntry({ ...CONFIG, maxDailySpendUsd: 0 }, file, CANDIDATE).ok).toBe(true);
+  });
+});
+
+describe("autoEntry gate", () => {
+  it("processSignals opens nothing when autoEntry is off (AI decider owns entries)", async () => {
+    const evals = [{
+      input: { address: "0xTok", chain: "robinhood", symbol: "X", priceUsd: 1, liquidityUsd: 100_000 },
+      triggers: ["lock_strong"], level: "strong", score: 100, reasons: [],
+    }] as never;
+    const opened = await processSignals(evals, { dryRun: true }, { ...CONFIG, mode: "paper", autoEntry: false });
+    expect(opened).toHaveLength(0);
   });
 });
