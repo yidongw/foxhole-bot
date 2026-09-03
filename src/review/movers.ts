@@ -22,6 +22,11 @@ export const MOVER_MIN_CHANGE_PCT = 100;
 export const MOVER_MAX_CHANGE_PCT = 10_000;
 export const MOVER_MIN_LIQUIDITY_USD = 30_000;
 export const MOVER_MIN_VOLUME_USD = 100_000;
+/** A miss only counts if the token's CURRENT market cap (FDV) is at least this.
+ *  用户规则: 错过的币至少市值到过 $10M。可靠的历史峰值算不出(免费 OHLCV 对新币/
+ *  robinhood 逐池脏、刻度乱),所以改用 DexScreener 当前 fdv + 高频(每2h)扫描——
+ *  趁币还在高位就抓到,当前 fdv 即近似峰值。可用 MOVER_MIN_FDV_USD 覆盖。 */
+export const MOVER_MIN_FDV_USD = Number(process.env.MOVER_MIN_FDV_USD ?? 10_000_000);
 
 const EXCLUDED_SYMBOLS = new Set([
   "WETH", "ETH", "WBNB", "BNB", "SOL", "WSOL", "USDT", "USDC", "USDG",
@@ -43,6 +48,9 @@ export interface Mover {
   priceChange24h: number;
   volume24hUsd: number;
   liquidityUsd: number;
+  /** Current fully-diluted valuation (≈ market cap for full-circulating memes).
+   *  From DexScreener — the reliable current-mcap signal we gate misses on. */
+  fdvUsd?: number;
 }
 
 export type MissKind = "alerted" | "threshold_miss" | "coverage_miss";
@@ -122,16 +130,23 @@ export async function fetchTopMovers(chain: string, limit = 12): Promise<Mover[]
   // retrace after a +700% day) and its liquidity can be badly stale
   // ($10.7K reported vs $5.7M real).
   let paprika: PaprikaPool[] = [];
-  try {
-    const res = await fetch(
-      `https://api.dexpaprika.com/networks/${chain}/pools/search?limit=100&order_by=volume_usd_24h&sort=desc`,
-      { headers: { "User-Agent": "foxhole-bot/0.3" } },
-    );
-    if (res.ok) {
-      paprika = ((await res.json()) as { results?: PaprikaPool[] }).results ?? [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(
+        `https://api.dexpaprika.com/networks/${chain}/pools/search?limit=100&order_by=volume_usd_24h&sort=desc`,
+        { headers: { "User-Agent": "foxhole-bot/0.3" } },
+      );
+      if ((res.status === 429 || res.status >= 500) && attempt < 2) {
+        await sleep(700 * (attempt + 1));
+        continue;
+      }
+      if (res.ok) {
+        paprika = ((await res.json()) as { results?: PaprikaPool[] }).results ?? [];
+      }
+      break;
+    } catch {
+      await sleep(700 * (attempt + 1));
     }
-  } catch {
-    // fall through to GT source
   }
   const candidates = paprika.filter(
     (p) => (p.volume_usd_24h ?? 0) >= MOVER_MIN_VOLUME_USD,
@@ -161,6 +176,7 @@ export async function fetchTopMovers(chain: string, limit = 12): Promise<Mover[]
         priceChange24h: chg,
         volume24hUsd: vol,
         liquidityUsd: liq,
+        fdvUsd: Number(p?.fdv ?? 0) || undefined,
       });
     } catch {
       // pair not on DexScreener — skip
@@ -176,6 +192,15 @@ export async function fetchTopMovers(chain: string, limit = 12): Promise<Mover[]
       if (seen.has(t.address.toLowerCase())) continue;
       if (t.symbol && EXCLUDED_SYMBOLS.has(t.symbol.toUpperCase())) continue;
       seen.add(t.address.toLowerCase());
+      // GT trending has no FDV — look it up on DexScreener so the mcap gate
+      // applies here too (undefined only if the lookup fails → kept for review).
+      let fdvUsd: number | undefined;
+      try {
+        const pair = await fetchDexJson<{ pairs?: DexPair[] }>(
+          `/latest/dex/pairs/${chain}/${t.poolId}`,
+        );
+        fdvUsd = Number(pair.pairs?.[0]?.fdv ?? 0) || undefined;
+      } catch {}
       movers.push({
         chain,
         poolId: t.poolId,
@@ -184,6 +209,7 @@ export async function fetchTopMovers(chain: string, limit = 12): Promise<Mover[]
         priceChange24h: t.priceChange24h,
         volume24hUsd: t.volume24hUsd,
         liquidityUsd: t.liquidityUsd,
+        fdvUsd,
       });
     }
   } catch (err) {
@@ -250,6 +276,7 @@ export async function saveMissedCases(
     // No-data pools can't be replayed at all. (Collapsed pumps stay: we
     // should have alerted before the collapse — that's a real miss.)
     if (m.ladder || m.noData) continue;
+    if (m.fdvUsd != null && m.fdvUsd < MOVER_MIN_FDV_USD) continue;
     const key = `${m.chain}:${m.address.toLowerCase()}:${today}`;
     if (seen.has(key)) continue;
     seen.add(key);

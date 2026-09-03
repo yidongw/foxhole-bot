@@ -19,6 +19,13 @@ export const WIN_RETURN = 0.4;
 export const LOSS_RETURN = -0.3;
 /** Grade alerts once they are at least this old. */
 export const GRADE_AFTER_MS = 24 * 60 * 60 * 1000;
+/** A post-alert "return" above this is broken-candle garbage, not a real pump
+ *  (mirrors MOVER_MAX_CHANGE_PCT). Such records never grade as a win — e.g.
+ *  SPACEHOOD "+1252226%" from a dirty OHLCV spike. */
+export const MAX_SANE_RETURN = 100; // +10000%
+/** Token symbols above this length are spam (one token carried a 28KB symbol
+ *  that was the entire stock ticker list) — truncate on record. */
+const MAX_SYMBOL_LEN = 40;
 
 export interface AlertRecord {
   id: string;
@@ -99,7 +106,7 @@ export async function recordAlertOutcome(
     id: `${key}:${new Date(now).toISOString().slice(0, 13)}`,
     chain,
     address: analysis.address,
-    symbol: analysis.symbol,
+    symbol: analysis.symbol?.slice(0, MAX_SYMBOL_LEN),
     at: new Date(now).toISOString(),
     level: evaluation.level,
     score: evaluation.score,
@@ -128,22 +135,35 @@ export function gradeFromCandles(
   const minLow = Math.min(...after.map((c) => c.low));
   const maxReturn = maxHigh / price - 1;
   const minReturn = minLow / price - 1;
+  // Dirty-OHLCV guard: an absurd high is a broken candle spike, not a real
+  // pump — never let it manufacture a win (grade flat, keep the numbers for
+  // audit but out of win/loss stats).
+  if (maxReturn > MAX_SANE_RETURN) {
+    return { outcome: "flat", maxReturn, minReturn, candleCount: after.length };
+  }
   const outcome: Outcome =
     maxReturn >= WIN_RETURN ? "win" : minReturn <= LOSS_RETURN ? "loss" : "flat";
   return { outcome, maxReturn, minReturn, candleCount: after.length };
 }
 
 /** Grade all pending records older than GRADE_AFTER_MS. Returns new labels. */
-export async function gradePendingOutcomes(): Promise<LabeledOutcome[]> {
+export async function gradePendingOutcomes(
+  options: { drop?: (r: AlertRecord) => boolean } = {},
+): Promise<LabeledOutcome[]> {
   const pending = await loadPendingOutcomes();
   const now = Date.now();
   const due = pending.filter((r) => now - new Date(r.at).getTime() >= GRADE_AFTER_MS);
   if (!due.length) return [];
 
   const labeled = await loadLabeledOutcomes();
+  const labeledIds = new Set(labeled.map((l) => l.id));
   const graded: LabeledOutcome[] = [];
 
   for (const record of due) {
+    // Skip caller-excluded records (stocks / malformed) and anything already
+    // labeled — prevents the duplicate rows we saw in labeled.json.
+    if (options.drop?.(record) || labeledIds.has(record.id)) continue;
+    labeledIds.add(record.id);
     let candles: OhlcvCandle[] = [];
     if (record.poolId) {
       try {
@@ -164,8 +184,11 @@ export async function gradePendingOutcomes(): Promise<LabeledOutcome[]> {
     graded.push({ ...record, ...grade, gradedAt: new Date().toISOString() });
   }
 
-  labeled.push(...graded);
-  await writeJson(LABELED_PATH, labeled);
+  if (graded.length) {
+    labeled.push(...graded);
+    await writeJson(LABELED_PATH, labeled);
+  }
+  // Remove ALL due records from pending (graded, dropped, or dup-skipped).
   await writeJson(
     PENDING_PATH,
     pending.filter((r) => !due.includes(r)),
