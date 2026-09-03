@@ -11,6 +11,7 @@ import {
   postNewsCardThread,
   postToSignalThread,
 } from "../notify/signal-threads.js";
+import { postNewsResearchThread } from "../notify/news-threads.js";
 import type { LaunchesPayload } from "../types.js";
 import {
   archiveFlashes,
@@ -165,27 +166,38 @@ export async function newsTick(options: {
       }
       const msg = formatWakeAlert(flash, cls, verdict);
       console.log(msg.replace(/\n/g, " · "));
+
+      const candidateSymbols = [
+        ...(cls.reasons
+          .find((r) => r.startsWith("watched:"))
+          ?.slice("watched:".length)
+          .split("+") ?? []),
+        ...extractSymbols(flash.title),
+      ];
+      // 值得开 thread 的信号：关注币 / 负面 / 上所 / 市值突破级动能
+      const worthyThread =
+        cls.negative ||
+        cls.reasons.some(
+          (r) => r.startsWith("watched:") || r === "listing" || r === "momentum",
+        );
+
       if (!options.dryRun) {
-        // 投递 AI 收件箱 — wake-probe 会叫醒 Claude 会话来判断买/卖/跳过
+        // 投递 AI 收件箱 — decider 会读到并决策买/卖/研究/跳过
         await appendAiInboxNews({
           title: flash.title,
           url: flash.url,
           reasons: cls.reasons,
           negative: cls.negative,
           note: verdict?.note,
+          symbol: candidateSymbols[0],
+          // 值得做但没解析出地址 → 需要 AI 深挖找 CA 再判断
+          needsResearch: worthyThread && !flash.refs?.length,
         }).catch((err) => console.error("news inbox append failed:", err.message));
         void maybeSpawnDecider("news");
 
-        // trade-signal 频道是分币的（每币一张卡片+thread）—— 新闻只允许
-        // 发进已有卡片的币的 thread；对不上的去 #news-radar，不发散消息
-        const candidateSymbols = [
-          ...(cls.reasons
-            .find((r) => r.startsWith("watched:"))
-            ?.slice("watched:".length)
-            .split("+") ?? []),
-          ...extractSymbols(flash.title),
-        ];
         let delivered = false;
+
+        // 1. 已有该币的 trade-signal thread → 发进去
         for (const sym of [...new Set(candidateSymbols)]) {
           const thread = await findSignalThreadBySymbol(sym).catch(() => undefined);
           if (!thread) continue;
@@ -193,13 +205,7 @@ export async function newsTick(options: {
           if (delivered) break;
         }
 
-        // 没有现成 thread：值得开的（关注币/负面/上所/动能）且正文能解析出
-        // 合约地址，就开一张“新闻来源”卡片+thread；否则回落 #news-radar
-        const worthyThread =
-          cls.negative ||
-          cls.reasons.some(
-            (r) => r.startsWith("watched:") || r === "listing" || r === "momentum",
-          );
+        // 2. 值得开 + 正文解析出合约 → 在 trade-signal 开“新闻来源”卡片+thread
         if (!delivered && worthyThread && flash.refs?.length) {
           const bySymbol = cls.reasons.some((r) => r.startsWith("watched:"));
           const symHint = extractSymbols(flash.title)[0];
@@ -213,14 +219,24 @@ export async function newsTick(options: {
           }
         }
 
+        // 3. 值得做但没地址 → 在 #news-radar 开研究 thread，等 AI 深挖
+        if (!delivered && worthyThread && candidateSymbols[0]) {
+          delivered = await postNewsResearchThread(
+            candidateSymbols[0],
+            cls.reasons,
+            flash.title,
+            msg,
+          ).catch(() => false);
+        }
+
+        // 4. 兜底：平消息进 #news-radar（备考）
         if (!delivered && newsUrl) {
-          // 换掉 NEWS SIGNAL 抬头 — 落在 #news-radar 的是备考，不是交易信号
           const fallbackMsg = msg.replace(
             /^(⚠️|📰) \*\*NEWS [^*]+\*\*/,
-            "$1 **NEWS 备考**（无对应币 thread）",
+            "$1 **NEWS 备考**",
           );
           await sendDiscordMessage(newsUrl, fallbackMsg).catch((err) =>
-            console.error("news filter post failed:", err.message),
+            console.error("news radar post failed:", err.message),
           );
         }
       }

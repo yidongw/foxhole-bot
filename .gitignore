@@ -18,3 +18,4 @@ data/ai-inbox-processed.jsonl
 data/v4-watch.json
 data/decider.lock
 data/decider-logs/
+data/news-threads.json
