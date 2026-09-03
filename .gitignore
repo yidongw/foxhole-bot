@@ -26,3 +26,6 @@ data/smart-money-log.jsonl
 data/news-threads.json
 data/rh-stock-registry.json
 data/stock-threads.json
+data/smart-money-config.json
+data/smart-money-dashboard.json
+web/data/smart-money.json

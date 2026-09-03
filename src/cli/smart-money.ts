@@ -9,6 +9,22 @@ import {
   walletChain,
 } from "../chains/robinhood/smart-money.js";
 import { findWinners } from "../smartmoney/profit.js";
+import {
+  loadConfig,
+  resolveFilterSync,
+  saveConfig,
+  type SmartMoneyFilter,
+} from "../smartmoney/config.js";
+
+const KNOWN_CHAINS = new Set([
+  "robinhood",
+  "bsc",
+  "sol",
+  "solana",
+  "base",
+  "eth",
+  "ethereum",
+]);
 
 /**
  * 聪明钱地址簿 + 选钱包 CLI.
@@ -122,7 +138,56 @@ async function main() {
     return;
   }
 
-  console.error(`未知命令: ${cmd}。可用: list | add | rm | find`);
+  if (cmd === "config") {
+    const config = await loadConfig();
+    const wallets = await loadTrackedWallets();
+    const chains = [...new Set(wallets.map((w) => walletChain(w)))];
+    console.log("=== 每条链的过滤 / AI 唤醒条件 ===");
+    for (const c of chains.length ? chains : ["robinhood", "bsc", "sol"]) {
+      const f = resolveFilterSync(config, c, "0x0");
+      console.log(
+        `[${c}] 警报≥$${f.alertMinUsd} · AI唤醒: ${f.aiConvictionN}钱包/${f.aiWindowMin}min 且每笔≥$${f.aiMinUsd}${f.soloTrigger ? " · solo" : ""}`,
+      );
+    }
+    const overrides = Object.keys(config.wallets);
+    if (overrides.length) {
+      console.log("\n=== 单地址覆盖 ===");
+      for (const a of overrides) console.log(`  ${a}: ${JSON.stringify(config.wallets[a])}`);
+    }
+    return;
+  }
+
+  if (cmd === "filter") {
+    const [target] = rest;
+    if (!target) {
+      console.error(
+        "用法: smartmoney filter <chain|地址> [--min-usd N] [--conviction N] [--window N] [--ai-min-usd N] [--solo true|false]",
+      );
+      process.exit(1);
+    }
+    const patch: Partial<SmartMoneyFilter> = {};
+    if (flag("min-usd") != null) patch.alertMinUsd = Number(flag("min-usd"));
+    if (flag("conviction") != null) patch.aiConvictionN = Number(flag("conviction"));
+    if (flag("window") != null) patch.aiWindowMin = Number(flag("window"));
+    if (flag("ai-min-usd") != null) patch.aiMinUsd = Number(flag("ai-min-usd"));
+    if (flag("solo") != null) patch.soloTrigger = flag("solo") === "true";
+    if (!Object.keys(patch).length) {
+      console.error("没有要改的字段。加 --min-usd / --conviction / --window / --ai-min-usd / --solo");
+      process.exit(1);
+    }
+    const config = await loadConfig();
+    const isChain = KNOWN_CHAINS.has(target.toLowerCase());
+    const bucket = isChain ? config.chains : config.wallets;
+    const kk = isChain ? target.toLowerCase() : target.toLowerCase();
+    bucket[kk] = { ...(bucket[kk] ?? {}), ...patch };
+    await saveConfig(config);
+    console.log(
+      `✅ 已更新 ${isChain ? "链" : "地址"} ${target} 的过滤: ${JSON.stringify(bucket[kk])}`,
+    );
+    return;
+  }
+
+  console.error(`未知命令: ${cmd}。可用: list | add | rm | find | config | filter`);
   process.exit(1);
 }
 

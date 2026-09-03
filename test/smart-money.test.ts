@@ -16,6 +16,7 @@ import {
 } from "../src/chains/robinhood/smart-money.js";
 import { qualifyWallet, type ProfitWallet } from "../src/smartmoney/profit.js";
 import { parseCieloBuy } from "../src/smartmoney/cielo.js";
+import { resolveFilterSync, type SmartMoneyConfig } from "../src/smartmoney/config.js";
 import { encodeAbiParameters, parseAbiParameters } from "viem";
 
 const WALLET = "0x1111111111111111111111111111111111111111";
@@ -186,6 +187,25 @@ describe("parseCieloBuy", () => {
   it("ignores non-swap events and messages with no received token", () => {
     expect(parseCieloBuy({ tx_type: "transfer", wallet: WALLET }, label)).toBeNull();
     expect(parseCieloBuy({ tx_type: "swap", wallet: WALLET }, label)).toBeNull();
+  });
+});
+
+describe("resolveFilterSync (per-chain / per-wallet filters)", () => {
+  const empty: SmartMoneyConfig = { defaults: {}, chains: {}, wallets: {} };
+  it("applies built-in chain defaults (RB open, BSC gated)", () => {
+    expect(resolveFilterSync(empty, "robinhood", "0x0").alertMinUsd).toBe(0);
+    expect(resolveFilterSync(empty, "bsc", "0x0").alertMinUsd).toBe(1000);
+    expect(resolveFilterSync(empty, "bsc", "0x0").aiMinUsd).toBe(3000);
+  });
+  it("wallet override beats chain override beats defaults", () => {
+    const cfg: SmartMoneyConfig = {
+      defaults: {},
+      chains: { bsc: { alertMinUsd: 2000 } },
+      wallets: { "0xabc": { alertMinUsd: 9000, soloTrigger: true } },
+    };
+    expect(resolveFilterSync(cfg, "bsc", "0xZZZ").alertMinUsd).toBe(2000);
+    expect(resolveFilterSync(cfg, "bsc", "0xABC").alertMinUsd).toBe(9000);
+    expect(resolveFilterSync(cfg, "bsc", "0xABC").soloTrigger).toBe(true);
   });
 });
 

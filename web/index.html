@@ -177,6 +177,14 @@
       </table>
     </div>
 
+    <div id="smCard" hidden>
+      <h2 style="margin:22px 0 10px;font-size:18px;">🐳 聪明钱监控 <span id="smMeta" style="color:var(--muted);font-size:12px;font-weight:400;"></span></h2>
+      <div id="smChains" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
+      <div id="smWallets"></div>
+      <h3 style="margin:16px 0 8px;font-size:14px;color:var(--muted);">最近动态</h3>
+      <div id="smRecent" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+
     <div id="status" class="loading">正在加载 Long.xyz 发射数据…</div>
     <table id="table" hidden>
       <thead>
@@ -406,6 +414,53 @@
       } catch {}
     }
 
+    const SM_COLOR = { robinhood:'#00C805', bsc:'#F0B90B', sol:'#9945FF', solana:'#9945FF', base:'#0052FF', eth:'#627EEA', ethereum:'#627EEA' };
+    const smColor = (c) => SM_COLOR[c] || '#888';
+    const smShort = (a) => a.length > 14 ? a.slice(0,6) + '…' + a.slice(-4) : a;
+
+    async function loadSmartMoney() {
+      try {
+        const res = await fetch('./data/smart-money.json?_=' + Date.now());
+        if (!res.ok) return;
+        const d = await res.json();
+        const wallets = d.wallets || [];
+        if (!wallets.length) return;
+        const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+        // Per-chain AI-wake conditions
+        document.getElementById('smChains').innerHTML = Object.entries(d.chainConditions || {}).map(([c,f]) => `
+          <div style="border-left:4px solid ${smColor(c)};background:var(--card,#161616);padding:8px 12px;border-radius:6px;font-size:12px;">
+            <b style="color:${smColor(c)};">${c.toUpperCase()}</b><br>
+            警报 ≥ $${(f.alertMinUsd||0).toLocaleString()}<br>
+            AI 唤醒: ${f.aiConvictionN} 钱包 / ${f.aiWindowMin}min 且每笔 ≥ $${(f.aiMinUsd||0).toLocaleString()}${f.soloTrigger ? ' · solo' : ''}
+          </div>`).join('');
+
+        // Wallets grouped by chain, each with its resolved filter
+        const byChain = {};
+        for (const w of wallets) (byChain[w.chain] = byChain[w.chain] || []).push(w);
+        document.getElementById('smWallets').innerHTML = Object.entries(byChain).map(([c,ws]) => `
+          <div style="margin-bottom:10px;">
+            <div style="font-size:13px;font-weight:600;color:${smColor(c)};margin-bottom:4px;">${c.toUpperCase()} · ${ws.length}</div>
+            ${ws.map(w => `<div style="font-size:12px;padding:3px 0;border-bottom:1px solid #222;">
+              <span style="color:var(--muted);">${smShort(w.address)}</span>
+              &nbsp;<b>${esc(w.label)}</b>
+              &nbsp;<span style="color:var(--muted);">警报≥$${(w.filter.alertMinUsd||0).toLocaleString()} · AI≥$${(w.filter.aiMinUsd||0).toLocaleString()}${w.filter.soloTrigger?' · solo':''}</span>
+            </div>`).join('')}
+          </div>`).join('');
+
+        // Recent activity
+        const rec = d.recent || [];
+        document.getElementById('smRecent').innerHTML = rec.slice(0,25).map(r => {
+          const tag = r.kind === 'trigger' ? '🎯 交易信号' : '🐳 警报';
+          const usd = r.usd ? ' ($' + Math.round(r.usd).toLocaleString() + ')' : '';
+          return `<div class="alert-entry"><span class="ts">${fmtDate(r.at)}</span> <b style="color:${smColor(r.chain)};">${(r.chain||'').toUpperCase()}</b> ${tag} · ${esc(r.walletLabel||'')} 买 $${esc(r.symbol||'?')}${usd} · ${r.distinct}钱包</div>`;
+        }).join('') || '<span style="color:var(--muted);font-size:12px;">暂无</span>';
+
+        document.getElementById('smMeta').textContent = `${wallets.length} 个地址 · 更新于 ${fmtDate(d.generatedAt)}`;
+        document.getElementById('smCard').hidden = false;
+      } catch {}
+    }
+
     async function monitorFreshness() {
       try {
         const res = await fetch('./data/signals.json?_=' + Date.now());
@@ -426,6 +481,7 @@
     }
     loadPositions();
     loadAlerts();
+    loadSmartMoney();
 
     document.getElementById('search').addEventListener('input', renderTable);
     document.getElementById('quoteFilter').addEventListener('change', renderTable);

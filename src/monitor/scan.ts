@@ -1022,6 +1022,10 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     startCieloWatcher().catch((err) =>
       console.error("smart-money cielo watcher failed to start:", (err as Error).message),
     );
+    const { startDashboardWriter } = await import("../smartmoney/dashboard.js");
+    startDashboardWriter().catch((err) =>
+      console.error("smart-money dashboard writer failed to start:", (err as Error).message),
+    );
   }
 
   const positionLoopPromise = positionLoop();
