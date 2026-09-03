@@ -26,6 +26,13 @@ export interface TradeConfig {
   maxOpenPositions: number;
   /** Don't enter tokens thinner than this. */
   minEntryLiquidityUsd: number;
+  /**
+   * Relaxed liquidity floor for smart-money-triggered signals on early launches.
+   * RB-chain new pools typically open at $15k–$25k liquidity and grow fast;
+   * the standard $50k floor systematically blocks these before they move.
+   * Only applies when the signal has a `smart_money` trigger.
+   */
+  minEntryLiquiditySmartMoneyUsd: number;
   slippageBps: number;
   /** Exit remaining position when price falls this fraction from its high-water mark. */
   trailStopPct: number;
@@ -63,6 +70,7 @@ export function loadTradeConfig(): TradeConfig {
     autoEntry: process.env.TRADE_AUTO_ENTRY === "1",
     maxOpenPositions: num("TRADE_MAX_OPEN_POSITIONS", 3),
     minEntryLiquidityUsd: num("TRADE_MIN_LIQUIDITY_USD", 50_000),
+    minEntryLiquiditySmartMoneyUsd: num("TRADE_MIN_LIQUIDITY_SMART_MONEY_USD", 15_000),
     slippageBps: num("TRADE_SLIPPAGE_BPS", 100),
     trailStopPct: num("TRADE_TRAIL_STOP_PCT", 0.25),
     trailArmMultiple: num("TRADE_TRAIL_ARM_MULT", 1.5),

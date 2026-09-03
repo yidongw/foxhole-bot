@@ -52,10 +52,14 @@ export function checkEntry(
   if (candidate.priceUsd == null || candidate.priceUsd <= 0) {
     return { ok: false, reason: "no usable price" };
   }
-  if (candidate.liquidityUsd < config.minEntryLiquidityUsd) {
+  const isSmartMoney = candidate.triggers.includes("smart_money");
+  const minLiquidity = isSmartMoney
+    ? config.minEntryLiquiditySmartMoneyUsd
+    : config.minEntryLiquidityUsd;
+  if (candidate.liquidityUsd < minLiquidity) {
     return {
       ok: false,
-      reason: `liquidity $${Math.round(candidate.liquidityUsd)} < min $${config.minEntryLiquidityUsd}`,
+      reason: `liquidity $${Math.round(candidate.liquidityUsd)} < min $${minLiquidity}${isSmartMoney ? " (smart_money)" : ""}`,
     };
   }
   if (findOpen(file, candidate.token)) {
