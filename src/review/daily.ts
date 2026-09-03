@@ -6,7 +6,6 @@ import { promisify } from "node:util";
 
 import { enabledChains } from "../chains/adapter.js";
 import { loadMonitorState } from "../monitor/state.js";
-import { sendDiscordMessage } from "../notify/discord.js";
 import { appendAlertLog } from "../notify/alert-log.js";
 import {
   gradePendingOutcomes,
@@ -30,7 +29,6 @@ import {
   appendFilterDecisions,
   appendFilterJournal,
 } from "./filter-journal.js";
-import { resolveWebhook } from "../notify/routes.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -43,10 +41,6 @@ interface PendingMovers {
   movers: ClassifiedMover[];
 }
 
-function reviewWebhook(explicit?: string): string | undefined {
-  return explicit ?? resolveWebhook("review") ?? process.env.DISCORD_WEBHOOK_URL;
-}
-
 async function deliver(
   body: string,
   options: { dryRun?: boolean; webhookUrl?: string },
@@ -55,10 +49,10 @@ async function deliver(
     console.log("--- DRY RUN REVIEW ---\n" + body + "\n");
     return;
   }
+  // Review output goes ONLY to stdout (relayed by the Discord assistant in this
+  // thread) + the local dashboard ring buffer. NEVER posted to any channel.
   await appendAlertLog(body);
-  const url = reviewWebhook(options.webhookUrl);
-  if (url) await sendDiscordMessage(url, body).catch((err) => console.error(err));
-  else console.log(body);
+  console.log(body);
 }
 
 function pct(n?: number): string {
