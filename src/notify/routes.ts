@@ -9,7 +9,14 @@
  *        news (新闻雷达 — BlockBeats 备考/留痕, default off)
  */
 
-export type RouteKind = "signal" | "trade" | "filter" | "review" | "feed" | "news";
+export type RouteKind =
+  | "signal"
+  | "trade"
+  | "filter"
+  | "review"
+  | "feed"
+  | "news"
+  | "smartmoney";
 
 const KIND_ENV: Record<RouteKind, string> = {
   signal: "DISCORD_SIGNAL_WEBHOOK_URL",
@@ -18,6 +25,7 @@ const KIND_ENV: Record<RouteKind, string> = {
   review: "DISCORD_REVIEW_WEBHOOK_URL",
   feed: "DISCORD_FEED_WEBHOOK_URL",
   news: "DISCORD_NEWS_WEBHOOK_URL",
+  smartmoney: "DISCORD_SMARTMONEY_WEBHOOK_URL",
 };
 
 const LEGACY_FALLBACK: Partial<Record<RouteKind, string>> = {

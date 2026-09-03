@@ -12,8 +12,9 @@ export interface RawLog {
 }
 
 export interface FetchLogsOptions {
-  address: Address;
-  topics?: (`0x${string}` | null)[];
+  address?: Address;
+  /** A topic slot may be a single value, null (any), or an OR-list of values. */
+  topics?: (`0x${string}` | `0x${string}`[] | null)[];
   fromBlock: bigint;
   toBlock: bigint;
   /** Initial block span; halves on RPC errors (public RPCs cap ranges). */

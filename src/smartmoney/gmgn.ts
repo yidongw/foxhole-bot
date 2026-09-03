@@ -1,0 +1,128 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Thin wrapper over the `gmgn-cli` binary (GMGN OpenAPI). The CLI reads its
+ * key from ~/.config/gmgn/.env; we also forward GMGN_API_KEY if present in the
+ * process env. Read-only endpoints only (token traders, wallet activity).
+ *
+ * The CLI prints a JSON body on success and a `[gmgn-cli] ... failed: HTTP
+ * <code>` line on error (429 rate-limit, etc.) — we surface that as a throw.
+ */
+
+export class GmgnError extends Error {
+  constructor(
+    message: string,
+    readonly rateLimited: boolean,
+  ) {
+    super(message);
+    this.name = "GmgnError";
+  }
+}
+
+async function run(args: string[]): Promise<unknown> {
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync("gmgn-cli", args, {
+      env: process.env,
+      timeout: 60_000,
+      maxBuffer: 8 * 1024 * 1024,
+    }));
+  } catch (err) {
+    const msg = (err as Error).message ?? String(err);
+    throw new GmgnError(`gmgn-cli spawn failed: ${msg}`, /429/.test(msg));
+  }
+  const trimmed = stdout.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    throw new GmgnError(
+      `gmgn-cli non-JSON output: ${trimmed.slice(0, 200)}`,
+      /429|RATE_LIMIT/.test(trimmed),
+    );
+  }
+}
+
+/** Unwrap {data:{...}} | {...} envelopes GMGN uses inconsistently. */
+function unwrap(d: unknown): Record<string, unknown> {
+  const o = d as Record<string, unknown>;
+  return (o.data as Record<string, unknown>) ?? o;
+}
+
+export interface GmgnTrader {
+  address: string;
+  realized_profit?: number;
+  profit?: number;
+  unrealized_profit?: number;
+  buy_tx_count_cur?: number;
+  sell_tx_count_cur?: number;
+  is_suspicious?: boolean;
+  tags?: string[];
+  addr_type?: number;
+  exchange?: string;
+  [k: string]: unknown;
+}
+
+export async function gmgnTokenTraders(
+  chain: string,
+  token: string,
+  opts: { limit?: number; orderBy?: string } = {},
+): Promise<GmgnTrader[]> {
+  const d = unwrap(
+    await run([
+      "token",
+      "traders",
+      "--chain",
+      chain,
+      "--address",
+      token,
+      "--limit",
+      String(opts.limit ?? 100),
+      "--order-by",
+      opts.orderBy ?? "profit",
+      "--direction",
+      "desc",
+    ]),
+  );
+  return (d.list as GmgnTrader[]) ?? [];
+}
+
+export interface GmgnActivity {
+  wallet: string;
+  chain: string;
+  tx_hash: string;
+  timestamp: number;
+  event_type: string; // buy | sell | ...
+  token: { address: string; symbol?: string };
+  token_amount?: string;
+  quote_amount?: string;
+  cost_usd?: string;
+  price_usd?: string;
+  [k: string]: unknown;
+}
+
+export async function gmgnWalletActivity(
+  chain: string,
+  wallet: string,
+  opts: { limit?: number } = {},
+): Promise<GmgnActivity[]> {
+  const d = unwrap(
+    await run([
+      "portfolio",
+      "activity",
+      "--chain",
+      chain,
+      "--wallet",
+      wallet,
+      "--limit",
+      String(opts.limit ?? 20),
+    ]),
+  );
+  return (
+    (d.activities as GmgnActivity[]) ??
+    (d.list as GmgnActivity[]) ??
+    []
+  );
+}

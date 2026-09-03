@@ -768,6 +768,24 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     console.error("control bot failed to start:", (err as Error).message),
   );
 
+  // Smart-money watchers (idle until wallets are added; SMART_MONEY=0 disables).
+  //  - RB chain: on-chain wss/poll watcher (sub-second).
+  //  - bsc/sol/base/eth: GMGN portfolio-activity poller.
+  if (!options.dryRun) {
+    const { startSmartMoneyWatcher } = await import(
+      "../chains/robinhood/smart-money-watcher.js"
+    );
+    startSmartMoneyWatcher().catch((err) =>
+      console.error("smart-money RB watcher failed to start:", (err as Error).message),
+    );
+    const { startActivityWatcher } = await import(
+      "../smartmoney/activity-watcher.js"
+    );
+    startActivityWatcher().catch((err) =>
+      console.error("smart-money activity watcher failed to start:", (err as Error).message),
+    );
+  }
+
   const positionLoopPromise = positionLoop();
   const newsLoopPromise = newsLoop();
   void newsLoopPromise;
