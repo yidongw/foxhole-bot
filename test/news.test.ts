@@ -76,6 +76,41 @@ describe("classifyFlash", () => {
     expect(c.reasons).not.toContain("momentum");
   });
 
+  it("does not wake on stoplisted tickers even when in the watched set", () => {
+    // stale hotSymbols(ARB/HOOD/OKX/SPY)在 Robinhood 语境里曾被当 watched 误叫醒
+    // (2026-09-03)。停用词内的主流币/交易所/指数代码即便进了 watched 也不算命中。
+    const watched = ["ARB", "HOOD", "OKX", "SPY", "QQQ", "JINQIAN"];
+    expect(
+      classifyFlash("ARB 24小时涨超12%，Robinhood链上热潮带来新增收入", watched)
+        .reasons,
+    ).not.toContain("watched:ARB");
+    expect(
+      classifyFlash("Ansem：Robinhood股价「筑底收敛」，有望在Q4创新高", watched)
+        .action,
+    ).toBe("drop");
+    expect(
+      classifyFlash("OKX闪赚上线CP「交易赚币」，总奖池达10,000,000 CP", watched)
+        .action,
+    ).toBe("drop");
+    expect(
+      classifyFlash(
+        "Predict.fun宣布上线SPY/USDT、QQQ/USDT 15分钟涨跌预测市场",
+        watched,
+      ).action,
+    ).toBe("drop");
+    // 真 meme 仍照常叫醒
+    expect(
+      classifyFlash("Meme币JINQIAN短时较高点跌超70%", watched).action,
+    ).toBe("wake");
+  });
+
+  it("does not seed exchange/index tickers as hot symbols", () => {
+    // extractSymbols 曾把 OKX/SPY/QQQ 抓成 hotSymbols → 后续误叫醒
+    for (const junk of ["OKX", "SPY", "QQQ", "BITGET", "UPBIT"]) {
+      expect(extractSymbols(`${junk}上线新活动`)).not.toContain(junk);
+    }
+  });
+
   it("still counts ≥50% pumps and cap breakouts as momentum", () => {
     expect(
       classifyFlash("受上线Binance Alpha消息影响，FLORK短时涨超85%", []).action,
