@@ -129,6 +129,26 @@ Paper mode (`TRADE_MODE=paper`) is the default and works on every chain.
 Live keys: `TRADER_PRIVATE_KEY` (RB), `BSC_PRIVATE_KEY`, `BASE_PRIVATE_KEY`,
 `SOLANA_PRIVATE_KEY` — throwaway wallets only.
 
+### Hyperliquid perps — 新闻驱动做多/做空 (`src/venues/hyperliquid/`)
+永续场馆,和现货 `TRADE_*` 完全独立,自成一档 `HL_*` 配置;**默认 `HL_MODE=off` 时整套逻辑休眠**。
+- [x] 只读行情层(零依赖 `/info` fetch:价格、宇宙、`metaAndAssetCtxs`);符号解析含 meme 的小写 **k 前缀**(`PEPE→kPEPE`)与大小写/别名匹配
+- [x] 方向感知的止损止盈:硬止损 / 移动止损 / 止盈阶梯 / 最大持仓,多空对称
+- [x] 风控门 `checkPerpEntry`:名义敞口单笔+24h 上限、最大持仓数、去重、杠杆硬顶,且**硬止损必须早于强平**(否则拒绝,防爆仓亏光保证金)
+- [x] paper 账户 P&L(权益 = 起始 + 已实现 + 未实现,保证金不扣)+ 每 24h Discord 日报;逼近强平预警(30min 节流)
+- [x] 决策 AI 集成:`HL_MODE≠off` 时 decider 追加永续段,用 `hl stat`(现价+24h涨跌+资金费)判断"是否已被 price in",再 `hl long/short`(全过风控门)
+- [x] live 签名走 `@nktkas/hyperliquid`(可选依赖,IOC 模拟市价);**未经真金验证**,先 testnet
+  - HIP-3 美股/商品 dex:live 下单已实现 asset id 编码(`100000+perp_dex_index*10000+下标`,`perp_dex_index` 取自 `perpDexs`);同样先 testnet 核对再上主网
+- [ ] Live-mode gate:testnet 跑通 + ≥2 周 paper 后再上主网(见 `.env.example` HL_* 段)
+
+```bash
+HL_MODE=paper npm run hl -- long BTC 50 3 利好XX   # 开多(名义$50, 3x)
+npm run hl -- short ETH 40 3 利空XX                # 开空
+npm run hl -- stat pepe    # 现价+24h涨跌+资金费(→ kPEPE)   npm run hl -- status
+npm run hl -- close BTC 50 # 平 50%                npm run hl -- markets
+```
+永续持仓由 monitor 的 `positionLoop`(~15s)自动托管止损止盈(与现货并列)。
+live agent 私钥:`HL_AGENT_KEY`(app.hyperliquid.xyz/API 生成、无提现权)。
+
 ### Phase 3 — Multi-signal
 - [ ] Pons launchpad module
 - [ ] 6551 Twitter meme sentiment (`opennews-mcp`)

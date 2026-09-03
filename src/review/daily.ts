@@ -30,6 +30,7 @@ import {
   appendFilterDecisions,
   appendFilterJournal,
 } from "./filter-journal.js";
+import { reviewOwnTrades, type OwnTradeReview } from "./exits-review.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -188,6 +189,16 @@ export async function runDailyReview(options: {
       `已按当前市值<$${(MOVER_MIN_FDV_USD / 1e6).toFixed(0)}M 过滤 ${lowMcap.length} 个: ${lowMcap.slice(0, 6).map((m) => m.symbol ?? "?").join(", ")}`,
     );
   }
+  // 自我出场复盘: 卖飞的仓位 + 报了没买的暴涨 (NUDES/FATCOIN 教训 — 复盘
+  // 必须盯自己的单, 不只盯警报质量)。失败不挡 Phase 1。
+  let ownReview: OwnTradeReview = { soldTooEarly: [], neverBought: [], lines: [] };
+  try {
+    ownReview = await reviewOwnTrades(movers);
+  } catch (err) {
+    console.error("own-trade review failed (continuing):", (err as Error).message);
+  }
+  lines.push(...ownReview.lines);
+
   if (candidates.length) {
     lines.push("", "**⏸️ 待确认的暴涨候选清单 — 请审核:**");
     candidates.forEach((m, i) => lines.push(moverLine(m, i + 1)));
@@ -211,6 +222,13 @@ export async function runDailyReview(options: {
       ...wins.map((w) => `  - ✅ ${w.symbol} [${w.chain}] ${pct(w.maxReturn)} triggers=${w.triggers.join(",")}`),
       ...losses.map((l) => `  - ❌ ${l.symbol} [${l.chain}] ${pct(l.minReturn)} triggers=${l.triggers.join(",")}`),
       `- 暴涨扫描: ${movers.length} 个, 自动过滤 ${filtered.length} 个, 待人工确认 ${candidates.length} 个`,
+      `- 自我出场复盘: 卖飞 ${ownReview.soldTooEarly.length} 个, 报了没买 ${ownReview.neverBought.length} 个`,
+      ...ownReview.soldTooEarly.map(
+        (s) => `  - 🏃 ${s.symbol} [${s.chain}] ${s.multiple.toFixed(1)}x 出场机制=${s.exitReasons.join(",")}`,
+      ),
+      ...ownReview.neverBought.map(
+        (n) => `  - 🚫 ${n.symbol} [${n.chain}] +${n.priceChange24h.toFixed(0)}%`,
+      ),
       ...candidates.map(
         (m, i) =>
           `  - ${i + 1}. ${m.symbol} [${m.chain}] +${m.priceChange24h.toFixed(0)}% ${m.kind} \`${m.address}\`${m.newsNote ? `\n    📰 ${m.newsNote}` : ""}`,

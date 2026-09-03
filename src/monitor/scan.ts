@@ -77,6 +77,8 @@ import {
   screenProbation,
 } from "../chains/robinhood/v4-watcher.js";
 import { managePositions, processSignals } from "../trade/engine.js";
+import { managePerpPositions } from "../venues/hyperliquid/engine.js";
+import { loadHlConfig } from "../venues/hyperliquid/config.js";
 import type { LaunchRecord, LaunchesPayload, TokenAnalysis } from "../types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -990,6 +992,44 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     }
   };
 
+  // OI 异动扫描(币安公开数据 → 妖币启动信号 → 永续做多/做空)。默认关(OI_SCAN=1 开)。
+  const oiLoop = async () => {
+    if (process.env.OI_SCAN !== "1") return;
+    const oiInterval = Number(process.env.OI_SCAN_MS ?? 180_000);
+    const { scanOiAnomalies } = await import("../signals/oi-anomaly.js");
+    const { appendAiInboxPerp } = await import("../notify/ai-inbox.js");
+    while (!stopped) {
+      try {
+        const hits = await scanOiAnomalies();
+        for (const { metrics, verdict } of hits) {
+          await appendAiInboxPerp({
+            source: "oi-anomaly",
+            symbol: metrics.base,
+            side: verdict.side,
+            score: verdict.score,
+            metrics: {
+              oiValueUsd: metrics.oiValueUsd,
+              oiRisePct: metrics.oiRisePct,
+              topTraderLong: metrics.topTraderLong,
+              whaleCostBasis: metrics.whaleCostBasis,
+              lastPrice: metrics.lastPrice,
+              priceChg24h: metrics.priceChgPctWindow,
+              fundingRate: metrics.fundingRate,
+            },
+            reasons: verdict.reasons,
+          });
+        }
+        if (hits.length) {
+          console.log(`oi scan: ${hits.length} anomaly hit(s) → inbox`);
+          void maybeSpawnDecider("oi");
+        }
+      } catch (err) {
+        console.error("oi scan error:", (err as Error).message);
+      }
+      await sleep(oiInterval);
+    }
+  };
+
   // Fast loop: open positions get priced and exit-checked every ~15s —
   // 5-minute stops are far too slow for meme trailing exits.
   const positionLoop = async () => {
@@ -1001,6 +1041,11 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
             { dryRun: options.dryRun, webhookUrl: options.webhookUrl },
             tradeConfig,
           );
+        }
+        // 永续仓位同频托管止损止盈(HL_MODE=off 时内部直接返回)。
+        const hlConfig = loadHlConfig();
+        if (hlConfig.mode !== "off") {
+          await managePerpPositions(hlConfig);
         }
       } catch (err) {
         console.error("position tick error:", (err as Error).message);
@@ -1020,6 +1065,10 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
         { dryRun: options.dryRun, webhookUrl: options.webhookUrl },
         tradeConfig,
       );
+    }
+    const hlConfig = loadHlConfig();
+    if (hlConfig.mode !== "off") {
+      await managePerpPositions(hlConfig);
     }
     return;
   }
@@ -1061,6 +1110,8 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
   void newsLoopPromise;
   const openNewsLoopPromise = openNewsLoop();
   void openNewsLoopPromise;
+  const oiLoopPromise = oiLoop();
+  void oiLoopPromise;
   const stockLoopPromise = stockLoop();
   void stockLoopPromise;
 

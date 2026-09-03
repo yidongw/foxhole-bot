@@ -101,13 +101,45 @@ export async function appendAiInboxSmartMoney(entry: {
   await appendFile(INBOX_PATH, JSON.stringify(line) + "\n", "utf8");
 }
 
-export async function readAiInbox(): Promise<Array<InboxSignal | InboxNews>> {
+/**
+ * 永续数据异动信号(如 OI 异动)。方向已定,decider 复核后经 `npm run hl` 下单。
+ * 与链上现货信号不同:标的是**永续 symbol**,无 chain/address。
+ */
+export interface InboxPerpSignal {
+  kind: "perp-signal";
+  at: string;
+  /** 信号源,如 "oi-anomaly"。 */
+  source: string;
+  /** 基础币名(如 AKE),直接喂 `npm run hl -- long <symbol>`。 */
+  symbol: string;
+  side: "long" | "short";
+  score: number;
+  /** 触发指标快照(OI值/涨幅/大户占比/价格 等)。 */
+  metrics: Record<string, number>;
+  reasons: string[];
+}
+
+export async function appendAiInboxPerp(
+  entry: Omit<InboxPerpSignal, "kind" | "at">,
+): Promise<void> {
+  const line: InboxPerpSignal = {
+    kind: "perp-signal",
+    at: new Date().toISOString(),
+    ...entry,
+  };
+  await mkdir(path.dirname(INBOX_PATH), { recursive: true });
+  await appendFile(INBOX_PATH, JSON.stringify(line) + "\n", "utf8");
+}
+
+export async function readAiInbox(): Promise<
+  Array<InboxSignal | InboxNews | InboxPerpSignal>
+> {
   try {
     const raw = await readFile(INBOX_PATH, "utf8");
     return raw
       .split("\n")
       .filter(Boolean)
-      .map((l) => JSON.parse(l) as InboxSignal | InboxNews);
+      .map((l) => JSON.parse(l) as InboxSignal | InboxNews | InboxPerpSignal);
   } catch {
     return [];
   }

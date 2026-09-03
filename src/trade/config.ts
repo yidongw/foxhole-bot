@@ -29,6 +29,14 @@ export interface TradeConfig {
   slippageBps: number;
   /** Exit remaining position when price falls this fraction from its high-water mark. */
   trailStopPct: number;
+  /**
+   * Trail stop arms only once high-water ≥ entry × this multiple. Arming at
+   * any tick above entry (the old `highWater > entry`) turned routine early
+   * volatility into guaranteed scratch-outs: NUDES #1 topped at +21%, then a
+   * normal 25% wiggle off that high force-closed the position at -15% — hours
+   * before the real move. Below the arm threshold only the hard stop guards.
+   */
+  trailArmMultiple: number;
   /** Exit everything when price falls this fraction below entry. */
   hardStopPct: number;
   takeProfits: TakeProfitTier[];
@@ -57,10 +65,16 @@ export function loadTradeConfig(): TradeConfig {
     minEntryLiquidityUsd: num("TRADE_MIN_LIQUIDITY_USD", 50_000),
     slippageBps: num("TRADE_SLIPPAGE_BPS", 100),
     trailStopPct: num("TRADE_TRAIL_STOP_PCT", 0.25),
+    trailArmMultiple: num("TRADE_TRAIL_ARM_MULT", 1.5),
     hardStopPct: num("TRADE_HARD_STOP_PCT", 0.35),
+    // Fat-tail-shaped ladder: take a small de-risk bite early, then leave a
+    // large 45% moonbag riding the trailing stop so mega-runners (NUDES-type
+    // 10x+) aren't capped at ~2-3x. The old 2x→50% / 4x→25% ladder was
+    // base-hit calibration — it banked half the position before the move that
+    // pays for every stopped-out loser had a chance to happen.
     takeProfits: [
-      { atMultiple: 2, sellFraction: 0.5 },
-      { atMultiple: 4, sellFraction: 0.25 },
+      { atMultiple: 2, sellFraction: 0.33 },
+      { atMultiple: 4, sellFraction: 0.22 },
     ],
     maxHoldHours: num("TRADE_MAX_HOLD_HOURS", 96),
     entryTriggers: (process.env.TRADE_ENTRY_TRIGGERS ??
