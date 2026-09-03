@@ -121,7 +121,8 @@ work for tokens with a v3 route — `NoRouteError` is surfaced, never swallowed.
   grading vs 24h price action, missed-暴涨 scan, bounded backtest-gated
   auto-tuning via `data/signal-overrides.json` (`npm run review`,
   `AUTO_TUNE_PUSH=1` for auto-commit)
-- [ ] Per-chain backtest fixtures + ≥2-week paper gate before any live mode
+- [~] Per-chain backtest fixtures (RB + Base/BSC/ETH/SOL pump+control, engine-classified
+  via real OHLCV replay — SOL: FARTCOIN/POPCAT pumps, SILLY control) + ≥2-week paper gate before any live mode
 
 ⚠️ **All non-Robinhood live execution paths are UNTESTED with real funds.**
 Paper mode (`TRADE_MODE=paper`) is the default and works on every chain.
