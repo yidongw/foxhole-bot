@@ -94,3 +94,19 @@ describe("selectDeepestBasePair", () => {
     expect(selectDeepestBasePair([pairA], SOL_MINT)).toBeUndefined();
   });
 });
+
+describe("post-pump entry veto", () => {
+  it("refuses entries carrying the post_pump trigger", () => {
+    process.env.TRADE_CHAINS = "robinhood,solana";
+    const v = checkEntry(CONFIG, { version: 1, positions: [] }, {
+      token: "0xAbC0000000000000000000000000000000000002",
+      chain: "solana",
+      symbol: "LATE",
+      priceUsd: 1,
+      liquidityUsd: 100_000,
+      triggers: ["lock_strong", "post_pump"],
+    });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/post-pump/);
+  });
+});

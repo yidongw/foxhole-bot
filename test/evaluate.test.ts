@@ -114,3 +114,28 @@ describe("evaluateSignal", () => {
     expect(ev.triggers).toContain("launch_watch");
   });
 });
+
+describe("post-pump demotion (DIDDY lesson)", () => {
+  it("caps strong signals to alert once the 24h move already happened", () => {
+    const ev = evaluateSignal(
+      baseInput({
+        quoteLockRatio: SIGNAL_CONFIG.lockStrong,
+        priceChange24h: 3136, // DIDDY at signal time
+        volumeSpikeRatio: SIGNAL_CONFIG.volumeSpikeStrong,
+      }),
+    );
+    expect(ev.level).toBe("alert");
+    expect(ev.triggers).toContain("post_pump");
+  });
+
+  it("leaves genuinely early movers untouched", () => {
+    const ev = evaluateSignal(
+      baseInput({
+        quoteLockRatio: SIGNAL_CONFIG.lockStrong,
+        priceChange24h: 32, // LIGMA at signal time — real early entry
+      }),
+    );
+    expect(ev.level).toBe("strong");
+    expect(ev.triggers).not.toContain("post_pump");
+  });
+});

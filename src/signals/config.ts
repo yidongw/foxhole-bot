@@ -73,6 +73,15 @@ export const SIGNAL_CONFIG = {
   priceMomentumAlert: 20,
   priceMomentumStrong: 40,
 
+  /**
+   * 24h change above this = the pump already happened (事后警报). Signals
+   * must fire BEFORE pumps — DIDDY (+3136%), NUDES (+281638%) and the
+   * "I" entry at +932% (-$14.33) were all momentum echoes, not entries.
+   * Such evaluations cap at "alert" (still counts as captured for the
+   * tuner) and carry a post_pump trigger that vetoes engine entries.
+   */
+  postPumpMaxChangePct: 500,
+
   /** New Long.xyz stock-paired launch watch window. */
   launchWatchDays: 14,
 

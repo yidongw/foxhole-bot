@@ -37,6 +37,9 @@ export function checkEntry(
   if (!candidate.triggers.some((t) => config.entryTriggers.includes(t))) {
     return { ok: false, reason: "no qualifying entry trigger" };
   }
+  if (candidate.triggers.includes("post_pump")) {
+    return { ok: false, reason: "post-pump signal — move already happened" };
+  }
   if (config.denylist.includes(candidate.token.toLowerCase())) {
     return { ok: false, reason: "token on denylist" };
   }

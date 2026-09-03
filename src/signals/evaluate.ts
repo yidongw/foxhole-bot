@@ -81,6 +81,7 @@ export function evaluateSignal(
     volumeAccelStrong,
     priceMomentumAlert,
     priceMomentumStrong,
+    postPumpMaxChangePct,
     launchWatchDays,
   } = config;
 
@@ -248,6 +249,16 @@ export function evaluateSignal(
       reasons.push(`24h vol ${(vol / 1e6).toFixed(2)}M`);
       triggers.push("high_volume");
     }
+  }
+
+  // --- Post-pump demotion: signals must fire BEFORE the pump ---
+  // A 24h change this large means the move is behind us; momentum/volume
+  // triggers are echoes. Cap at "alert" (kept visible + tuner-countable)
+  // and mark post_pump so the trade engine refuses entry.
+  if (pct != null && pct >= postPumpMaxChangePct && level === "strong") {
+    level = "alert";
+    reasons.push(`+${pct.toFixed(0)}% 24h 已走完 — 事后信号降级, 不入场`);
+    triggers.push("post_pump");
   }
 
   return { level, score, reasons, triggers, input };
