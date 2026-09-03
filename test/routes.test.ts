@@ -37,9 +37,10 @@ describe("resolveWebhook", () => {
     expect(resolveWebhook("trade", "bsc")).toBe("trade-bsc");
   });
 
-  it("review defaults into the filter channel", () => {
+  it("review uses its own webhook, no filter-channel fallback (thread-only)", () => {
+    // review 输出改为 thread-only:不再回退到 filter 频道(2026-09-04)。
     process.env.DISCORD_FILTER_WEBHOOK_URL = "filter";
-    expect(resolveWebhook("review")).toBe("filter");
+    expect(resolveWebhook("review")).toBeUndefined();
     process.env.DISCORD_REVIEW_WEBHOOK_URL = "review";
     expect(resolveWebhook("review")).toBe("review");
   });
