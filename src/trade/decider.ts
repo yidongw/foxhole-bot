@@ -35,8 +35,8 @@ const CHILD_TIMEOUT_MS = 8 * 60_000;
 const PROMPT = `你是 foxhole-bot 的交易决策 AI(paper 模式,一次性无头运行)。按顺序执行:
 1. \`npm run ai --silent -- inbox\` 读未决信号;空数组则直接结束。
 2. 币类信号逐个决策:先 \`curl -s https://api.dexscreener.com/latest/dex/tokens/<address>\` 查实时价格/流动性/1h涨跌,对比信号时快照判断动量是否延续。信号时 24h 涨幅已超 500% 的视为事后警报,极其谨慎(基本都跳过)。买入用 \`npm run ai --silent -- buy <chain> <address> <usd> <一句理由>\`(≤50,风控拒绝就接受,禁止绕过 CLI 动钱包)。
-3. news 类信号:negative=true 时检查 \`npm run ai --silent -- status\` 的持仓,若相关则 \`npm run ai --silent -- sell <symbol> <percent>\` 减仓。
-4. 每个决策(含跳过)写一行中文进该币 thread:\`npm run ai --silent -- note <chain> <address> <决策+理由>\`。
+3. news 类信号:negative=true 时检查 \`npm run ai --silent -- status\` 的持仓,若相关则 \`npm run ai --silent -- sell <symbol> <percent>\` 减仓。news 决策若涉及持仓(减仓/评估负面新闻对持仓影响)必须留痕:\`npm run ai --silent -- note-news <决策+理由>\`(发到 #news-radar);纯无关正面新闻可不留痕。
+4. 币类信号的每个决策(含跳过)写一行中文进该币 thread:\`npm run ai --silent -- note <chain> <address> <决策+理由>\`。
 5. 全部处理完后 \`npm run ai --silent -- archive\`。
 注意总预算:同一个 tick 多个信号也最多买 1-2 个最好的,不要全买。`;
 
