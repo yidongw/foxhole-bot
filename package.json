@@ -2,7 +2,7 @@
   "name": "foxhole-bot",
   "version": "0.2.0",
   "private": true,
-  "description": "Robinhood Chain meme trading intelligence \u2014 Long.xyz launch & squeeze monitoring",
+  "description": "Robinhood Chain meme trading intelligence — Long.xyz launch & squeeze monitoring",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -24,6 +24,7 @@
     "news:search": "tsx src/cli/news.ts search",
     "smartmoney": "tsx src/cli/smart-money.ts",
     "preflight": "tsx src/cli/preflight.ts",
+    "opennews": "tsx src/cli/opennews.ts",
     "deploy": "bash scripts/deploy-local.sh",
     "serve": "python3 -m http.server 8787 --directory web",
     "dev": "npm run fetch:long && npm run serve",

@@ -318,3 +318,13 @@ null 也缓存(非标准存储不再每次重探)。索引→槽 hash 每地址�
 DexScreener search 候选太少 + 成熟 meme 已过 pump 期,未找到 ≥3x 且能 replay 判为
 pump 的干净样本——不硬凑低质夹具。下次: 用更好数据源(GeckoTerminal/四meme 近期毕业
 且暴涨的池)找 BSC pump 夹具;或槽缓存加 TTL。
+
+## 2026-09-03 (循环) — 补齐 BSC pump 回测夹具 (AKE, engine-classified)
+上轮识别的缺口: BSC 只有 control(CAT)无 pump 夹具,backtest-gated 自调无法验证阈值
+改动是否仍抓得住 BSC pump。改用更广数据源(GeckoTerminal top pools 分页,80 池 vs
+DexScreener search 的 8)扫出真实 pump: AKE(0x2c3a8ee9...,WBNB 对)~87x 大涨(min
+1.88e-4→max 1.65e-2,$69M 峰量,现仍 78% 非 rug)。链上核实 symbol=AKE;用真 runner
+replayTokenHistory(实拉 DexPaprika OHLCV)判定 passed=pump,firstAlert 06-14 早于
+07-18 峰值,20 次警报——非手标。加入 MULTICHAIN_FIXTURES,BSC 现有 pump+control
+双夹具。180/180,typecheck 绿。下次: 槽缓存 TTL(防 proxy 升级),或 four.meme quote
+字段直读做精准多跳(非 WBNB 计价代币用曲线 quote 而非猜 base)。

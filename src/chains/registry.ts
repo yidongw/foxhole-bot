@@ -15,9 +15,23 @@ const robinhoodAdapter: ChainAdapter = {
   id: "robinhood",
   displayName: "Robinhood Chain",
   // Robinhood discovery runs its own richer path (factory watcher + stock
-  // search) inside the monitor; trending here is a supplement.
-  trendingCandidates: async () =>
-    (await fetchTrendingTokens("robinhood")).map((t) => t.tokenAddress),
+  // search) inside the monitor; trending here is a supplement. 两路发现源:
+  // DexScreener boosts + DexPaprika top movers —— 后者专抓有机暴涨(非
+  // Long.xyz 股票对上线、也不在推广位的币),否则会漏(SHRUB +235%/6h $4M vol
+  // 从未被扫 — 2026-09-03 教训:主战场此前独缺 movers feed,靠日更 review 兜底)。
+  trendingCandidates: async () => {
+    const [boosted, movers] = await Promise.all([
+      fetchTrendingTokens("robinhood").then((t) => t.map((x) => x.tokenAddress)),
+      fetchMoverCandidates("robinhood"),
+    ]);
+    const seen = new Set<string>();
+    return [...movers, ...boosted].filter((a) => {
+      const k = a.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  },
   analyze: (address) => analyzeToken(address),
   priceUsd: (address) => fetchTokenPriceUsd(address, "robinhood"),
   buy: (token, priceUsd, usd, config) =>

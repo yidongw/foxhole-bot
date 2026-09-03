@@ -120,6 +120,17 @@ export const MULTICHAIN_FIXTURES: TokenBacktestFixture[] = [
     notes: "Aged SOL meme, quiet volume",
   },
   {
+    kind: "pump",
+    symbol: "AKE",
+    address: "0x2c3a8ee94ddd97244a93bc48298f97d2c412f7db",
+    poolId: "0x4d3bf29ba30f8bfe4624e7678709afa195689c5d",
+    network: "bsc",
+    quoteSymbol: "WBNB",
+    launchAt: "2026-06-01T00:00:00.000Z",
+    ohlcvStart: "2026-06-05",
+    notes: "BSC: ~87x run into Jul 18 peak ($69M peak vol); first alert Jun 14",
+  },
+  {
     kind: "control",
     symbol: "CAT",
     address: "0x59F4F336Bf3D0C49dBfbA4A74eBD2a6aCE40539A",
