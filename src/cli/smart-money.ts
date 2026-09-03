@@ -16,6 +16,7 @@ import {
   type SmartMoneyFilter,
 } from "../smartmoney/config.js";
 import { findWorthTracking } from "../smartmoney/winner-finder.js";
+import { assessWallet } from "../smartmoney/wallet-quality.js";
 import {
   addGoodToken,
   goodTokensForChain,
@@ -264,7 +265,41 @@ async function main() {
     return;
   }
 
-  console.error(`未知命令: ${cmd}。可用: list | add | rm | find | find2 | good | config | filter`);
+  if (cmd === "revet") {
+    const drop = process.argv.includes("--drop");
+    const now = Math.floor(Date.now() / 1000);
+    const wallets = await loadTrackedWallets();
+    console.log(`重评 ${wallets.length} 个追踪钱包(v2 assessWallet)…`);
+    const fails: { address: string; chain: string; reasons: string[] }[] = [];
+    for (const w of wallets) {
+      const chain = walletChain(w);
+      try {
+        const v = await assessWallet(chain, w.address, now);
+        if (!v) {
+          console.log(`  [${chain}] ${w.address} — 无数据(跳过,不踢)`);
+        } else if (v.pass) {
+          const m = v.metrics;
+          console.log(`  ✅ [${chain}] ${w.address} ${v.tier} ROI${m.roi.toFixed(1)}x 胜率${(m.winrate * 100).toFixed(0)}% ${m.tokenNum}币`);
+        } else {
+          console.log(`  ❌ [${chain}] ${w.address} — ${v.reasons.join(" | ")}`);
+          fails.push({ address: w.address, chain, reasons: v.reasons });
+        }
+      } catch {
+        console.log(`  [${chain}] ${w.address} — 查询失败(跳过)`);
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    console.log(`\n不达标 ${fails.length} 个。`);
+    if (drop) {
+      for (const f of fails) await removeTrackedWallet(f.address);
+      console.log(`🗑️ 已踢掉 ${fails.length} 个。`);
+    } else if (fails.length) {
+      console.log("(加 --drop 自动踢掉)");
+    }
+    return;
+  }
+
+  console.error(`未知命令: ${cmd}。可用: list | add | rm | find | find2 | good | config | filter | revet`);
   process.exit(1);
 }
 
