@@ -162,31 +162,41 @@ describe("qualifyWallet (winner-finder filter)", () => {
 
 describe("parseCieloBuy", () => {
   const label = () => "whale";
-  it("maps a Cielo swap message to a buy on the received token", () => {
+  it("maps a Cielo tx swap BUY to the acquired token (token1); bnb→bsc", () => {
     const buy = parseCieloBuy(
       {
-        tx_type: "swap",
-        wallet: WALLET,
-        chain: "solana",
-        tx_hash: "0xhash",
-        timestamp: 1700000000,
-        token0_symbol: "USDC",
-        token1_address: "Mint111",
-        token1_symbol: "WIF",
-        token1_amount_usd: 5000,
+        type: "tx",
+        data: {
+          tx_type: "swap",
+          is_sell: false,
+          wallet: WALLET,
+          chain: "bnb",
+          tx_hash: "0xhash",
+          timestamp: 1700000000,
+          token0_symbol: "WBNB",
+          token0_amount_usd: 377,
+          token1_address: "0xToken1",
+          token1_symbol: "TROLL",
+          token1_amount_usd: 377,
+        },
       },
       label,
     );
-    expect(buy?.chain).toBe("sol"); // solana → sol alias
-    expect(buy?.token).toBe("Mint111");
-    expect(buy?.symbol).toBe("WIF");
-    expect(buy?.usd).toBe(5000);
+    expect(buy?.chain).toBe("bsc"); // bnb → bsc
+    expect(buy?.token).toBe("0xToken1");
+    expect(buy?.symbol).toBe("TROLL");
+    expect(buy?.usd).toBe(377);
     expect(buy?.source).toBe("cielo");
   });
 
-  it("ignores non-swap events and messages with no received token", () => {
-    expect(parseCieloBuy({ tx_type: "transfer", wallet: WALLET }, label)).toBeNull();
-    expect(parseCieloBuy({ tx_type: "swap", wallet: WALLET }, label)).toBeNull();
+  it("ignores sells (is_sell=true), non-swaps, and missing token1", () => {
+    const sell = {
+      type: "tx",
+      data: { tx_type: "swap", is_sell: true, wallet: WALLET, chain: "bnb", token1_address: "0xWBNB" },
+    };
+    expect(parseCieloBuy(sell, label)).toBeNull();
+    expect(parseCieloBuy({ data: { tx_type: "transfer", wallet: WALLET } }, label)).toBeNull();
+    expect(parseCieloBuy({ data: { tx_type: "swap", is_sell: false, wallet: WALLET } }, label)).toBeNull();
   });
 });
 

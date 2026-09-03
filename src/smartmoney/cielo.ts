@@ -34,46 +34,44 @@ export function cieloEnabled(): boolean {
   return Boolean(process.env.CIELO_API_KEY) && process.env.SMART_MONEY !== "0";
 }
 
-/** Normalise a Cielo chain string to our internal id (engine handles aliases). */
+/** Normalise a Cielo chain string to a covered id (engine then canonicalizes). */
 function normChain(c: unknown): string {
   const s = String(c ?? "").toLowerCase();
-  if (s === "solana") return "sol";
-  if (s === "ethereum") return "eth";
-  return s || "unknown";
+  return s === "bnb" ? "bsc" : s; // Cielo uses "bnb"; solana/base/ethereum pass through
 }
 
-/** Best-effort: turn a Cielo feed message into a buy, or null if not one. */
+/**
+ * Turn a Cielo `tx` swap message into a BUY, or null. Verified against the live
+ * feed: {type:"tx", data:{tx_type:"swap", is_sell, chain:"bnb"|"solana"|…,
+ * wallet, tx_hash, timestamp, token0_*(spent on a buy), token1_*(bought)}}.
+ * On a buy is_sell=false → token1 is the acquired token; sells are ignored.
+ */
 export function parseCieloBuy(
   msg: Record<string, unknown>,
   labelFor: (wallet: string) => string,
 ): SmartMoneyBuy | null {
-  // Cielo wraps feed items under {type:"feed"|"tx", data:{...}} in some modes.
   const d = ((msg.data as Record<string, unknown>) ?? msg) as Record<string, unknown>;
-  const txType = String(d.tx_type ?? d.txType ?? d.type ?? "").toLowerCase();
-  if (txType && txType !== "swap") return null;
+  if (String(d.tx_type ?? "").toLowerCase() !== "swap") return null;
+  if (d.is_sell === true) return null; // only buys
 
-  const wallet = String(d.wallet ?? d.wallet_address ?? d.from ?? "");
+  const wallet = String(d.wallet ?? d.to ?? "");
   if (!wallet) return null;
 
-  // token0 = spent (base), token1 = received (bought) in Cielo's swap schema.
-  const boughtAddr = d.token1_address ?? d.token1 ?? d.to_token_address;
-  const boughtSym = d.token1_symbol ?? d.to_token_symbol;
+  const boughtAddr = d.token1_address; // acquired token on a buy
   if (!boughtAddr) return null;
 
-  const usdRaw =
-    d.token1_amount_usd ?? d.token0_amount_usd ?? d.amount_usd ?? d.value_usd;
+  const usdRaw = d.token1_amount_usd ?? d.token0_amount_usd;
   const usd = usdRaw != null ? Number(usdRaw) : undefined;
-
-  const ts = Number(d.timestamp ?? d.block_time ?? Date.now() / 1000) * 1000;
+  const ts = Number(d.timestamp ?? Date.now() / 1000) * 1000;
 
   return {
-    chain: normChain(d.chain ?? d.network),
+    chain: normChain(d.chain),
     wallet,
     walletLabel: labelFor(wallet),
     token: String(boughtAddr),
-    symbol: String(boughtSym ?? "?"),
+    symbol: String(d.token1_symbol ?? "?"),
     usd: Number.isFinite(usd) ? usd : undefined,
-    txHash: String(d.tx_hash ?? d.hash ?? d.txHash ?? ""),
+    txHash: String(d.tx_hash ?? ""),
     ts: Number.isFinite(ts) ? ts : Date.now(),
     source: "cielo",
   };
