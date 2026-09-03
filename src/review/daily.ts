@@ -94,10 +94,10 @@ export async function runDailyReview(options: {
   // Robinhood tokenized stocks (QQQ/MU/…) and spam tokens with junk symbols
   // pollute the meme review — drop them from grading and candidates entirely.
   const stockReg = await fetchStockRegistry().catch(() => undefined);
-  const isStock = (r: { chain: string; symbol?: string }): boolean =>
-    r.chain === "robinhood" &&
-    !!r.symbol &&
-    !!stockReg?.symbols.has(r.symbol.toUpperCase());
+  // Stock-ticker tokens are noise on EVERY chain — robinhood tokenized stocks
+  // (QQQ/MU) and solana stock-name memes (COIN/AAPL/NVDA/GOOGL/META/AMZN…).
+  const isStock = (r: { chain?: string; symbol?: string }): boolean =>
+    !!r.symbol && !!stockReg?.symbols.has(r.symbol.toUpperCase());
   const isMalformed = (r: { symbol?: string }): boolean =>
     (r.symbol?.length ?? 0) > 40;
   const graded = await gradePendingOutcomes({

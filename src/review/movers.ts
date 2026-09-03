@@ -130,16 +130,23 @@ export async function fetchTopMovers(chain: string, limit = 12): Promise<Mover[]
   // retrace after a +700% day) and its liquidity can be badly stale
   // ($10.7K reported vs $5.7M real).
   let paprika: PaprikaPool[] = [];
-  try {
-    const res = await fetch(
-      `https://api.dexpaprika.com/networks/${chain}/pools/search?limit=100&order_by=volume_usd_24h&sort=desc`,
-      { headers: { "User-Agent": "foxhole-bot/0.3" } },
-    );
-    if (res.ok) {
-      paprika = ((await res.json()) as { results?: PaprikaPool[] }).results ?? [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(
+        `https://api.dexpaprika.com/networks/${chain}/pools/search?limit=100&order_by=volume_usd_24h&sort=desc`,
+        { headers: { "User-Agent": "foxhole-bot/0.3" } },
+      );
+      if ((res.status === 429 || res.status >= 500) && attempt < 2) {
+        await sleep(700 * (attempt + 1));
+        continue;
+      }
+      if (res.ok) {
+        paprika = ((await res.json()) as { results?: PaprikaPool[] }).results ?? [];
+      }
+      break;
+    } catch {
+      await sleep(700 * (attempt + 1));
     }
-  } catch {
-    // fall through to GT source
   }
   const candidates = paprika.filter(
     (p) => (p.volume_usd_24h ?? 0) >= MOVER_MIN_VOLUME_USD,
