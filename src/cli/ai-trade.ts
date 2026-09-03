@@ -139,11 +139,16 @@ async function main() {
       console.log(ok ? "posted to research thread" : "该币无研究 thread(已回落平消息)");
       break;
     }
-    case "status":
+    case "status": {
       console.log(await formatPortfolioReport());
       console.log("\n=== 钱包余额 ===");
       console.log(await balances());
+      // 自我出场复盘的近期教训 — 巡检第一步就是 status，塞这里让它自动看到。
+      const { formatRecentLessons } = await import("../review/exits-review.js");
+      const lessons = await formatRecentLessons().catch(() => "");
+      if (lessons) console.log("\n" + lessons);
       break;
+    }
     default:
       console.error(
         "用法: ai-trade inbox|archive|buy|sell|note|note-news|research-note|status",

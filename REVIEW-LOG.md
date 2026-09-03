@@ -356,3 +356,8 @@ replayTokenHistory(实拉 DexPaprika OHLCV)判定 passed=pump,firstAlert 06-14 �
   机制+实现盈亏)和 🚫报了没买(报过警报、+100%、从未开仓——此前 alerted 被
   过滤出候选,decider 跳过后起飞完全不可见)。state 文件去重,每单只报一次。
   189/189,typecheck 绿。改动自主提交合并(用户授权,无需确认)。
+- **追加(用户指出 thread 认错)**: 1544893137246490664 是 AI组合巡检 thread,
+  我误说成复盘 thread。补真正的缺口: 巡检管仓位但看不到自我教训——现在
+  exits-review 把发现持久化进 state(lessons 滚动 30 条),`ai-trade status`
+  尾部自动带"🪞 近期教训(7d)",巡检第一步跑 status 即自动看到,无需改任何
+  定时任务 prompt。189/189 绿。

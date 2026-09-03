@@ -54,10 +54,25 @@ export interface NeverBought {
   safetyFlags?: string[];
 }
 
+export interface LessonEntry {
+  at: string;
+  kind: "sold_too_early" | "never_bought";
+  symbol?: string;
+  chain: string;
+  detail: string;
+}
+
 interface ExitReviewState {
   flaggedPositions: string[];
   flaggedTokens: string[];
+  /** Rolling log of findings so the AI 巡检/decider can read recent lessons. */
+  lessons?: LessonEntry[];
 }
+
+/** Keep this many findings for the status "近期教训" section. */
+const LESSONS_KEPT = 30;
+/** Lessons older than this stop showing in status output. */
+const LESSONS_WINDOW_MS = 7 * 24 * 3_600_000;
 
 /** Proceeds-weighted average exit price; undefined until something was sold. */
 export function avgExitPriceUsd(position: Position): number | undefined {
@@ -167,6 +182,26 @@ export async function reviewOwnTrades(
   }
 
   if (soldTooEarly.length || neverBought.length) {
+    const lessons = state.lessons ?? [];
+    for (const s of soldTooEarly) {
+      lessons.push({
+        at: now.toISOString(),
+        kind: "sold_too_early",
+        symbol: s.symbol,
+        chain: s.chain,
+        detail: `出场均价 $${s.avgExitPriceUsd.toPrecision(3)} → 现价 ${s.multiple.toFixed(1)}x, 出场机制: ${s.exitReasons.join(", ")}, 实现 ${s.realizedPnlUsd >= 0 ? "+" : ""}$${s.realizedPnlUsd.toFixed(2)}`,
+      });
+    }
+    for (const n of neverBought) {
+      lessons.push({
+        at: now.toISOString(),
+        kind: "never_bought",
+        symbol: n.symbol,
+        chain: n.chain,
+        detail: `警报后未开仓, +${n.priceChange24h.toFixed(0)}%${n.safetyFlags?.length ? ` (安全门: ${n.safetyFlags.join(",")})` : ""}`,
+      });
+    }
+    state.lessons = lessons.slice(-LESSONS_KEPT);
     await writeJsonAtomic(STATE_PATH, state);
   }
 
@@ -195,4 +230,28 @@ export async function reviewOwnTrades(
     );
   }
   return { soldTooEarly, neverBought, lines };
+}
+
+/**
+ * Recent lessons for the AI 巡检/decider — surfaced in `ai-trade status` so
+ * the portfolio patrol sees its own past mistakes without any schedule-prompt
+ * change. Empty string when there is nothing recent.
+ */
+export async function formatRecentLessons(now: Date = new Date()): Promise<string> {
+  const state = await loadState();
+  const recent = (state.lessons ?? []).filter(
+    (l) => now.getTime() - new Date(l.at).getTime() <= LESSONS_WINDOW_MS,
+  );
+  if (!recent.length) return "";
+  const tag = { sold_too_early: "🏃 卖飞", never_bought: "🚫 报了没买" } as const;
+  return [
+    "=== 🪞 近期教训（自我出场复盘, 7d）===",
+    ...recent
+      .slice(-10)
+      .map(
+        (l) =>
+          `${tag[l.kind]} ${l.symbol ?? "?"} [${l.chain}] ${l.detail} (${l.at.slice(5, 16)})`,
+      ),
+    "决策时参考: 卖飞多=出场机制太紧; 报了没买多=跳过判断太保守。",
+  ].join("\n");
 }
