@@ -4,6 +4,9 @@ import {
   addFourmemeProbation,
   decodeTokenCreate,
   fourmemeCurveProgress,
+  nearGradFourmemeCandidates,
+  FOURMEME_NEAR_GRAD_MIN_VOLUME_USD,
+  FOURMEME_NEAR_GRAD_MAX_CANDIDATES,
   type FourmemeLaunch,
   type FourmemeWatchEntry,
 } from "../src/chains/bsc/fourmeme.js";
@@ -104,5 +107,41 @@ describe("fourmemeCurveProgress", () => {
 
   it("clamps to 1 at/after graduation", () => {
     expect(fourmemeCurveProgress(20n, 18n)).toBe(1);
+  });
+});
+
+describe("nearGradFourmemeCandidates", () => {
+  const entry = (
+    address: string,
+    verified: boolean,
+    lastVol24hUsd?: number,
+  ): FourmemeWatchEntry => ({
+    address,
+    firstSeen: new Date().toISOString(),
+    verified,
+    attempts: 0,
+    lastVol24hUsd,
+  });
+
+  it("picks only unverified (on-curve) tokens with real pre-grad volume", () => {
+    const min = FOURMEME_NEAR_GRAD_MIN_VOLUME_USD;
+    const picked = nearGradFourmemeCandidates([
+      entry("0xVerified", true, min * 10), // graduated → excluded
+      entry("0xQuiet", false, min - 1), // below threshold → excluded
+      entry("0xHot", false, min + 1), // qualifies
+      entry("0xNoVol", false, undefined), // no volume seen → excluded
+    ]);
+    expect(picked.map((e) => e.address)).toEqual(["0xHot"]);
+  });
+
+  it("ranks by volume and caps at the max", () => {
+    const min = FOURMEME_NEAR_GRAD_MIN_VOLUME_USD;
+    const many = Array.from({ length: FOURMEME_NEAR_GRAD_MAX_CANDIDATES + 3 }, (_, i) =>
+      entry(`0x${i}`, false, min + i),
+    );
+    const picked = nearGradFourmemeCandidates(many);
+    expect(picked).toHaveLength(FOURMEME_NEAR_GRAD_MAX_CANDIDATES);
+    // highest volume first
+    expect(picked[0].lastVol24hUsd).toBeGreaterThan(picked[1].lastVol24hUsd!);
   });
 });

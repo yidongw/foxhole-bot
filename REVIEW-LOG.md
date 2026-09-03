@@ -240,3 +240,15 @@ pumpfun): 设 curveProgress/curveGraduated,并用 funds(BNB 深度)覆盖 DexScr
 on-curve token 显示"four.meme curve X% to graduation",CAKE 不误报。143/143。
 下次: BSC-specific 曲线量能阈值(curve trigger 的 vol 门 $50K 对 curve token 偏高),
 或 live 交易实测。
+
+## 2026-09-03 (循环) — 解锁 curve_near_grad_strong: 分析临近毕业的 on-curve four.meme
+上次接了曲线进度但触发不了——scanFourmemeWatch 只分析 verified(=已毕业)token,
+而 curve_near_grad_strong 要求 !curveGraduated,所以那个 pre-pump 触发器从没真正
+触发过(和 SOL 循环 51c58db 发现的同一根因)。镜像 SOL 的解法到 four.meme:
+screenFourmemeProbation 现在同时记录每个 probation token 的 pre-grad 24h 量
+(lastVol24hUsd);新增 nearGradFourmemeCandidates 按量取 top-N(≥
+FOURMEME_NEAR_GRAD_MIN_VOLUME_USD 默认$20K,capped FOURMEME_NEAR_GRAD_MAX_CANDIDATES
+默认6)。scanFourmemeWatch 现在分析 verified + 这批 on-curve 临近毕业候选(按地址去重),
+它们带 curveProgress+curveGraduated=false → 曲线≥92%+量≥$50K 即触发 curve_near_grad
+_strong,BSC 终于有可发的 pre-pump 交易触发器。RPC 成本限定在真正在冲刺毕业的少数几个。
+实测 dry-run 无错。155/155。下次: live 交易实测,或 BSC safety 门在 curve token 上的表现。

@@ -38,6 +38,7 @@ import {
   formatFourmemeDigest,
   getBscLatestBlock,
   loadFourmemeWatch,
+  nearGradFourmemeCandidates,
   saveFourmemeWatch,
   screenFourmemeProbation,
 } from "../chains/bsc/fourmeme.js";
@@ -554,9 +555,13 @@ async function checkFourmemeLaunches(
 }
 
 /**
- * Screen probation four.meme tokens; verified (graduated, liquid) ones get a
- * full analysis + signal evaluation + graded alert each tick — the BSC
- * analogue of scanV4Watch.
+ * Screen probation four.meme tokens, then analyze + signal-grade each tick:
+ *  - verified (graduated, DexScreener-liquid) tokens, and
+ *  - the top near-graduation probation tokens still on the bonding curve —
+ *    the only window where `curve_near_grad_strong` (a BSC trade-grade entry
+ *    trigger) can fire, since post-graduation it's disabled and the trending
+ *    feed only ever surfaces already-graduated tokens.
+ * The BSC analogue of scanV4Watch / scanPumpWatch.
  */
 async function scanFourmemeWatch(
   state: MonitorState,
@@ -574,7 +579,16 @@ async function scanFourmemeWatch(
   }
 
   const adapter = getAdapter("bsc");
-  for (const entry of entries.filter((e) => e.verified)) {
+  // Verified (post-graduation) + near-graduation on-curve candidates. Dedup by
+  // address so a token promoted this tick isn't analyzed twice.
+  const targets = [
+    ...entries.filter((e) => e.verified),
+    ...nearGradFourmemeCandidates(entries),
+  ];
+  const seen = new Set<string>();
+  for (const entry of targets) {
+    if (seen.has(entry.address.toLowerCase())) continue;
+    seen.add(entry.address.toLowerCase());
     try {
       // adapter.analyze reads the four.meme curve on-chain, so graduation and
       // curve-progress signals are populated authoritatively here.
