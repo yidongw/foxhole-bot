@@ -3,6 +3,23 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-04 04:0x UTC 第 9 轮(安静轮:全绿,无新改动)
+
+BlockBeats 隔夜出稿少,feed 与 R8 高度重合;四项全稳。
+- ① 新闻:35 wake 全 legit,无新噪音/漏。「」junk(交易赚币 02:47Z/借壳收割 02:50Z)
+  仍冻结未刷新,距 09-05 02:47Z TTL 到期约剩 <23h,下轮应见其消失。
+- ② 覆盖率:robinhood ≥100% 对照干净(8 mover 全在册,**1003 币**破千,持续增长)。
+  哑弹仍无解:labeled 仍 15(clean-data 仅 9),pending 已 187(56 strong)等评分——
+  grader 未产新标签,样本不足不做 tuning。
+- ③ 安全:无新代码改动可扫;smart-money P2、Solana audit 6 high 仍挂账。
+- ④ 健康:tsc 干净、npm test **251 passed**、monitor 稳定运行 2h+ 未重启(pid 82431)、
+  BN 未复现、0 uncaught。
+
+**下轮重点:** ① **复查「」junk 09-05 02:47Z 后是否消失**(R3 闭环验证)。
+② grader 产新标签后做哑弹分析(现 n=9 clean 太小)。③ OpenNews 若充值复查产出。
+
+---
+
 ## 2026-09-04 02:0x UTC 第 8 轮(安静轮:全绿,前修均持,无新改动)
 
 四项全部健康,prior fixes 全在生效,无新问题需修。
