@@ -56,6 +56,7 @@ import {
   fetchRecentPumpLaunches,
   formatPumpLaunchDigest,
   loadPumpWatch,
+  nearGradCandidates,
   savePumpWatch,
   screenPumpProbation,
 } from "../chains/solana/pumpfun-launches.js";
@@ -642,9 +643,13 @@ async function checkPumpLaunches(
 }
 
 /**
- * Screen probation pump.fun tokens; verified (graduated, liquid) ones get a
- * full analysis + signal evaluation + graded alert each tick — the Solana
- * analogue of scanFourmemeWatch.
+ * Screen probation pump.fun tokens, then analyze + signal-grade each tick:
+ *  - verified (graduated, DexScreener-liquid) tokens, and
+ *  - the top near-graduation probation tokens still on the bonding curve —
+ *    the only window where `curve_near_grad_strong` (the Solana trade-grade
+ *    entry trigger) can fire, since post-graduation it's disabled and the
+ *    trending feed only ever surfaces already-graduated tokens.
+ * The Solana analogue of scanFourmemeWatch.
  */
 async function scanPumpWatch(
   state: MonitorState,
@@ -662,7 +667,13 @@ async function scanPumpWatch(
   }
 
   const adapter = getAdapter("solana");
-  for (const entry of entries.filter((e) => e.verified)) {
+  // Verified (post-graduation) + near-graduation on-curve candidates. Dedup by
+  // address so a token promoted this tick isn't analyzed twice.
+  const targets = [...entries.filter((e) => e.verified), ...nearGradCandidates(entries)];
+  const seen = new Set<string>();
+  for (const entry of targets) {
+    if (seen.has(entry.address.toLowerCase())) continue;
+    seen.add(entry.address.toLowerCase());
     try {
       const analysis = await adapter.analyze(entry.address);
       const key = stateKey("solana", entry.address);

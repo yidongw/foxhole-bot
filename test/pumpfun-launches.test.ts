@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   addPumpProbation,
   formatPumpLaunchDigest,
+  nearGradCandidates,
+  PUMP_NEAR_GRAD_MAX_CANDIDATES,
   type PumpLaunch,
   type PumpWatchEntry,
 } from "../src/chains/solana/pumpfun-launches.js";
@@ -57,6 +59,38 @@ describe("addPumpProbation", () => {
     );
     expect(added).toBe(1);
     expect(entries).toHaveLength(2);
+  });
+});
+
+function probation(address: string, vol?: number): PumpWatchEntry {
+  return {
+    address,
+    firstSeen: new Date().toISOString(),
+    verified: false,
+    attempts: 0,
+    lastVol24hUsd: vol,
+  };
+}
+
+describe("nearGradCandidates", () => {
+  it("picks only un-verified probation tokens with volume ≥ floor", () => {
+    const picks = nearGradCandidates([
+      probation("Low111", 5_000),
+      probation("Hi222", 50_000),
+      probation("None333"),
+      { ...probation("Grad444", 99_000), verified: true },
+    ]);
+    expect(picks.map((e) => e.address)).toEqual(["Hi222"]);
+  });
+
+  it("ranks by volume and caps the candidate count", () => {
+    const many = Array.from({ length: 20 }, (_, i) =>
+      probation(`T${i}`, 20_000 + i * 1_000),
+    );
+    const picks = nearGradCandidates(many);
+    expect(picks).toHaveLength(PUMP_NEAR_GRAD_MAX_CANDIDATES);
+    // Highest-volume token ranks first.
+    expect(picks[0].address).toBe("T19");
   });
 });
 

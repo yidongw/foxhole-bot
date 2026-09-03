@@ -117,6 +117,8 @@ export interface PumpWatchEntry {
   /** DexScreener-indexed on Solana with real liquidity → analyzed each tick. */
   verified: boolean;
   attempts: number;
+  /** Best Solana 24h volume seen at last probation screen (drives near-grad pick). */
+  lastVol24hUsd?: number;
 }
 
 interface PumpWatchFile {
@@ -199,9 +201,11 @@ export async function screenPumpProbation(
           chainId: string;
           baseToken?: { address?: string };
           liquidity?: { usd?: number };
+          volume?: { h24?: number };
         }>;
       };
       const liqByAddr = new Map<string, number>();
+      const volByAddr = new Map<string, number>();
       for (const p of data.pairs ?? []) {
         if (p.chainId !== "solana") continue;
         const a = p.baseToken?.address?.toLowerCase();
@@ -210,9 +214,17 @@ export async function screenPumpProbation(
           a,
           Math.max(liqByAddr.get(a) ?? 0, Number(p.liquidity?.usd ?? 0)),
         );
+        volByAddr.set(
+          a,
+          Math.max(volByAddr.get(a) ?? 0, Number(p.volume?.h24 ?? 0)),
+        );
       }
       for (const e of batch) {
-        const liq = liqByAddr.get(e.address.toLowerCase()) ?? 0;
+        const key = e.address.toLowerCase();
+        // Track pre-graduation trading so scanPumpWatch can pick the handful
+        // worth an on-chain curve read (the graduation-imminent entry moment).
+        if (volByAddr.has(key)) e.lastVol24hUsd = volByAddr.get(key);
+        const liq = liqByAddr.get(key) ?? 0;
         if (liq >= PUMP_MIN_LIQUIDITY_USD) {
           e.verified = true;
           promoted++;
@@ -226,4 +238,33 @@ export async function screenPumpProbation(
     await new Promise((r) => setTimeout(r, 300));
   }
   return promoted;
+}
+
+/**
+ * Minimum pre-graduation 24h volume for a probation token to be worth an
+ * on-chain curve read + full analysis (bounds RPC cost to the few tokens
+ * actually trading toward graduation).
+ */
+export const PUMP_NEAR_GRAD_MIN_VOLUME_USD = Number(
+  process.env.PUMP_NEAR_GRAD_MIN_VOLUME_USD ?? 20_000,
+);
+/** Max probation tokens analyzed for near-graduation each tick. */
+export const PUMP_NEAR_GRAD_MAX_CANDIDATES = Number(
+  process.env.PUMP_NEAR_GRAD_MAX_CANDIDATES ?? 6,
+);
+
+/**
+ * Pick the probation (still-on-curve) tokens most worth a graduation-imminent
+ * analysis: those with real pre-graduation trading, top-N by 24h volume. This
+ * is what unlocks the `curve_near_grad_strong` trade trigger for Solana — the
+ * on-curve window is otherwise never analyzed (analyzeTokenGeneric needs a
+ * DexScreener pair, and post-graduation the curve trigger is disabled).
+ */
+export function nearGradCandidates(entries: PumpWatchEntry[]): PumpWatchEntry[] {
+  return entries
+    .filter(
+      (e) => !e.verified && (e.lastVol24hUsd ?? 0) >= PUMP_NEAR_GRAD_MIN_VOLUME_USD,
+    )
+    .sort((a, b) => (b.lastVol24hUsd ?? 0) - (a.lastVol24hUsd ?? 0))
+    .slice(0, PUMP_NEAR_GRAD_MAX_CANDIDATES);
 }
