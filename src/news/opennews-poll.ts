@@ -70,10 +70,20 @@ export async function openNewsTick(options: {
   const state = await loadState();
   const seen = new Set(state.seenIds);
 
-  let items = await searchNews({ score: minScore, limit: 30 });
-  if (items === null) {
-    // no token → free hot feed (macro/twitter sentiment; mostly neutral)
-    items = onlyTwitter(await fetchHot("web3"));
+  let items: OpenNewsItem[];
+  try {
+    const authed = await searchNews({ score: minScore, limit: 30 });
+    // null → no token; throws on 401/402 (quota/auth). Either way fall back to
+    // the free hot feed so the watcher degrades gracefully instead of erroring.
+    items = authed ?? onlyTwitter(await fetchHot("web3"));
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (/\b(401|402|403|429)\b/.test(msg)) {
+      console.warn(`opennews: authed search unavailable (${msg}) → free feed`);
+      items = onlyTwitter(await fetchHot("web3"));
+    } else {
+      throw err;
+    }
   }
 
   const fresh = items
