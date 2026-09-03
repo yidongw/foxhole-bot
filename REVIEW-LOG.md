@@ -211,3 +211,13 @@ Robinhood。改造 cli/analyze.ts 支持 `--chain <id>` 路由到 getAdapter(cha
 graduated to PancakeSwap" 信号(事实——有真实 PancakeSwap 池即已脱离债券曲线)。
 README 加多链 analyze 示例。134/134,typecheck 绿。未做(需真实资金/未验证常量):
 live 交易实测、four.meme 债券曲线进度链上读取(合约 view 函数未核实,不臆造)。
+
+## 2026-09-03 (续2) — v2 成交记账修正 + BSC 端到端实跑验证
+发现真实 bug: v2Buy/v2Sell 用 getAmountsOut(pre-trade 模拟报价)当实际成交量,
+但故意调的是 SupportingFeeOnTransferTokens 变体——收税代币实收 < 报价,导致仓位
+被高估、P&L 和卖出数量全错。修正: 买入读 balanceOf 前后差值取真实到账;卖出读
+native 余额差 + 回执 gasUsed*effectiveGasPrice 还原真实收入。对齐 RB execute.ts
+用 SDK 实际成交额的做法。bsc/base/ethereum 三条 v2 路径同时受益。
+端到端实跑 `CHAINS=bsc monitor:once --dry-run`: four.meme watcher 抓到 59 个新盘
+全部入 probation;BSC 发现→分析→分级警报(STRONG/ALERT)全部正常触发,含事后
+信号降级、量能倍数、FDV 微盘下限——BSC 已达 RB 同级发现/分析/警报能力。134/134。
