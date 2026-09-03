@@ -276,6 +276,9 @@ async function maybeAlert(
         input.chain ?? "robinhood",
         input.address,
         input.primaryPairAddress,
+        // Pre-graduation curve tokens (four.meme / pump.fun) have no AMM OHLCV
+        // yet, so the chart check must not veto them for "no history".
+        { onBondingCurve: input.curveProgress != null && !input.curveGraduated },
       );
       if (safety.ok) {
         // Thread-per-token mode (card + thread); flat message as fallback

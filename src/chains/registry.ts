@@ -51,7 +51,7 @@ function genericAdapter(id: ChainId, displayName: string): ChainAdapter {
   };
 }
 
-const WBNB = "0xbb4CdB9CBd36B01bD1cBaEF60aF814a3f6F0Ee75";
+const WBNB = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";
 
 // BSC: generic discovery/analysis + four.meme bonding-curve extras +
 // PancakeSwap v2 live execution.
