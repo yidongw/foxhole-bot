@@ -112,6 +112,20 @@ function formatDetail(ev: SignalEvaluation): string {
   ].join("\n");
 }
 
+/**
+ * Subscribe the owner to a token thread so updates reach their inbox —
+ * threads the user never joined don't notify them at all.
+ */
+async function addOwnerToThread(threadId: string): Promise<void> {
+  const owner = process.env.DISCORD_OWNER_USER_ID;
+  if (!owner || !threadId) return;
+  try {
+    await discordApi(`/channels/${threadId}/thread-members/${owner}`, "PUT");
+  } catch {
+    // non-fatal: the thread still works, the user just isn't auto-joined
+  }
+}
+
 async function discordApi(
   pathname: string,
   method: string,
@@ -149,6 +163,7 @@ export async function postThreadedSignal(ev: SignalEvaluation): Promise<boolean>
     );
     if (tres.ok) {
       entry.threadId = ((await tres.json()) as { id: string }).id;
+      await addOwnerToThread(entry.threadId);
     }
   };
 
