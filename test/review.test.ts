@@ -194,3 +194,44 @@ describe("collapseRatio (NUDES gate lesson)", () => {
     expect(collapseRatio([])).toBeUndefined();
   });
 });
+
+describe("exits-review helpers (NUDES 卖飞 lesson)", async () => {
+  const { avgExitPriceUsd, exitReasonSummary, realizedPnlUsd } = await import(
+    "../src/review/exits-review.js"
+  );
+  // NUDES #2 from positions.json: $25 in, half manual-exited at a loss, half
+  // trail-stopped slightly green — then the token flew.
+  const nudes = {
+    id: "nudes-2",
+    mode: "paper" as const,
+    token: "0xNudes",
+    symbol: "NUDES",
+    trigger: "lock_strong",
+    openedAt: "2026-09-03T10:35:35.098Z",
+    entryPriceUsd: 0.01241,
+    amountTokens: 2014.5,
+    costUsd: 25,
+    highWaterUsd: 0.01894,
+    status: "closed" as const,
+    exits: [
+      { at: "2026-09-03T12:35:54.768Z", priceUsd: 0.0115, fraction: 0.5, proceedsUsd: 11.58, reason: "manual exit" },
+      { at: "2026-09-03T15:18:24.342Z", priceUsd: 0.01419, fraction: 0.5, proceedsUsd: 14.29, reason: "trail stop: 25% off high $0.01894" },
+    ],
+  };
+
+  it("computes the proceeds-weighted average exit price", () => {
+    // (11.58 + 14.29) / 2014.5 tokens ≈ $0.01284
+    expect(avgExitPriceUsd(nudes)).toBeCloseTo(0.01284, 4);
+    expect(avgExitPriceUsd({ ...nudes, exits: [] })).toBeUndefined();
+  });
+
+  it("summarizes which mechanism sold, with counts", () => {
+    expect(exitReasonSummary(nudes)).toEqual(["manual exit", "trail stop"]);
+    const doubled = { ...nudes, exits: [nudes.exits[1], nudes.exits[1]] };
+    expect(exitReasonSummary(doubled)).toEqual(["trail stop ×2"]);
+  });
+
+  it("computes realized pnl", () => {
+    expect(realizedPnlUsd(nudes)).toBeCloseTo(0.87, 2);
+  });
+});

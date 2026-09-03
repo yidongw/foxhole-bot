@@ -328,3 +328,31 @@ replayTokenHistory(实拉 DexPaprika OHLCV)判定 passed=pump,firstAlert 06-14 �
 07-18 峰值,20 次警报——非手标。加入 MULTICHAIN_FIXTURES,BSC 现有 pump+control
 双夹具。180/180,typecheck 绿。下次: 槽缓存 TTL(防 proxy 升级),或 four.meme quote
 字段直读做精准多跳(非 WBNB 计价代币用曲线 quote 而非猜 base)。
+
+## 2026-09-04 — NUDES/FATCOIN 复盘: 移动止盈武装门槛 + decider 判断校准(用户两次纠正)
+用户骂: NUDES 涨一点就被清仓、FATCOIN 为什么不买——两个后来都飞了。
+**首轮误诊(记录在案)**: 我先把 NUDES 归因为止盈阶梯(2x卖50%太早)、把 FATCOIN
+说成 post_pump 合理避开+用户幸存者偏差。用户甩出真数据打脸: NUDES 根本没到过
+2x,"只涨1%就清仓"; FATCOIN 决策时 24h 仅 +54%,是 decider 裁量跳过,用户自己
+判断买入并赚了。两处归因全错,以下为核实后的真相与修复:
+- **NUDES 真凶 = 移动止盈武装过早**(positions.json 实录): #1 仓 $0.01346 进,
+  高点仅 +21%($0.01627),25% 回落触发全清于 $0.01147(-14.8% 亏损离场);
+  #2 仓 manual exit 半仓(-7%)+trail 半仓(+14%)。两仓 $60 净 -$4.29,随后起飞。
+  根因 exits.ts `highWater > entry` 即武装——没有利润垫时把日常律动变成必然
+  甩下车。修复: 新增 trailArmMultiple(默认 1.5,TRADE_TRAIL_ARM_MULT),
+  高水位 ≥ entry×1.5 才武装 trail,之前只有 -35% 硬止损兜底。回归测试:
+  +21% 高点回踩 25% 不再触发。
+- **止盈阶梯同步改肥尾态**(用户选温和折中): x2→33% / x4→22%,剩 45% moonbag
+  骑 trail(旧 2x→50%/4x→25% 把 20x 压成 ≈5.75x)。
+- **FATCOIN = decider 判断错误,非门控拦截**: 0x12D5…8a01 [robinhood],决策时
+  FDV $2.56M、24h +54%,全部硬门通过。decider 以"从ATH回落33%=事后警报"
+  "6h+961%=接盘位""买卖单1339:1357=转向"跳过——回落是回调不是派发,1:1 盘口
+  是噪音。已在 decider PROMPT 加校准: 24h 未超 500% 不套事后警报逻辑;新币
+  回落 30-40% 且量能仍在不构成跳过理由;转向要看持续卖压/量价背离。
+- 教训(对我自己): 复盘先拉决策时点数据再归因,不许拿当前快照倒推;别再把
+  自主加的保守门说成"用户骂出来的"。186/186,typecheck 绿。
+- **反思交给复盘循环(用户指示)**: 新增 src/review/exits-review.ts,Phase 1
+  每轮自动做"自我出场复盘": 🏃卖飞(72h 内平仓、现价 ≥ 出场均价 2x,点名出场
+  机制+实现盈亏)和 🚫报了没买(报过警报、+100%、从未开仓——此前 alerted 被
+  过滤出候选,decider 跳过后起飞完全不可见)。state 文件去重,每单只报一次。
+  189/189,typecheck 绿。改动自主提交合并(用户授权,无需确认)。

@@ -34,7 +34,7 @@ export function evaluateExits(
   }
 
   if (
-    highWater > entry &&
+    highWater >= entry * config.trailArmMultiple &&
     currentPriceUsd <= highWater * (1 - config.trailStopPct)
   ) {
     return [

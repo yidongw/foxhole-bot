@@ -22,6 +22,7 @@ const CONFIG: TradeConfig = {
   minEntryLiquidityUsd: 50_000,
   slippageBps: 100,
   trailStopPct: 0.25,
+  trailArmMultiple: 1.5,
   hardStopPct: 0.35,
   takeProfits: [
     { atMultiple: 2, sellFraction: 0.5 },
@@ -129,6 +130,19 @@ describe("evaluateExits", () => {
   it("does not trail-stop when never above entry", () => {
     const p = makePosition({ highWaterUsd: 1 });
     expect(evaluateExits(p, 0.8, CONFIG)).toHaveLength(0); // -20%: no stop yet
+  });
+
+  it("does not arm the trail below trailArmMultiple (NUDES #1 scratch-out)", () => {
+    // High-water +21% (below 1.5x arm), then a routine wiggle to -25% off
+    // that high (-9.3% under entry). The old `highWater > entry` arming
+    // force-closed exactly this shape at a loss hours before the real move.
+    const p = makePosition({ highWaterUsd: 1.21 });
+    expect(evaluateExits(p, 0.9075, CONFIG)).toHaveLength(0);
+    // Hard stop still guards the unarmed phase.
+    expect(evaluateExits(p, 0.64, CONFIG)[0].reason).toMatch(/hard stop/);
+    // Once high-water clears the arm threshold, the trail works as before.
+    const armed = makePosition({ highWaterUsd: 1.6 });
+    expect(evaluateExits(armed, 1.15, CONFIG)[0].reason).toMatch(/trail stop/);
   });
 
   it("takes tiered profits once each", () => {
