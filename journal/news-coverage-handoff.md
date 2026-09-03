@@ -3,6 +3,44 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-03 15:0x UTC 第 6 轮(前修全部验证 + 首次哑弹分析,无新代码改动)
+
+前几轮的修复本轮全部实测生效;哑弹数据首现但太少/太脏,不足以动阈值。
+
+### ② 覆盖率 + 哑弹(**首次哑弹分析** — 本轮重点)
+- **R5 SHRUB 修复实测生效**:SHRUB(0x5d9144d2…)现已在 monitor-state → robinhood
+  movers feed 实时发现盲区已闭合。robinhood ≥100% 对照干净(849 币,较 R5 799 增长)。
+- **labeled.json 首次出现(15 条,全 strong 级)**,做了哑弹分析:8 win / 4 flat / 3 loss。
+  但数据太少且被污染,**不足以据此收紧阈值**(强行改=对噪音过拟合):
+  - 3 个 loss 里有 2 个(AMZN、BITCAT)candleCount=0 / maxReturn=None ——
+    **无数据被误判成 loss**(grader 应记 nodata/unknown,不是 loss)。
+  - SPACEHOOD maxReturn=+12522、FLORK=+5,276,950 —— **OHLCV 数据损坏**(不可能的收益),
+    污染任何统计。
+  - 干净的只剩 1 个真 loss(CARE,liq $56k 砸 -63%)+ 2 个 flat(AI 高流动性走平、
+    MACRODUCK candles=1)。趋势暗示 high_volume(2/2 flat)、volume_spike_strong
+    (50% 走平/亏)偏弱,但 n 太小+数据脏,留待样本增长再判。
+  - **跨循环挂账(归 review 循环 grader/tuner)**:① candles=0 不该判 loss;
+    ② 损坏 OHLCV(百万%收益)需 sanity-cap。二者会误导 tuner,建议 review 循环处理。
+
+### ① 新闻(BlockBeats 稳定;R3 junk 修复实测冻结)
+- 回放(199 条)34 wake 全 legit(PONS/CASHCAT/JINQIAN/USELESS/MARSCOIN/HOOKR/BUN…);
+  「GoPro 永续」listing 放行属既有设计。无新噪音/漏。
+- **R3「」junk 修复生产实测生效**:交易赚币(02:47Z)、借壳收割(02:50Z)时间戳**冻结未再刷新**,
+  无新纯中文长引号名被种入 → 确认停止自我循环,约 09-05 02:47Z 后随 48h TTL 清零。
+
+### ③ 安全(无新高危)
+- R5-R6 间新代码(winner-finder v2 / review 重标定)无私钥/webhook 泄漏。
+- smart-money P2 注入面(R4)、npm audit Solana 6 high(破坏性)仍挂账留观。
+
+### ④ 健康(绿)
+- tsc 干净;npm test **185 passed**。monitor 存活(pid 61940),BN 崩溃未复现(仍计 1)。
+
+**下轮重点:** ① labeled.json 样本变多且数据变干净后再做哑弹分析(现 n=15 太脏)。
+② 「」junk 约 09-05 02:47Z 后应从 hotSymbols 消失,复查确认。③ 继续 robinhood 实时对照
+守 SHRUB 类不再漏。④ smart-money 注入面校验若 owner 未处理可自补。
+
+---
+
 ## 2026-09-03 13:0x UTC 第 5 轮(抓到并修了一个真覆盖盲区)
 
 ### ② 覆盖率(**修了 1 个真漏报盲区** — 本轮重点)
