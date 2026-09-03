@@ -306,3 +306,15 @@ i)),i=0..24,不臆造),再模拟 swapExactTokensForETH 卖出——真实链上�
 v2Buy 广播前跑它(TRADE_SELL_PREFLIGHT!=0),卖出会 revert 直接 abort 买入。preflight
 CLI 升级为完整往返(BUY/SELL 双行)。实测: GOLD/USDT 买(经USDT跳)+卖均 ✅; CAKE 直连
 买卖均 ✅。180/180。下次: BSC 曲线量能阈值,或槽探测结果按 token 缓存降延迟。
+
+## 2026-09-03 (循环) — 貔貅 preflight 存储槽索引缓存(降 live 买入延迟)
+上轮的 v2Sell 往返貔貅检测每次买入要探测最多 50 次 eth_call 定位余额/allowance
+存储槽(公共 RPC 上 5-15s,live 抢跑致命)。改为缓存 mapping 声明索引(token 属性,
+与 holder 无关): resolveSlotIndices 按 chain:token 缓存 {balance,allowance} 索引,
+null 也缓存(非标准存储不再每次重探)。索引→槽 hash 每地址现算,holder 无关可复用。
+新增 clearSlotIndexCache()。probe 用 Promise.all 并发。实测: GOLD 冷 1286ms→暖 653ms
+(2x,暖调跳过探测),verdict 不变(ok=true simulated=true)。180/180,typecheck 绿。
+另: 本轮曾尝试补 BSC pump 回测夹具(RB/SOL 有 pump 夹具,BSC 只有 control),但
+DexScreener search 候选太少 + 成熟 meme 已过 pump 期,未找到 ≥3x 且能 replay 判为
+pump 的干净样本——不硬凑低质夹具。下次: 用更好数据源(GeckoTerminal/四meme 近期毕业
+且暴涨的池)找 BSC pump 夹具;或槽缓存加 TTL。
