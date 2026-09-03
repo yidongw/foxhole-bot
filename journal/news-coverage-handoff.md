@@ -3,6 +3,37 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-04 02:0x UTC 第 8 轮(安静轮:全绿,前修均持,无新改动)
+
+四项全部健康,prior fixes 全在生效,无新问题需修。
+
+### ④ 健康(绿)— R7 测试修复已持
+- npx tsc 干净;npm test **251 passed**(review 循环加了很多测试)。R7 修的
+  routes.test 未复红。monitor 存活(pid 82431),BN 未复现(计 1),日志无
+  uncaught/unhandled/fatal。
+
+### ② 覆盖率(健康)
+- robinhood ≥100% 对照干净:5 mover 全在册(958 币,持续增长)。
+- **哑弹分析无进展**:labeled.json 仍 15 条(无新评分产出),n 太小不做二次分析。
+  下轮样本增长再看。(review 循环 Phase2 已在追 GRASS missed pump,非 robinhood,不撞车。)
+
+### ① 新闻(BlockBeats 稳定)
+- 回放(200 条)35 wake 全 legit;drop 侧的"含关键词"项全是宏观正确丢弃
+  (BTC破8万/ETH破2500/黄金/原油/加密概念股/特斯拉 Cybercab/HYPE)——无 RB-meme 真漏。
+  「加密概念股…Robinhood 涨超10%」是股票新闻,已被 R2 标题匹配+宏观过滤正确 drop。
+- **R3「」junk 继续冻结**:交易赚币(02:47Z)、借壳收割(02:50Z)未再刷新,
+  距 09-05 02:47Z TTL 到期约剩 <1 天,下轮应见其消失。
+
+### ③ 安全(无新高危)
+- R7-R8 间新代码(smart-money revet disable/enable、review Phase2 GRASS case)无
+  私钥/webhook 泄漏。smart-money P2 注入面、npm audit Solana 6 high 仍挂账留观。
+
+**下轮重点:** ① **复查「」junk 是否已从 hotSymbols 消失**(应在 09-05 02:47Z 后)——
+若仍在则说明有再种入,需查。② labeled 变多再做哑弹分析。③ OpenNews 若充值复查产出。
+④ 继续 robinhood 实时对照。
+
+---
+
 ## 2026-09-04 00:3x UTC 第 7 轮(修了 main 上的红测试;SHRUB 真相澄清)
 
 ### ④ 健康(**修了 main 上一个常红测试** — 本轮重点)
