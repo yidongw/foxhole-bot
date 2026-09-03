@@ -23,8 +23,17 @@ const RB_CHAIN = /Robinhood\s*(链|Chain|生态|市场)|Long\.xyz|币股/i;
 const LISTING =
   /(Binance|币安|Coinbase|Upbit|Bithumb|OKX|Bitget|Alpha)[^，。]{0,14}(上线|将上线|上市)|(上线|将上线)[^，。]{0,20}(Binance|币安|Alpha|Coinbase|Upbit|Bithumb)/;
 
-// meme 动能：市值/价格突破式措辞
-const MOMENTUM = /(市值|价格)[^，。]{0,10}(突破|速通|创历史新高)|涨超\s*\d+\s*%|短时暴涨/;
+// meme 动能：市值/价格突破式措辞，或大幅拉升。
+// “涨超X%”必须 ≥50 — ARB 涨 12% 这种主流币日常波动不算（2026-09-03 教训）
+const CAP_BREAKOUT = /(市值|价格)[^，。]{0,10}(突破|速通|创历史新高)|短时暴涨/;
+
+function hasMomentum(text: string): boolean {
+  if (CAP_BREAKOUT.test(text)) return true;
+  for (const m of text.matchAll(/(涨超|涨幅[达超]?)\s*(\d+(?:\.\d+)?)\s*%/g)) {
+    if (Number(m[2]) >= 50) return true;
+  }
+  return false;
+}
 
 // 负面：持仓/关注币出现这些词 → 危险信号
 const NEGATIVE = /跌超|腰斩|崩盘|清仓|归零|编造|夸大|[Rr]ug|被盗|漏洞|蜜罐|黑客|下架/;
@@ -87,7 +96,7 @@ export function classifyFlash(
   // 关注币命中：正面负面都叫醒（负面 = 退出/避险信号）
   if (hitSymbols.length) {
     if (negative) reasons.push("negative");
-    else if (MOMENTUM.test(title)) reasons.push("momentum");
+    else if (hasMomentum(title)) reasons.push("momentum");
     return { action: "wake", negative, reasons };
   }
 
@@ -95,10 +104,10 @@ export function classifyFlash(
   // 纯叙事（“Robinhood Chain 成新增收入来源”这类）降级留痕，不打扰
   if (rbChain) {
     const specific =
-      negative || MOMENTUM.test(title) || LISTING.test(title) || extractSymbols(rawTitle).length > 0;
+      negative || hasMomentum(title) || LISTING.test(title) || extractSymbols(rawTitle).length > 0;
     if (specific) {
       if (negative) reasons.push("negative");
-      else if (MOMENTUM.test(title)) reasons.push("momentum");
+      else if (hasMomentum(title)) reasons.push("momentum");
       return { action: "wake", negative, reasons };
     }
     return { action: "note", negative: false, reasons };
@@ -115,13 +124,13 @@ export function classifyFlash(
   }
 
   // 其它链的 meme 动能 → 记到 filter-log 供复盘，不叫醒
-  if (/[Mm]eme/.test(title) && (MOMENTUM.test(title) || negative)) {
+  if (/[Mm]eme/.test(title) && (hasMomentum(title) || negative)) {
     return { action: "note", negative, reasons: ["meme-momentum"] };
   }
 
   // 动能措辞但标题没带 Meme/链名（如「microduck市值突破3200万美元」）——
   // 2026-09-02 复盘教训: 这类标题正是漏扫币的第一信号，至少留痕
-  if (MOMENTUM.test(title)) {
+  if (hasMomentum(title)) {
     return { action: "note", negative: false, reasons: ["momentum"] };
   }
 
@@ -143,6 +152,9 @@ const SYMBOL_STOPLIST = new Set([
   "DEX", "CEX", "ETF", "FDV", "IPO", "KOL", "LP", "NFT", "NYSE", "OG",
   "OTC", "PVP", "RWA", "TGE", "TVL", "WTI", "ADP", "GDP", "FOMC", "SEC",
   "HOOD", "MEME", "GMGN", "FOMO",
+  // 主流币 — 不是我们交易的 meme，点名它们不构成“具体标的”
+  "ARB", "OP", "SUI", "APT", "TON", "TRX", "XRP", "ADA", "AVAX", "DOT",
+  "LINK", "UNI", "AAVE", "LDO", "CRV",
 ]);
 
 /**

@@ -143,12 +143,17 @@ export async function newsTick(options: {
         state.hotSymbols[sym] = new Date().toISOString();
       }
       const verdict = await judgeFlash(flash, cls);
-      if (verdict && !verdict.signal) {
-        // Claude 否决 → 留痕但不叫醒
+      // 免判定放行只给三类硬信号：关注币 / 负面 / 上所。
+      // 叙事级（裸 rb-chain/momentum）在判定不可用时降级留痕 — fail-closed
+      const strongWake =
+        cls.negative ||
+        cls.reasons.some((r) => r.startsWith("watched:") || r === "listing");
+      if ((verdict && !verdict.signal) || (!verdict && !strongWake)) {
+        const why = verdict ? `判定: ${verdict.note || "非交易信号"}` : "判定不可用，叙事级降级";
         if (filterUrl && !options.dryRun) {
           await sendDiscordMessage(
             filterUrl,
-            `📰🚫 ${flash.title}\n判定: ${verdict.note || "非交易信号"} | ${flash.url}`,
+            `📰🚫 ${flash.title}\n${why} | ${flash.url}`,
           ).catch((err) => console.error("news filter post failed:", err.message));
         }
         noted++;
@@ -184,7 +189,12 @@ export async function newsTick(options: {
           if (delivered) break;
         }
         if (!delivered && filterUrl) {
-          await sendDiscordMessage(filterUrl, msg).catch((err) =>
+          // 换掉 NEWS SIGNAL 抬头 — 落在 filter-log 的是备考，不是交易信号
+          const fallbackMsg = msg.replace(
+            /^(⚠️|📰) \*\*NEWS [^*]+\*\*/,
+            "$1 **NEWS 备考**（无对应币 thread）",
+          );
+          await sendDiscordMessage(filterUrl, fallbackMsg).catch((err) =>
             console.error("news filter post failed:", err.message),
           );
         }

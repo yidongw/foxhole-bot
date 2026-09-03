@@ -68,6 +68,22 @@ describe("classifyFlash", () => {
     expect(c.action).toBe("drop");
   });
 
+  it("does not treat majors' daily moves as RB-chain momentum (ARB +12%)", () => {
+    // 2026-09-03 用户反馈: 这条以 [rb-chain, momentum] 进了频道
+    const c = classifyFlash("ARB 24小时涨超12%，Robinhood链上热潮带来新增收入", []);
+    expect(c.action).toBe("note");
+    expect(c.reasons).not.toContain("momentum");
+  });
+
+  it("still counts ≥50% pumps and cap breakouts as momentum", () => {
+    expect(
+      classifyFlash("受上线Binance Alpha消息影响，FLORK短时涨超85%", []).action,
+    ).toBe("wake");
+    expect(
+      classifyFlash("Robinhood链Meme币JINQIAN市值突破7000万美元，续创历史新高", []).reasons,
+    ).toContain("momentum");
+  });
+
   it("notes RB-chain narrative news without a concrete token (no wake)", () => {
     // 2026-09-03 用户反馈: 这条进了 trade-signal 但无从下手
     const c = classifyFlash(
