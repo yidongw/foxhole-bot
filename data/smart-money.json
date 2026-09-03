@@ -173,6 +173,13 @@
       "chain": "sol",
       "addedAt": "2026-09-03T09:26:13.954Z",
       "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "0xf24022Ba0FEa5926D30Fba8feCE6d7A852732989",
+      "label": "gmgn x2 $319k 牛来+marscoin",
+      "chain": "bsc",
+      "addedAt": "2026-09-03T13:29:30.491Z",
+      "addedBy": "cli"
     }
   ]
 }

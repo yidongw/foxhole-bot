@@ -157,6 +157,7 @@ describe("qualifyWallet (winner-finder filter)", () => {
     expect(qualifyWallet({ ...base, sellTx: 0 })).toBe(false);
     expect(qualifyWallet({ ...base, tags: ["dex_bot"] })).toBe(false);
     expect(qualifyWallet({ ...base, tags: ["bundler"] })).toBe(false);
+    expect(qualifyWallet({ ...base, tags: ["sandwich_bot", "fomo"] })).toBe(false);
   });
 });
 

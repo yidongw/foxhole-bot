@@ -140,7 +140,15 @@ export function qualifyWallet(w: ProfitWallet, minRealizedUsd = 1000): boolean {
   if ((w.realizedUsd ?? 0) < minRealizedUsd) return false;
   if ((w.sellTx ?? 1) < 1) return false;
   if ((w.buyTx ?? 0) + (w.sellTx ?? 0) > 3000) return false; // market-maker/bot
-  const bad = new Set(["dev", "dex_bot", "bundler", "rat_trader"]);
+  const bad = new Set([
+    "dev",
+    "dex_bot",
+    "bundler",
+    "rat_trader",
+    "sandwich_bot",
+    "mev_bot",
+    "wash_trader",
+  ]);
   if (w.tags.some((t) => bad.has(t))) return false;
   return true;
 }

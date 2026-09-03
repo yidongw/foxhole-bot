@@ -65,6 +65,11 @@ export interface GmgnTrader {
   [k: string]: unknown;
 }
 
+/** GMGN's EVM endpoints only match lowercase addresses; base58 (SOL) is left as-is. */
+function normAddr(a: string): string {
+  return a.startsWith("0x") ? a.toLowerCase() : a;
+}
+
 export async function gmgnTokenTraders(
   chain: string,
   token: string,
@@ -77,7 +82,7 @@ export async function gmgnTokenTraders(
       "--chain",
       chain,
       "--address",
-      token,
+      normAddr(token),
       "--limit",
       String(opts.limit ?? 100),
       "--order-by",
@@ -115,7 +120,7 @@ export async function gmgnWalletActivity(
       "--chain",
       chain,
       "--wallet",
-      wallet,
+      normAddr(wallet),
       "--limit",
       String(opts.limit ?? 20),
     ]),
