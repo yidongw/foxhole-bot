@@ -152,6 +152,13 @@
       "realizedUsd": 438953,
       "addedAt": "2026-09-03T15:14:53.411Z",
       "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x040f6c3A52b9622Fb4701347DE38964B2d748dE6",
+      "label": "手动 RH 胜率50% $38k",
+      "chain": "robinhood",
+      "addedAt": "2026-09-03T17:31:08.727Z",
+      "addedBy": "cli"
     }
   ]
 }

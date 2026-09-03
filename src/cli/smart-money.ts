@@ -273,6 +273,11 @@ async function main() {
     const fails: { address: string; chain: string; reasons: string[] }[] = [];
     for (const w of wallets) {
       const chain = walletChain(w);
+      // Manual picks are protected — the operator added them on purpose.
+      if (["cli", "manual"].includes(w.addedBy ?? "")) {
+        console.log(`  🔒 [${chain}] ${w.address} — 手动添加,跳过重评`);
+        continue;
+      }
       try {
         const v = await assessWallet(chain, w.address, now);
         if (!v) {
