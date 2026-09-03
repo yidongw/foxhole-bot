@@ -4,7 +4,7 @@
  *   2. DISCORD_<KIND>_WEBHOOK_URL           (global for that kind)
  *   3. kind-specific legacy fallback        (signal → DISCORD_WEBHOOK_URL)
  *
- * Kinds: signal (交易触发) · trade (交易日志) · filter (过滤日志) ·
+ * Kinds: signal (交易触发) · trade (交易日志) ·
  *        review (复盘确认) · feed (完整流水, default off) ·
  *        news (新闻雷达 — BlockBeats 备考/留痕, default off)
  */
@@ -12,7 +12,6 @@
 export type RouteKind =
   | "signal"
   | "trade"
-  | "filter"
   | "review"
   | "feed"
   | "news"
@@ -21,7 +20,6 @@ export type RouteKind =
 const KIND_ENV: Record<RouteKind, string> = {
   signal: "DISCORD_SIGNAL_WEBHOOK_URL",
   trade: "DISCORD_TRADE_WEBHOOK_URL",
-  filter: "DISCORD_FILTER_WEBHOOK_URL",
   review: "DISCORD_REVIEW_WEBHOOK_URL",
   feed: "DISCORD_FEED_WEBHOOK_URL",
   news: "DISCORD_NEWS_WEBHOOK_URL",
@@ -30,7 +28,6 @@ const KIND_ENV: Record<RouteKind, string> = {
 
 const LEGACY_FALLBACK: Partial<Record<RouteKind, string>> = {
   signal: "DISCORD_WEBHOOK_URL",
-  review: "DISCORD_FILTER_WEBHOOK_URL", // review defaults into the filter channel
 };
 
 export function resolveWebhook(kind: RouteKind, chain?: string): string | undefined {
@@ -43,7 +40,7 @@ export function resolveWebhook(kind: RouteKind, chain?: string): string | undefi
   if (global) return global;
   const legacy = LEGACY_FALLBACK[kind];
   if (legacy && process.env[legacy]) return process.env[legacy];
-  // trade/filter historically fell back to the main webhook; feed stays off
-  if (kind === "trade" || kind === "filter") return process.env.DISCORD_WEBHOOK_URL;
+  // trade historically fell back to the main webhook; feed stays off
+  if (kind === "trade") return process.env.DISCORD_WEBHOOK_URL;
   return undefined;
 }

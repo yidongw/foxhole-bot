@@ -932,10 +932,16 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     }
 
     // Daily self-review: grade alerts, hunt missed 暴涨, auto-tune (gated).
+    // Disabled via DISABLE_INTERNAL_REVIEW=1 when an external driver (the 2h
+    // Discord-scheduled全链 review) is the sole review authority — avoids the
+    // two processes racing on pending-movers.json / double-posting.
     try {
       const state = await loadMonitorState();
       const dayMs = 24 * 60 * 60 * 1000;
-      if (!state.lastReviewAt || Date.now() - new Date(state.lastReviewAt).getTime() > dayMs) {
+      if (
+        process.env.DISABLE_INTERNAL_REVIEW !== "1" &&
+        (!state.lastReviewAt || Date.now() - new Date(state.lastReviewAt).getTime() > dayMs)
+      ) {
         state.lastReviewAt = new Date().toISOString();
         await saveMonitorState(state);
         const { runDailyReview } = await import("../review/daily.js");
@@ -1066,11 +1072,8 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
       consecutiveFailures++;
       console.error(`monitor tick error (${consecutiveFailures} in a row):`, err);
       if (consecutiveFailures === 3) {
-        // Ops warning — goes to #filter-log, not the trade-signal channel
-        const url =
-          process.env.DISCORD_FILTER_WEBHOOK_URL ??
-          options.webhookUrl ??
-          process.env.DISCORD_WEBHOOK_URL;
+        // Ops warning — main webhook (filter-log channel removed)
+        const url = options.webhookUrl ?? process.env.DISCORD_WEBHOOK_URL;
         if (url && !options.dryRun) {
           await sendDiscordMessage(
             url,

@@ -2,14 +2,32 @@ import type { DexPair } from "../types.js";
 
 const BASE = "https://api.dexscreener.com";
 
-export async function fetchDexJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "User-Agent": "foxhole-bot/0.3" },
-  });
-  if (!res.ok) {
-    throw new Error(`DexScreener ${res.status}: ${path}`);
+/**
+ * DexScreener fetch with 429/5xx backoff. Under full multi-chain review load
+ * DexScreener rate-limits, and a missing response silently dropped `fdv` —
+ * which made the mcap gate fail open (keep-on-unknown let junk through). Retry
+ * so `fdv` is reliably present. Backoff: 0.5s, 1s, 2s.
+ */
+export async function fetchDexJson<T>(path: string, retries = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)));
+    try {
+      const res = await fetch(`${BASE}${path}`, {
+        headers: { "User-Agent": "foxhole-bot/0.3" },
+      });
+      if ((res.status === 429 || res.status >= 500) && attempt < retries) {
+        lastErr = new Error(`DexScreener ${res.status}: ${path}`);
+        continue;
+      }
+      if (!res.ok) throw new Error(`DexScreener ${res.status}: ${path}`);
+      return (await res.json()) as T;
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= retries) break;
+    }
   }
-  return res.json() as Promise<T>;
+  throw lastErr instanceof Error ? lastErr : new Error(`DexScreener failed: ${path}`);
 }
 
 export async function fetchTokenPairs(

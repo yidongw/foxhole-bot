@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { enabledChains } from "../chains/adapter.js";
+import { fetchStockRegistry } from "../chains/robinhood/stock-registry.js";
 import { loadMonitorState } from "../monitor/state.js";
-import { sendDiscordMessage } from "../notify/discord.js";
 import { appendAlertLog } from "../notify/alert-log.js";
 import {
   gradePendingOutcomes,
@@ -16,6 +16,7 @@ import {
 } from "./ledger.js";
 import {
   loadMissedCases,
+  MOVER_MIN_FDV_USD,
   saveMissedCases,
   scanMissedMovers,
   type ClassifiedMover,
@@ -28,9 +29,7 @@ import { appendReviewJournal, journalHeader } from "./journal.js";
 import {
   appendFilterDecisions,
   appendFilterJournal,
-  formatFilterDigest,
 } from "./filter-journal.js";
-import { resolveWebhook } from "../notify/routes.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -43,10 +42,6 @@ interface PendingMovers {
   movers: ClassifiedMover[];
 }
 
-function reviewWebhook(explicit?: string): string | undefined {
-  return explicit ?? resolveWebhook("review") ?? process.env.DISCORD_WEBHOOK_URL;
-}
-
 async function deliver(
   body: string,
   options: { dryRun?: boolean; webhookUrl?: string },
@@ -55,10 +50,10 @@ async function deliver(
     console.log("--- DRY RUN REVIEW ---\n" + body + "\n");
     return;
   }
+  // Review output goes ONLY to stdout (relayed by the Discord assistant in this
+  // thread) + the local dashboard ring buffer. NEVER posted to any channel.
   await appendAlertLog(body);
-  const url = reviewWebhook(options.webhookUrl);
-  if (url) await sendDiscordMessage(url, body).catch((err) => console.error(err));
-  else console.log(body);
+  console.log(body);
 }
 
 function pct(n?: number): string {
@@ -71,7 +66,9 @@ function moverLine(m: ClassifiedMover, index?: number): string {
   const prefix = index != null ? `${index}. ` : "  ";
   return (
     `${prefix}${tag} ${m.symbol ?? m.address.slice(0, 10)} [${m.chain}] +${m.priceChange24h.toFixed(0)}% ` +
-    `vol $${(m.volume24hUsd / 1e6).toFixed(1)}M liq $${(m.liquidityUsd / 1e3).toFixed(0)}K\n` +
+    `vol $${(m.volume24hUsd / 1e6).toFixed(1)}M liq $${(m.liquidityUsd / 1e3).toFixed(0)}K` +
+    (m.fdvUsd ? ` mcap $${(m.fdvUsd / 1e6).toFixed(1)}M` : "") +
+    `\n` +
     `   \`${m.address}\`` +
     (m.newsNote ? `\n   📰 ${m.newsNote}` : "")
   );
@@ -94,38 +91,40 @@ export async function runDailyReview(options: {
   webhookUrl?: string;
 } = {}): Promise<DailyReviewResult> {
   console.log("daily review: grading outcomes…");
-  const graded = await gradePendingOutcomes();
+  // Robinhood tokenized stocks (QQQ/MU/…) and spam tokens with junk symbols
+  // pollute the meme review — drop them from grading and candidates entirely.
+  const stockReg = await fetchStockRegistry().catch(() => undefined);
+  // Stock-ticker tokens are noise on EVERY chain — robinhood tokenized stocks
+  // (QQQ/MU) and solana stock-name memes (COIN/AAPL/NVDA/GOOGL/META/AMZN…).
+  const isStock = (r: { chain?: string; symbol?: string }): boolean =>
+    !!r.symbol && !!stockReg?.symbols.has(r.symbol.toUpperCase());
+  const isMalformed = (r: { symbol?: string }): boolean =>
+    (r.symbol?.length ?? 0) > 40;
+  const graded = await gradePendingOutcomes({
+    drop: (r) => isStock(r) || isMalformed(r),
+  });
 
   console.log("daily review: scanning movers…");
   const state = await loadMonitorState();
   const ledger = [...(await loadLabeledOutcomes()), ...(await loadPendingOutcomes())];
   const movers = await scanMissedMovers(enabledChains(), state, ledger);
 
-  // 过滤日志: record every judgment of the day, kept and filtered alike
+  // 过滤日志（本地留痕，非频道）: record every judgment of the day,
+  // kept and filtered alike — the filter-log Discord channel was removed.
   await appendFilterJournal("Phase 1 暴涨扫描", movers).catch((err) =>
     console.error("filter journal failed:", (err as Error).message),
   );
-  // Per-chain filter digests: each chain's judgments go to its own
-  // filter-log channel (falling back to the global filter webhook).
-  if (movers.length && !options.dryRun) {
-    const byChain = new Map<string, ClassifiedMover[]>();
-    for (const m of movers) {
-      byChain.set(m.chain, [...(byChain.get(m.chain) ?? []), m]);
-    }
-    for (const [chain, chainMovers] of byChain) {
-      const url = resolveWebhook("filter", chain);
-      if (!url) continue;
-      await sendDiscordMessage(
-        url,
-        formatFilterDigest(`Phase 1 暴涨扫描 [${chain}]`, chainMovers),
-      ).catch((err) => console.error(err));
-    }
-  }
 
-  // Candidates = misses that survived ALL automatic filters
+  // Candidates = misses that survived ALL automatic filters (incl. 市值≥$10M)
   const candidates = movers.filter(
     (m) =>
-      m.kind !== "alerted" && !m.ladder && !m.noData && !m.safetyFlags?.length,
+      m.kind !== "alerted" &&
+      !m.ladder &&
+      !m.noData &&
+      !m.safetyFlags?.length &&
+      !isStock(m) &&
+      !isMalformed(m) &&
+      (m.fdvUsd == null || m.fdvUsd >= MOVER_MIN_FDV_USD),
   );
 
   // BlockBeats 对照：漏掉的暴涨在律动上搜一把 — 报道过 = 新闻通道也漏了，
@@ -158,6 +157,15 @@ export async function runDailyReview(options: {
   const filtered = movers.filter(
     (m) => m.ladder || m.noData || m.safetyFlags?.length,
   );
+  const lowMcap = movers.filter(
+    (m) =>
+      m.kind !== "alerted" &&
+      !m.ladder &&
+      !m.noData &&
+      !m.safetyFlags?.length &&
+      m.fdvUsd != null &&
+      m.fdvUsd < MOVER_MIN_FDV_USD,
+  );
 
   const lines = [
     `📊 **每日复盘 Phase 1** — ${new Date().toISOString().slice(0, 10)}`,
@@ -173,6 +181,11 @@ export async function runDailyReview(options: {
   if (filtered.length) {
     lines.push(
       `已自动过滤 ${filtered.length} 个 (🪜刷单/💀无数据): ${filtered.slice(0, 6).map((m) => m.symbol ?? "?").join(", ")}`,
+    );
+  }
+  if (lowMcap.length) {
+    lines.push(
+      `已按当前市值<$${(MOVER_MIN_FDV_USD / 1e6).toFixed(0)}M 过滤 ${lowMcap.length} 个: ${lowMcap.slice(0, 6).map((m) => m.symbol ?? "?").join(", ")}`,
     );
   }
   if (candidates.length) {
