@@ -4,6 +4,12 @@ import { fetchPoolOhlcv } from "../dex/dexpaprika.js";
 import { isDenylisted } from "../review/denylist.js";
 import { fetchGtOhlcv } from "../dex/geckoterminal.js";
 import { detectLadderPump } from "../signals/ladder.js";
+import { fetchDexJson } from "../dex/dexscreener.js";
+import {
+  classifyStockQuote,
+  fetchStockRegistry,
+} from "../chains/robinhood/stock-registry.js";
+import type { DexPair } from "../types.js";
 
 /**
  * GoPlus pre-entry safety gate (EVM + Solana). Hard veto on rug mechanics;
@@ -104,6 +110,36 @@ async function checkChart(chain: string, poolId: string): Promise<string | undef
   return undefined;
 }
 
+/**
+ * Fake-stock-backing veto (mmk_btc thread, $JINQIAN): a pool that pairs the
+ * meme against a token whose SYMBOL is a US stock but whose ADDRESS is not in
+ * Robinhood's official registry is backed by a lookalike ERC-20, not the real
+ * tokenized stock. Off Robinhood Chain no stock quote can be real at all.
+ * Fails OPEN (registry unreachable / quote not a stock symbol) like the rest
+ * of the gate. Returns the flag string, or undefined if nothing to veto.
+ */
+async function checkStockQuote(
+  chain: string,
+  poolId: string,
+): Promise<string | undefined> {
+  let quote: { symbol?: string; address?: string } | undefined;
+  try {
+    const data = await fetchDexJson<{ pairs?: DexPair[] }>(
+      `/latest/dex/pairs/${chain}/${poolId}`,
+    );
+    quote = data.pairs?.[0]?.quoteToken;
+  } catch {
+    return undefined;
+  }
+  if (!quote?.symbol) return undefined;
+  const registry = await fetchStockRegistry();
+  const verdict = classifyStockQuote(quote.symbol, quote.address, chain, registry);
+  if (verdict === "fake") {
+    return `fake_stock_quote (${quote.symbol} quote not in RH registry)`;
+  }
+  return undefined;
+}
+
 /** Last close as a fraction of the window high; undefined when unknowable. */
 export function collapseRatio(
   candles: Array<{ high: number; close: number }>,
@@ -194,6 +230,10 @@ export async function checkTokenSafety(
     const chartFlag = await checkChart(chain, poolId);
     if (chartFlag) {
       verdict = { ...verdict, ok: false, flags: [...verdict.flags, chartFlag] };
+    }
+    const stockFlag = await checkStockQuote(chain, poolId);
+    if (stockFlag) {
+      verdict = { ...verdict, ok: false, flags: [...verdict.flags, stockFlag] };
     }
   }
 

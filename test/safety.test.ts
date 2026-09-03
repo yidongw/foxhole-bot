@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { evaluateGoPlusFlags } from "../src/trade/safety.js";
+import {
+  classifyStockQuote,
+  type StockRegistry,
+} from "../src/chains/robinhood/stock-registry.js";
 
 describe("evaluateGoPlusFlags", () => {
   it("passes a clean token", () => {
@@ -54,5 +58,61 @@ describe("evaluateGoPlusFlags", () => {
 
   it("treats missing fields as clean (fail-open per field)", () => {
     expect(evaluateGoPlusFlags({})).toEqual([]);
+  });
+});
+
+describe("classifyStockQuote", () => {
+  const registry: StockRegistry = {
+    addresses: new Set(["0xccee82fe024c36fa15e1005ede3e9e4787e23d09"]), // HIMS
+    symbols: new Set(["HIMS", "NVDA", "TSLA"]),
+  };
+
+  it("passes the real registry address as official (case-insensitive)", () => {
+    expect(
+      classifyStockQuote(
+        "HIMS",
+        "0xCceE82fE024c36fA15E1005edE3E9e4787e23D09",
+        "robinhood",
+        registry,
+      ),
+    ).toBe("official");
+  });
+
+  it("vetoes a stock symbol whose address is not in the registry", () => {
+    expect(
+      classifyStockQuote("NVDA", "0xdeadbeef", "robinhood", registry),
+    ).toBe("fake");
+  });
+
+  it("vetoes any stock-symbol quote off Robinhood Chain (4663-only)", () => {
+    expect(
+      classifyStockQuote(
+        "HIMS",
+        "0xCceE82fE024c36fA15E1005edE3E9e4787e23D09",
+        "solana",
+        registry,
+      ),
+    ).toBe("fake");
+  });
+
+  it("ignores non-stock quote symbols", () => {
+    expect(classifyStockQuote("WETH", "0xabc", "robinhood", registry)).toBe(
+      "not_stock",
+    );
+    expect(classifyStockQuote("BONER", "0xabc", "base", registry)).toBe(
+      "not_stock",
+    );
+  });
+
+  it("leaves variant symbols alone (no hard veto on different assets)", () => {
+    expect(
+      classifyStockQuote("NVDAx3L", "0xabc", "robinhood", registry),
+    ).toBe("not_stock");
+  });
+
+  it("fails open when the registry is unavailable", () => {
+    expect(classifyStockQuote("NVDA", "0xdeadbeef", "robinhood", undefined)).toBe(
+      "unknown",
+    );
   });
 });
