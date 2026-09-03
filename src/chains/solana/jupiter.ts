@@ -36,6 +36,26 @@ export function priceImpactVeto(
   return undefined;
 }
 
+const PRIORITY_LEVELS = ["medium", "high", "veryHigh"] as const;
+export type PriorityLevel = (typeof PRIORITY_LEVELS)[number];
+
+/**
+ * Priority-fee config for the swap. Without a priority fee, meme swaps
+ * routinely fail to land during congestion. Dynamic estimation (priorityLevel)
+ * is capped by maxLamports so we never overpay. Env:
+ *   JUPITER_PRIORITY_LEVEL       medium|high|veryHigh (default high)
+ *   JUPITER_PRIORITY_FEE_MAX_LAMPORTS  cap (default 1_000_000 = 0.001 SOL)
+ */
+export function priorityFeeConfig(): { level: PriorityLevel; maxLamports: number } {
+  const raw = (process.env.JUPITER_PRIORITY_LEVEL ?? "high") as PriorityLevel;
+  const level = PRIORITY_LEVELS.includes(raw) ? raw : "high";
+  const maxLamports = Math.max(
+    0,
+    Math.floor(Number(process.env.JUPITER_PRIORITY_FEE_MAX_LAMPORTS ?? 1_000_000)),
+  );
+  return { level, maxLamports };
+}
+
 const jupiter = createJupiterApiClient({
   basePath: process.env.JUPITER_API_BASE ?? "https://lite-api.jup.ag/swap/v1",
 });
@@ -101,11 +121,16 @@ async function executeJupiterSwap(
   const veto = priceImpactVeto(quote.priceImpactPct, maxPriceImpact());
   if (veto) throw new Error(`jupiter swap rejected: ${veto}`);
 
+  const { level, maxLamports } = priorityFeeConfig();
   const swap = await jupiter.swapPost({
     swapRequest: {
       quoteResponse: quote,
       userPublicKey: keypair.publicKey.toBase58(),
       dynamicComputeUnitLimit: true,
+      // Dynamic priority fee (capped) so the swap actually lands under load.
+      prioritizationFeeLamports: {
+        priorityLevelWithMaxLamports: { priorityLevel: level, maxLamports, global: false },
+      },
     },
   });
 
@@ -118,11 +143,22 @@ async function executeJupiterSwap(
   const txHash = await connection.sendRawTransaction(tx.serialize(), {
     maxRetries: 3,
   });
-  const latest = await connection.getLatestBlockhash();
-  await connection.confirmTransaction(
-    { signature: txHash, ...latest },
+  // Confirm against the transaction's OWN blockhash + Jupiter's
+  // lastValidBlockHeight — a freshly-fetched blockhash would not match the
+  // signed tx and can confirm/expire incorrectly.
+  const result = await connection.confirmTransaction(
+    {
+      signature: txHash,
+      blockhash: tx.message.recentBlockhash,
+      lastValidBlockHeight: swap.lastValidBlockHeight,
+    },
     "confirmed",
   );
+  if (result.value.err) {
+    throw new Error(
+      `jupiter swap failed on-chain (${txHash}): ${JSON.stringify(result.value.err)}`,
+    );
+  }
   return { outAmountRaw: BigInt(quote.outAmount), txHash };
 }
 
