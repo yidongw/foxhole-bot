@@ -3,6 +3,41 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-03 16:0x UTC 第 3 轮(自迭代循环首触发)
+
+### ① 新闻(24h 191 条回放,已修)
+- **修 junk hotSymbol 自我循环**,commit 72eefdc:「交易赚币」「借壳收割」这类
+  促销/叙事短语被 extractSymbols 的「」引号规则当 token 种进 hotSymbols,又命中
+  自己的来源快讯(OKX闪赚 / Meme信息汇总)→ **永不过期的自我循环误叫醒**(每轮 1-2
+  条浪费 judge)。修:引号内 ≥4 的纯中文不再入 hotSymbols(真名如「牛来」≤3 汉字
+  或含拉丁/数字仍保留)。test +1(news.test 共 26)。
+- R2 的 watched-只看标题 修复本轮验证有效:24h 回放已无 NVDA/SPCX 正文噪音叫醒。
+- 漏分析:drop 侧仍无真漏(HYPE 增持/ETH 建仓/BTC 巨鲸/「牛来」转 Binance 均正确丢弃;
+  「牛来」非我方持仓,dump 不追)。
+
+### ② 覆盖率(健康)
+- robinhood ≥100% 实时对照干净:3 个 mover 全在 monitor-state(673 币在册,较 R1 的
+  565 增长,发现源在扩)。
+- 哑弹分析**仍无数据**:data/outcomes/labeled.json 依旧不存在(grading 未产出标签)。
+
+### ③ 安全(无新增)
+- review 循环新代码(SOL pump.fun watcher / BSC v2 fills / stock-watch)扫过,
+  无私钥/webhook 日志泄漏。npm audit 同旧(Solana 依赖树 6 high,破坏性,留观)。
+
+### ④ 健康(⚠️ 部署滞后 — 本轮头号发现)
+- tsc 干净;npm test **144 passed**(review 循环加了测试)。monitor 存活(pid 99107)。
+- **部署库落后 origin/main 6 个 commit 且卡住**:data/outcomes/pending.json、
+  data/launches.json、journal/trades/*.md 等 **live runtime JSON 被 git 跟踪但由
+  运行中的 bot 持续改写** → `git pull --ff-only` 一直被 dirty working tree 挡下。
+  monitor-state.json 等已在 .gitignore,但上述账本类没有。结果:我的 R3 + review 的
+  SOL watcher/BSC fills 都没进部署库工作树(monitor 仍跑 R1+R2 代码,R3 未生效)。
+  - 未强推:活写者在改这些文件,手动 checkout/stash 会竞态并可能丢 outcomes 账本。
+  - **建议(需 owner 协调,跨两循环)**:把 bot 自写的账本(pending/launches/missed/
+    trades)加进 .gitignore(像 monitor-state.json 那样),或加一个"部署侧先 commit
+    数据再 pull"的 deploy 脚本。当前 deploy-local.sh 只发 web 面板,不管 git 同步。
+
+---
+
 ## 2026-09-03 07:xx UTC 第 2 轮(扩样本 + 深挖)
 
 ### ① 新闻(拉 24h 全量 193 条回放,已修)
