@@ -93,6 +93,18 @@ export function walletChain(w: TrackedWallet): string {
   return (w.chain ?? "robinhood").toLowerCase();
 }
 
+/**
+ * Canonical chain name for routing (Discord webhooks, signal channels, thread
+ * keys) — the rest of the bot uses `solana`/`ethereum`, while GMGN uses
+ * `sol`/`eth`. Normalise the short forms so smart-money routing lines up.
+ */
+export function canonicalChain(c: string): string {
+  const s = c.toLowerCase();
+  if (s === "sol") return "solana";
+  if (s === "eth") return "ethereum";
+  return s;
+}
+
 export async function loadTrackedWallets(): Promise<TrackedWallet[]> {
   try {
     return (JSON.parse(await readFile(BOOK_PATH, "utf8")) as BookFile).wallets;

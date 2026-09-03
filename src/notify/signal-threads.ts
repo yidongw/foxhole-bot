@@ -346,3 +346,58 @@ export async function postToSignalThread(
   }).catch(() => undefined);
   return Boolean(res?.ok);
 }
+
+/**
+ * Ensure a per-token signal card + thread exists (keyed chain:address) and post
+ * `cardBody`. Used by smart-money trade signals so the AI decider's later
+ * `note` (postToSignalThread) has a thread to write into. Returns false — so
+ * the caller can fall back to a flat message — when the chain has no signal
+ * channel id or DISCORD_BOT_TOKEN is unset.
+ */
+export async function ensureSignalThread(
+  chain: string,
+  address: string,
+  symbol: string | undefined,
+  cardBody: string,
+): Promise<boolean> {
+  const webhook = resolveWebhook("signal", chain);
+  const channelId = SIGNAL_CHANNEL_IDS[chain];
+  if (!webhook || !channelId || !process.env.DISCORD_BOT_TOKEN) return false;
+  const key = `${chain}:${address.toLowerCase()}`;
+  const map = await loadMap();
+  const now = new Date().toISOString();
+  try {
+    let entry = map[key];
+    if (entry?.threadId) {
+      await fetch(`${webhook}?thread_id=${entry.threadId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: cardBody }),
+      });
+      return true;
+    }
+    const res = await fetch(`${webhook}?wait=true`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: cardBody }),
+    });
+    if (!res.ok) return false;
+    const messageId = ((await res.json()) as { id: string }).id;
+    entry = { messageId, threadId: "", symbol, firstAt: now, lastAt: now, count: 1 };
+    const tres = await discordApi(
+      `/channels/${channelId}/messages/${messageId}/threads`,
+      "POST",
+      { name: `${symbol ?? address.slice(0, 8)}·${chain}` },
+    );
+    if (tres.ok) {
+      entry.threadId = ((await tres.json()) as { id: string }).id;
+      await addOwnerToThread(entry.threadId);
+    }
+    map[key] = entry;
+    await saveMap(map);
+    return Boolean(entry.threadId);
+  } catch (err) {
+    console.error("ensureSignalThread failed:", (err as Error).message);
+    return false;
+  }
+}

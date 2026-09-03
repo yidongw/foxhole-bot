@@ -1,6 +1,8 @@
 import { sendDiscordEmbed, sendDiscordMessage } from "../notify/discord.js";
 import { resolveWebhook } from "../notify/routes.js";
 import { appendAiInboxSmartMoney } from "../notify/ai-inbox.js";
+import { ensureSignalThread } from "../notify/signal-threads.js";
+import { canonicalChain } from "../chains/robinhood/smart-money.js";
 import { appendSmLog } from "./log.js";
 import { resolveFilter } from "./config.js";
 
@@ -71,6 +73,9 @@ export class SmartMoneyEngine {
   }
 
   async handleBuy(buy: SmartMoneyBuy): Promise<void> {
+    // Normalise chain to the canonical routing name (sol→solana, eth→ethereum)
+    // so webhooks, signal channels and thread keys line up with the rest of the bot.
+    buy = { ...buy, chain: canonicalChain(buy.chain) };
     const dedup = `${buy.txHash}:${buy.wallet.toLowerCase()}:${buy.token.toLowerCase()}`;
     if (this.alerted.has(dedup)) return;
     this.alerted.add(dedup);
@@ -190,11 +195,21 @@ export class SmartMoneyEngine {
       `🔗 <${link}>`,
       `🤖 已唤醒 AI 决策 —— 待定买入/跳过`,
     ].join("\n");
-    const signalHook = resolveWebhook("signal", buy.chain);
-    if (signalHook) {
-      await sendDiscordMessage(signalHook, signal).catch((err) =>
-        console.error("smart-money trade-signal failed:", (err as Error).message),
-      );
+    // Create/post the per-token thread so the AI decider's note has somewhere
+    // to land; fall back to a flat message if threads aren't available here.
+    const threaded = await ensureSignalThread(
+      buy.chain,
+      buy.token,
+      buy.symbol,
+      signal,
+    ).catch(() => false);
+    if (!threaded) {
+      const signalHook = resolveWebhook("signal", buy.chain);
+      if (signalHook) {
+        await sendDiscordMessage(signalHook, signal).catch((err) =>
+          console.error("smart-money trade-signal failed:", (err as Error).message),
+        );
+      }
     }
 
     // 2) Wake the AI decision layer as a COIN signal so the decider runs its
