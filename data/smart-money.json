@@ -107,6 +107,51 @@
       "realizedUsd": 401210.1968837718,
       "addedAt": "2026-09-03T15:10:19.991Z",
       "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0xaeE728455cD103e735a368CB3D388561bb156a16",
+      "label": "S v2 胜率39% $443k",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 442508,
+      "addedAt": "2026-09-03T15:14:53.409Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x67862D84ba70E8cc913AeB2ED12019D93C9381f3",
+      "label": "S v2 胜率70% $1266k",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 1266379,
+      "addedAt": "2026-09-03T15:14:53.410Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x74fabbd2e02557dD31c1f7AEf193f95197C5c32C",
+      "label": "S v2 胜率100% $1248k",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 1248428,
+      "addedAt": "2026-09-03T15:14:53.410Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x592065d6F0e076A7ED1878Be458e6F1E4F643D9c",
+      "label": "A v2 胜率48% $789k",
+      "chain": "robinhood",
+      "tier": "A",
+      "realizedUsd": 789293,
+      "addedAt": "2026-09-03T15:14:53.411Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x74bC11b4edC412D0F41BD4703b6F4ed8e0971445",
+      "label": "A v2 胜率33% $439k",
+      "chain": "robinhood",
+      "tier": "A",
+      "realizedUsd": 438953,
+      "addedAt": "2026-09-03T15:14:53.411Z",
+      "addedBy": "winner-finder-v2"
     }
   ]
 }
