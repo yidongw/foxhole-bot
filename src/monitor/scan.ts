@@ -53,6 +53,8 @@ import { resolveWebhook } from "../notify/routes.js";
 import { appendAiInbox } from "../notify/ai-inbox.js";
 import { maybeSpawnDecider } from "../trade/decider.js";
 import { postThreadedSignal } from "../notify/signal-threads.js";
+import { diffStockRegistry, newlyListedQuote } from "../chains/robinhood/stock-watch.js";
+import { postNewStock } from "../notify/stock-threads.js";
 import {
   fetchNewV4PoolTokens,
   getV4LatestBlock,
@@ -241,6 +243,21 @@ async function maybeAlert(
       // Trade-grade must ALSO clear the safety gate before pinging the
       // user — a signal that the engine would veto is not a trade trigger.
       const input = evaluation.input;
+      // ② Gate 0: a meme that clears the trade-grade bar AND pairs a
+      // freshly-listed official stock token is the squeeze-play footprint —
+      // badge it and bump to strong so it stands out among the day's signals.
+      if (input.isStockPaired) {
+        const fresh = await newlyListedQuote(input.quoteSymbol).catch(() => undefined);
+        if (fresh) {
+          const age = fresh.ageDays < 1 ? "今日" : `${Math.floor(fresh.ageDays)}d 前`;
+          const badge = `⭐ 底池新股 ${input.quoteSymbol}（${age}上榜官方股票）`;
+          if (!evaluation.reasons.includes(badge)) evaluation.reasons.unshift(badge);
+          if (!evaluation.triggers.includes("new_stock_quote")) {
+            evaluation.triggers.unshift("new_stock_quote");
+          }
+          evaluation.level = "strong";
+        }
+      }
       const safety = await checkTokenSafety(
         input.chain ?? "robinhood",
         input.address,
@@ -675,13 +692,44 @@ export async function scanLaunches(options: ScanOptions = {}): Promise<ScanHit[]
 export async function runMonitorLoop(options: ScanOptions & { once?: boolean }): Promise<void> {
   const interval = Number(process.env.POLL_INTERVAL_MS ?? SIGNAL_CONFIG.pollIntervalMs);
   const positionInterval = Number(process.env.POSITION_TICK_MS ?? 15_000);
+  const stockInterval = Number(process.env.STOCK_POLL_MS ?? 15_000);
   let consecutiveFailures = 0;
   let stopped = false;
+
+  // New official RH stock listings — the earliest footprint of the tokenized-
+  // stock squeeze play (the meme can't pair a real stock token until the stock
+  // is minted here). Its own fast loop (~15s, the RH API's server-cache floor)
+  // so a fresh listing surfaces promptly; the first run seeds silently.
+  const stockTick = async () => {
+    if (!enabledChains().includes("robinhood")) return;
+    const { newStocks, bootstrap } = await diffStockRegistry();
+    if (bootstrap) {
+      console.log("stock registry: seeded snapshot (first run)");
+    } else if (newStocks.length) {
+      console.log(
+        `stock registry: ${newStocks.length} new listing(s): ${newStocks.map((s) => s.symbol).join(", ")}`,
+      );
+      if (!options.dryRun) {
+        for (const stock of newStocks) await postNewStock(stock);
+      }
+    }
+  };
+  const stockLoop = async () => {
+    while (!stopped) {
+      try {
+        await stockTick();
+      } catch (err) {
+        console.error("stock registry watch error:", (err as Error).message);
+      }
+      await sleep(stockInterval);
+    }
+  };
 
   const discoveryTick = async () => {
     console.log(
       `[${new Date().toISOString()}] scanning chains: ${enabledChains().join(", ")}…`,
     );
+
     const hits = await scanLaunches({ ...options, refreshLaunches: true });
     const alerted = hits.filter((h) => h.sent);
     console.log(
@@ -751,6 +799,9 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
   };
 
   if (options.once) {
+    await stockTick().catch((err) =>
+      console.error("stock registry watch error:", (err as Error).message),
+    );
     await discoveryTick();
     const tradeConfig = loadTradeConfig();
     if (tradeConfig.mode !== "off") {
@@ -771,6 +822,8 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
   const positionLoopPromise = positionLoop();
   const newsLoopPromise = newsLoop();
   void newsLoopPromise;
+  const stockLoopPromise = stockLoop();
+  void stockLoopPromise;
 
   while (true) {
     try {
