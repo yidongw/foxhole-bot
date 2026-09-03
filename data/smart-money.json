@@ -155,9 +155,9 @@
     },
     {
       "address": "0x040f6c3A52b9622Fb4701347DE38964B2d748dE6",
-      "label": "手动 RH 胜率50% $38k",
-      "chain": "robinhood",
-      "addedAt": "2026-09-03T17:31:08.727Z",
+      "label": "手动 BSC",
+      "chain": "bsc",
+      "addedAt": "2026-09-03T17:39:33.243Z",
       "addedBy": "cli"
     }
   ]
