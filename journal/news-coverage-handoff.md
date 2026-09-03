@@ -3,6 +3,49 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-04 00:3x UTC 第 7 轮(修了 main 上的红测试;SHRUB 真相澄清)
+
+### ④ 健康(**修了 main 上一个常红测试** — 本轮重点)
+- **test/routes.test.ts 在 main 上 1 红**,commit bc44a33:review 循环把 review 输出
+  改成 thread-only(commit「thread-only output」),resolveWebhook('review') 不再回退
+  filter 频道,但测试未同步 → `resolveWebhook('review')` 期望 'filter' 实得 undefined。
+  改测试断言匹配现有契约(review→REVIEW webhook 或 undefined,无 filter fallback),
+  **纯测试改动、不碰任何行为**。全套恢复 185 绿。(已知会与 review 循环沾边,但红测
+  卡健康门,且是无歧义的 stale-test,低撞车风险;已在此留档告知对方。)
+- tsc 干净;monitor 存活(pid 75365),BN 崩溃未复现(仍计 1)。
+
+### ② 覆盖率(健康;SHRUB 真相)
+- **SHRUB 是骗局**:review 循环/用户已把它加进 denylist(commit「restore user denylist
+  entries (SHRUB scam…)」)。→ 我 R5 的 movers 发现修复**技术上正确**(它确实曾被发现源
+  漏掉),而 denylist/safety 层正确地把这个 scam 挡在入场外 —— 分层设计按预期工作:
+  发现层找到、denylist 层拒绝。发现修复保留(对合法有机暴涨仍有效)。
+- robinhood ≥100% 对照干净:4 mover 全在册(919 币,持续增长)。
+- review 循环还落地了我 R6 flag 的数据质量修复(commit 含「stock/data-quality exclusion」)。
+
+### ① 新闻(BlockBeats 稳定)
+- 回放(200 条)35 wake 全 legit;「GoPro 永续」listing 放行属设计。无新噪音/漏。
+- **R3「」junk 修复继续冻结**:交易赚币(02:47Z)、借壳收割(02:50Z)时间戳未再刷新,
+  约 09-05 02:47Z 后随 TTL 清零。
+
+### ③ 安全(无新高危)
+- R6-R7 间新代码(smart-money 钱包增删、review fdv-gate/data-quality 修复)无私钥/webhook 泄漏。
+- smart-money P2 注入面、npm audit Solana 6 high 仍挂账留观。
+
+### 📊 附:本轮前用户手动要求的「新闻源+警报复盘」要点(留档)
+- BlockBeats:主力健康,29 wake+1 exit,噪音经 R1-R6 治理已清零。
+- **OpenNews/6551:实质休眠**——累计仅 1 post,12 次免费降级(OPENNEWS_TOKEN 402
+  额度耗尽 → 回退 free_hot web3 泛热榜,非 meme 定向,几乎 0 产出)。降级属设计内。
+  待用户决定是否给 6551 token 充额度重启 AI 打分定向搜索。
+- 判定层 judgeFlash:key 在、在跑、0 拒绝(候选皆真信号);opus-5 每 wake 一调,成本可优化。
+- 警报:~8/轮,pending 63,labeled 15(53% 胜率>30% 底线),数据质量已转 review 修。
+- 交易质量观察(归 engine):多笔被 25%-off-high trail stop 在 -15~-29% 割掉,止损偏紧。
+
+**下轮重点:** ① 「」junk 约 09-05 02:47Z 后应从 hotSymbols 消失,复查确认。
+② labeled 样本变多变干净后重做哑弹分析。③ OpenNews 若充值则复查其定向产出质量。
+④ 继续 robinhood 实时对照。
+
+---
+
 ## 2026-09-03 15:0x UTC 第 6 轮(前修全部验证 + 首次哑弹分析,无新代码改动)
 
 前几轮的修复本轮全部实测生效;哑弹数据首现但太少/太脏,不足以动阈值。
