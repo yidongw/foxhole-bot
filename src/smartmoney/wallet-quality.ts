@@ -55,7 +55,7 @@ export interface QualityConfig {
  */
 export const DEFAULT_QUALITY: QualityConfig = {
   minRoi: 1.0, // core gate: realized ≥ 100% of cost spent
-  minWinrate: 0.1, // noise floor only — ROI is the real skill gate for memes
+  minWinrate: 0.3, // hard floor (per user): a tracked wallet must win ≥30%
   minTokens: 10,
   maxTokens: 400, // egregious spray only; bots also caught by tags
   minRealizedUsd: 5_000,

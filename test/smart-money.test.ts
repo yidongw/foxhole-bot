@@ -241,10 +241,14 @@ describe("scoreWallet — worth-tracking filter (v2)", () => {
     const v = scoreWallet(good);
     expect(v.pass).toBe(true);
   });
-  it("accepts a low-winrate HIGH-ROI meme winner (the point of v2)", () => {
-    // 0x776b: 19% winrate but 3.4x ROI, $455k — skilled, must pass.
-    const v = scoreWallet({ ...good, winrate: 0.19, roi: 3.4, realizedUsd: 455_000, tokenNum: 227, bigWins: 2 });
+  it("accepts a modest-winrate HIGH-ROI meme winner (ROI-led)", () => {
+    // ≥30% floor + high ROI: skilled and copyable.
+    const v = scoreWallet({ ...good, winrate: 0.35, roi: 3.4, realizedUsd: 455_000, tokenNum: 227, bigWins: 2 });
     expect(v.pass).toBe(true);
+  });
+  it("rejects sub-30% win rate even with high ROI", () => {
+    // 0x776b (19% winrate) no longer qualifies under the 30% floor.
+    expect(scoreWallet({ ...good, winrate: 0.19, roi: 3.4, realizedUsd: 455_000 }).pass).toBe(false);
   });
   it("rejects the classic false positives", () => {
     // arbitrager bot (the real 牛来 #1 profit wallet)
