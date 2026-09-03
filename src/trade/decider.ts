@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { writeJsonAtomic } from "../lib/atomic-json.js";
+import { loadHlConfig } from "../venues/hyperliquid/config.js";
 
 /**
  * Headless AI decider — spawned by the monitor the moment a trade signal
@@ -32,7 +33,26 @@ const LOCK_STALE_MS = 10 * 60_000;
 /** Hard kill — a decision run should take a couple of minutes at most. */
 const CHILD_TIMEOUT_MS = 8 * 60_000;
 
-const PROMPT = `你是 foxhole-bot 的交易决策 AI(paper 模式,一次性无头运行)。按顺序执行:
+/**
+ * Hyperliquid 永续决策段:仅当 HL_MODE≠off 时追加。让决策 AI 能对新闻信号
+ * 在 HL 上做多/做空(含 HIP-3 美股)。执行同样只经 `npm run hl` CLI,全过 HL_* 风控门。
+ */
+const PERP_ADDENDUM = `
+
+【Hyperliquid 永续(可做多/做空,含美股)】news 信号在上面现货逻辑之外,再评估一次永续:
+ a. \`npm run hl --silent -- resolve <标的词>\` 把新闻标的解析成 HL 符号并确认可交易;解析不出或不可交易 → 跳过永续。
+ b. 定方向 + 判断"是否已被 price in":\`npm run hl --silent -- stat <SYMBOL>\` 看现价 + 24h 涨跌 + 资金费率。利好且 24h 尚未大幅上涨 → 开多;利空(negative=true)且尚未大幅下跌 → 开空;已充分反应过的一律跳过(这是关键,别追已 price in 的行情)。资金费率年化极端(拥挤/成本高)则谨慎或跳过。
+ c. 下单:\`npm run hl --silent -- long <SYMBOL> <usd> <杠杆> <一句理由>\` 或 \`short ...\`。usd≤单笔上限(风控自动夹),杠杆保守(≤3x)。风控拒绝就接受,禁止绕过 CLI。内置止损止盈会自动托管,不用手动盯。
+ d. 持仓相关利空:先 \`npm run hl --silent -- status\` 看是否已有该标的永续仓,有则 \`npm run hl --silent -- close <SYMBOL> <percent>\` 减仓。
+ e. 每个永续决策(含跳过)用 note-news 留一行痕。
+ f. 预算同现货:一个 tick 永续最多开 1-2 个最好的。
+
+【OI 异动信号(inbox 里 kind=perp-signal, source=oi-anomaly)】主力在币安建仓启动的数据信号,方向已给(side=long/short),metrics 里带主力成本 whaleCostBasis、现价 lastPrice、大户占比、资金费:
+ g. 先 \`npm run hl --silent -- stat <symbol>\` 复核:现价已远离主力成本(如多头现价比 whaleCostBasis 高很多、24h 已翻倍)视为启动中后段,谨慎或跳过;资金费年化极端也跳过。
+ h. 通过则按 side 下单 \`npm run hl --silent -- long|short <symbol> <usd> <杠杆> "OI异动:<关键指标>"\`(该 symbol 在 HL 无永续会报错 → 放弃并留痕)。杠杆保守(≤3x),内置止损止盈自动托管。
+ i. 每个 OI 信号决策(含跳过)用 note-news 留痕。`;
+
+const BASE_PROMPT = `你是 foxhole-bot 的交易决策 AI(paper 模式,一次性无头运行)。按顺序执行:
 1. \`npm run ai --silent -- inbox\` 读未决信号;空数组则直接结束。
 2. 币类信号逐个决策:先 \`curl -s https://api.dexscreener.com/latest/dex/tokens/<address>\` 查实时价格/流动性/1h涨跌,对比信号时快照判断动量是否延续。信号时 24h 涨幅已超 500% 的视为事后警报,极其谨慎(基本都跳过);但 24h 未超 500% 的不要套用这条逻辑。判断校准(FATCOIN 教训: 24h 仅 +54% 时被以"从ATH回落33%=行情走完""买卖单1339:1357=转向"跳过,随后又涨数倍): 发射数日内的新币从高点回落 30-40% 且量能仍在,是回调不是派发,"已从高点回落"本身不构成跳过理由;买卖单接近 1:1 是噪音,动量转向要看持续卖压/量价背离。真正该跳的是崩盘态(现价<窗口高点40%,安全门也会拦)和无量阴跌。买入用 \`npm run ai --silent -- buy <chain> <address> <usd> <一句理由>\`(≤50,风控拒绝就接受,禁止绕过 CLI 动钱包)。
 3. news 类信号:
@@ -42,6 +62,11 @@ const PROMPT = `你是 foxhole-bot 的交易决策 AI(paper 模式,一次性无�
 4. 币类信号的每个决策(含跳过)写一行中文进该币 thread:\`npm run ai --silent -- note <chain> <address> <决策+理由>\`。
 5. 全部处理完后 \`npm run ai --silent -- archive\`。
 注意总预算:同一个 tick 多个信号也最多买 1-2 个最好的,不要全买。`;
+
+/** HL_MODE≠off 时把永续段接到主 prompt 后面。 */
+function buildPrompt(): string {
+  return loadHlConfig().mode !== "off" ? BASE_PROMPT + PERP_ADDENDUM : BASE_PROMPT;
+}
 
 interface LockFile {
   pid: number;
@@ -104,7 +129,7 @@ export async function maybeSpawnDecider(trigger: string): Promise<boolean> {
       bin,
       [
         "-p",
-        PROMPT,
+        buildPrompt(),
         "--allowedTools",
         "Bash",
         "--model",

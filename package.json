@@ -25,6 +25,8 @@
     "smartmoney": "tsx src/cli/smart-money.ts",
     "preflight": "tsx src/cli/preflight.ts",
     "opennews": "tsx src/cli/opennews.ts",
+    "hl": "tsx src/cli/hl.ts",
+    "oi-scan": "tsx src/cli/oi-scan.ts",
     "deploy": "bash scripts/deploy-local.sh",
     "serve": "python3 -m http.server 8787 --directory web",
     "dev": "npm run fetch:long && npm run serve",
@@ -42,6 +44,9 @@
     "hoodchain": "^0.1.1",
     "viem": "^2.35.1",
     "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "@nktkas/hyperliquid": "latest"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
