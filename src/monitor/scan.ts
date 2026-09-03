@@ -568,6 +568,15 @@ async function scanFourmemeWatch(
   for (const entry of entries.filter((e) => e.verified)) {
     try {
       const analysis = await adapter.analyze(entry.address);
+      // A verified four.meme token has a real DexScreener-indexed PancakeSwap
+      // pool, which only exists once it graduates off the bonding curve — mark
+      // it so the report/signal reflects the launchpad handoff.
+      if (!analysis.curveGraduated) {
+        analysis.curveGraduated = true;
+        if (!analysis.signals.includes("four.meme: graduated to PancakeSwap")) {
+          analysis.signals.push("four.meme: graduated to PancakeSwap");
+        }
+      }
       const key = stateKey("bsc", entry.address);
       const prev = state.tokens[key];
       const accel =

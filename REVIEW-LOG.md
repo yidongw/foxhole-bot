@@ -199,3 +199,15 @@ adapter.analyze + evaluateSignal + maybeAlert,得到与 RB 同级的分级警报
 量能加速)。12h 窗口、40 verified 上限、按新鲜度截断。新增 addFourmemeProbation
 的去重测试。134/134,typecheck 绿。下次: four.meme 债券曲线毕业进度接入
 analysis(类比 pump.fun curveProgress),或 BSC live 交易路径实测/GoPlus 安全门。
+
+## 2026-09-03 (续) — BSC 分析能力补齐: 多链 analyze CLI + four.meme 毕业标记
+用户要求"这次全做完"。盘点确认: BSC 安全门早已就位(GoPlus chain 56,honeypot/
+税/mintable 等全套 veto + chart ladder/collapse + 缓存),live 交易 PancakeSwap v2
+路径完整(仅未用真金实测)。剩余真缺口是"手动分析": `npm run analyze` 只认
+Robinhood。改造 cli/analyze.ts 支持 `--chain <id>` 路由到 getAdapter(chain).analyze
+(默认 robinhood 向后兼容),BSC/solana/base/ethereum 均可手动分析;实测
+`analyze --chain bsc <CAKE>` 返回真实 DexScreener 数据,RB 专属字段优雅降级为"—"。
+另: scanFourmemeWatch 里 verified 代币标记 curveGraduated=true + "four.meme:
+graduated to PancakeSwap" 信号(事实——有真实 PancakeSwap 池即已脱离债券曲线)。
+README 加多链 analyze 示例。134/134,typecheck 绿。未做(需真实资金/未验证常量):
+live 交易实测、four.meme 债券曲线进度链上读取(合约 view 函数未核实,不臆造)。

@@ -35,7 +35,8 @@ cp .env.example .env   # add Alchemy ROBINHOOD_RPC
 
 npm install
 npm run fetch:long     # refresh launch list
-npm run analyze -- 0x98096d17e191b3da1d5f99a6d7b3584351b11e18   # BONER analysis
+npm run analyze -- 0x98096d17e191b3da1d5f99a6d7b3584351b11e18   # BONER analysis (RB)
+npm run analyze -- --chain bsc 0x<token>                        # any chain: bsc/solana/base/ethereum
 npm run deploy         # publish https://long.foxhole.bot
 ```
 
