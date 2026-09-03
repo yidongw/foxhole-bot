@@ -34,9 +34,17 @@ export interface StockRegistry {
 
 let assetCache: { assets: StockAsset[]; at: number } | undefined;
 
-/** Detailed asset list — undefined on fetch failure (callers fail open). */
-export async function fetchStockAssets(): Promise<StockAsset[] | undefined> {
-  if (assetCache && Date.now() - assetCache.at < CACHE_TTL_MS) {
+/**
+ * Detailed asset list — undefined on fetch failure (callers fail open).
+ * `maxAgeMs` caps how stale the in-process cache may be: the veto path uses the
+ * 6h default (registry rarely changes), the diff watcher passes a few seconds
+ * so it can actually see new listings between polls. The RH API server-caches
+ * 15s, so sub-15s freshness just returns the same cached response.
+ */
+export async function fetchStockAssets(
+  maxAgeMs: number = CACHE_TTL_MS,
+): Promise<StockAsset[] | undefined> {
+  if (assetCache && Date.now() - assetCache.at < maxAgeMs) {
     return assetCache.assets;
   }
   try {

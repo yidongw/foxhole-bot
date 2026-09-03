@@ -20,6 +20,8 @@ import { fetchStockAssets, type StockAsset } from "./stock-registry.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SNAPSHOT_PATH = path.resolve(__dirname, "../../../data/rh-stock-registry.json");
 const NEWLY_LISTED_DAYS = 7;
+/** Refetch each poll (well under the RH API's 15s server cache). */
+const DIFF_MAX_AGE_MS = 10_000;
 
 interface StockEntry {
   name?: string;
@@ -75,7 +77,7 @@ async function loadSnapshot(): Promise<Snapshot | undefined> {
  * not throw) when the registry is unreachable — nothing to diff against.
  */
 export async function diffStockRegistry(): Promise<StockDiff> {
-  const assets = await fetchStockAssets();
+  const assets = await fetchStockAssets(DIFF_MAX_AGE_MS);
   if (!assets) return { newStocks: [], bootstrap: false };
 
   const now = new Date().toISOString();
