@@ -295,13 +295,29 @@ function allowanceSlot(owner: Address, spender: Address, slotIndex: number): Hex
   );
 }
 
-async function detectBalanceSlot(
+/**
+ * Per-token cache of detected mapping *declaration indices* (a token property,
+ * independent of holder/spender). null = probed and not found (non-standard
+ * layout) — cached so we don't re-probe ~50 slots on every buy. The index →
+ * slot hash is recomputed per address, so the cache is holder-agnostic.
+ */
+interface SlotIndices {
+  balance: number | null;
+  allowance: number | null;
+}
+const slotIndexCache = new Map<string, SlotIndices>();
+
+/** Test/ops hook: drop cached slot indices. */
+export function clearSlotIndexCache(): void {
+  slotIndexCache.clear();
+}
+
+async function probeBalanceIndex(
   client: PublicClient,
   token: Address,
   holder: Address,
-): Promise<Hex | undefined> {
+): Promise<number | null> {
   for (let i = 0; i < SLOT_PROBE_LIMIT; i++) {
-    const slot = mappingSlot(holder, i);
     try {
       const bal = await client.readContract({
         address: token,
@@ -309,25 +325,27 @@ async function detectBalanceSlot(
         functionName: "balanceOf",
         args: [holder],
         stateOverride: [
-          { address: token, stateDiff: [{ slot, value: pad(toHex(PROBE_VALUE)) }] },
+          {
+            address: token,
+            stateDiff: [{ slot: mappingSlot(holder, i), value: pad(toHex(PROBE_VALUE)) }],
+          },
         ],
       });
-      if (bal === PROBE_VALUE) return slot;
+      if (bal === PROBE_VALUE) return i;
     } catch {
       // reverted for this probe — try next slot index
     }
   }
-  return undefined;
+  return null;
 }
 
-async function detectAllowanceSlot(
+async function probeAllowanceIndex(
   client: PublicClient,
   token: Address,
   owner: Address,
   spender: Address,
-): Promise<Hex | undefined> {
+): Promise<number | null> {
   for (let i = 0; i < SLOT_PROBE_LIMIT; i++) {
-    const slot = allowanceSlot(owner, spender, i);
     try {
       const al = await client.readContract({
         address: token,
@@ -335,15 +353,40 @@ async function detectAllowanceSlot(
         functionName: "allowance",
         args: [owner, spender],
         stateOverride: [
-          { address: token, stateDiff: [{ slot, value: pad(toHex(PROBE_VALUE)) }] },
+          {
+            address: token,
+            stateDiff: [
+              { slot: allowanceSlot(owner, spender, i), value: pad(toHex(PROBE_VALUE)) },
+            ],
+          },
         ],
       });
-      if (al === PROBE_VALUE) return slot;
+      if (al === PROBE_VALUE) return i;
     } catch {
       // try next slot index
     }
   }
-  return undefined;
+  return null;
+}
+
+/** Resolve (and cache) a token's balance + allowance slot declaration indices. */
+async function resolveSlotIndices(
+  chainId: ChainId,
+  client: PublicClient,
+  token: Address,
+  owner: Address,
+  spender: Address,
+): Promise<SlotIndices> {
+  const key = `${chainId}:${token.toLowerCase()}`;
+  const cached = slotIndexCache.get(key);
+  if (cached) return cached;
+  const [balance, allowance] = await Promise.all([
+    probeBalanceIndex(client, token, owner),
+    probeAllowanceIndex(client, token, owner, spender),
+  ]);
+  const indices: SlotIndices = { balance, allowance };
+  slotIndexCache.set(key, indices);
+  return indices;
 }
 
 export interface V2SellPreflight {
@@ -384,9 +427,14 @@ export async function preflightV2Sell(
   const route = await bestRoute(chainId, token, cfg.wrappedNative, amountIn);
   if (!route) return { ok: false, reason: "no v2 sell route", simulated: false };
 
-  const balSlot = await detectBalanceSlot(client, token, SIM_SENDER);
-  const allowSlot = await detectAllowanceSlot(client, token, SIM_SENDER, cfg.router);
-  if (!balSlot || !allowSlot) {
+  const indices = await resolveSlotIndices(
+    chainId,
+    client,
+    token,
+    SIM_SENDER,
+    cfg.router,
+  );
+  if (indices.balance == null || indices.allowance == null) {
     return {
       ok: true,
       reason: "sell-sim skipped (non-standard token storage; GoPlus still gates honeypot)",
@@ -394,6 +442,8 @@ export async function preflightV2Sell(
       path: route.path,
     };
   }
+  const balSlot = mappingSlot(SIM_SENDER, indices.balance);
+  const allowSlot = allowanceSlot(SIM_SENDER, cfg.router, indices.allowance);
 
   const minOut = (route.out * BigInt(10_000 - slippageBps)) / 10_000n;
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
