@@ -14,7 +14,15 @@ const CACHE_TTL_MS = 6 * 3_600_000;
 
 interface RhjAsset {
   tokenSymbol?: string;
+  tokenName?: string;
   deployments?: Array<{ contractAddress?: string; chainId?: number }>;
+}
+
+export interface StockAsset {
+  symbol: string;
+  name?: string;
+  /** Lowercased official contract address (first deployment). */
+  address?: string;
 }
 
 export interface StockRegistry {
@@ -24,34 +32,48 @@ export interface StockRegistry {
   symbols: Set<string>;
 }
 
-let cached: { registry: StockRegistry; at: number } | undefined;
+let assetCache: { assets: StockAsset[]; at: number } | undefined;
 
-/** Undefined on fetch failure — callers fail open, matching the GoPlus gate. */
-export async function fetchStockRegistry(): Promise<StockRegistry | undefined> {
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.registry;
+/** Detailed asset list — undefined on fetch failure (callers fail open). */
+export async function fetchStockAssets(): Promise<StockAsset[] | undefined> {
+  if (assetCache && Date.now() - assetCache.at < CACHE_TTL_MS) {
+    return assetCache.assets;
+  }
   try {
     const res = await fetch(REGISTRY_URL, {
       headers: { "User-Agent": "foxhole-bot/0.3" },
     });
     if (!res.ok) throw new Error(`registry ${res.status}`);
     const data = (await res.json()) as { assets?: RhjAsset[] };
-    const registry: StockRegistry = { addresses: new Set(), symbols: new Set() };
-    for (const asset of data.assets ?? []) {
-      if (asset.tokenSymbol) registry.symbols.add(asset.tokenSymbol.toUpperCase());
-      for (const dep of asset.deployments ?? []) {
-        if (dep.contractAddress) {
-          registry.addresses.add(dep.contractAddress.toLowerCase());
-        }
-      }
+    const assets: StockAsset[] = [];
+    for (const a of data.assets ?? []) {
+      if (!a.tokenSymbol) continue;
+      assets.push({
+        symbol: a.tokenSymbol.toUpperCase(),
+        name: a.tokenName,
+        address: a.deployments?.[0]?.contractAddress?.toLowerCase(),
+      });
     }
-    // An empty registry means the API shape changed, not that no stocks exist.
-    if (!registry.addresses.size) return cached?.registry;
-    cached = { registry, at: Date.now() };
-    return registry;
+    // An empty list means the API shape changed, not that no stocks exist.
+    if (!assets.length) return assetCache?.assets;
+    assetCache = { assets, at: Date.now() };
+    return assets;
   } catch (err) {
     console.error("RH stock registry fetch failed:", (err as Error).message);
-    return cached?.registry;
+    return assetCache?.assets;
   }
+}
+
+/** Address/symbol sets for the fake-stock veto — undefined on fetch failure. */
+export async function fetchStockRegistry(): Promise<StockRegistry | undefined> {
+  const assets = await fetchStockAssets();
+  if (!assets) return undefined;
+  const registry: StockRegistry = { addresses: new Set(), symbols: new Set() };
+  for (const a of assets) {
+    registry.symbols.add(a.symbol);
+    if (a.address) registry.addresses.add(a.address);
+  }
+  return registry;
 }
 
 export type StockQuoteVerdict = "official" | "fake" | "not_stock" | "unknown";
