@@ -98,6 +98,102 @@ export function nativeProceeds(
   return received > 0n ? received : 0n;
 }
 
+/** Synthetic sender for keyless read-only swap simulation. */
+const SIM_SENDER = "0x000000000000000000000000000000000000dEaD" as Address;
+
+export interface V2Preflight {
+  ok: boolean;
+  reason?: string;
+  quotedOut: bigint;
+  amountTokens: number;
+  priceUsd: number;
+}
+
+/**
+ * Keyless, read-only validation of the live BUY path: quote the route and
+ * simulate the swap via eth_call with a synthetic funded sender
+ * (stateOverride) — no private key, no broadcast, 0 funds. Catches no-route /
+ * drained pool / excessive slippage / honeypot-buy-revert before real gas is
+ * spent. Used as v2Buy's pre-broadcast gate and standalone for manual checks.
+ */
+export async function preflightV2Buy(
+  chainId: ChainId,
+  token: Address,
+  usd: number,
+  slippageBps: number,
+): Promise<V2Preflight> {
+  const fail = (reason: string, quotedOut = 0n): V2Preflight => ({
+    ok: false,
+    reason,
+    quotedOut,
+    amountTokens: 0,
+    priceUsd: 0,
+  });
+  const cfg = V2_ROUTERS[chainId];
+  if (!cfg) return fail(`no v2 router for ${chainId}`);
+  const client: PublicClient = getEvmClient(chainId);
+
+  let amountIn: bigint;
+  try {
+    const native = await nativePriceUsd(chainId);
+    amountIn = parseUnits((usd / native).toFixed(18), 18);
+  } catch (err) {
+    return fail(`native price unavailable: ${(err as Error).message}`);
+  }
+  const path = [cfg.wrappedNative, token];
+
+  let quotedOut: bigint;
+  try {
+    const amounts = await client.readContract({
+      address: cfg.router,
+      abi: ROUTER_ABI,
+      functionName: "getAmountsOut",
+      args: [amountIn, path],
+    });
+    quotedOut = amounts[amounts.length - 1];
+  } catch {
+    return fail("no v2 route (getAmountsOut reverted)");
+  }
+  if (quotedOut <= 0n) return fail("zero output quote", quotedOut);
+
+  const minOut = (quotedOut * BigInt(10_000 - slippageBps)) / 10_000n;
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+  try {
+    await client.simulateContract({
+      address: cfg.router,
+      abi: ROUTER_ABI,
+      functionName: "swapExactETHForTokensSupportingFeeOnTransferTokens",
+      args: [minOut, path, SIM_SENDER, deadline],
+      value: amountIn,
+      account: SIM_SENDER,
+      stateOverride: [{ address: SIM_SENDER, balance: amountIn * 2n }],
+    });
+  } catch (err) {
+    const short =
+      (err as { shortMessage?: string }).shortMessage ??
+      (err as Error).message.split("\n")[0];
+    return fail(`swap would revert: ${short}`, quotedOut);
+  }
+
+  let decimals = 18;
+  try {
+    decimals = await client.readContract({
+      address: token,
+      abi: erc20Abi,
+      functionName: "decimals",
+    });
+  } catch {
+    // default 18; token that graduated will normally implement decimals()
+  }
+  const amountTokens = Number(formatUnits(quotedOut, decimals));
+  return {
+    ok: true,
+    quotedOut,
+    amountTokens,
+    priceUsd: amountTokens > 0 ? usd / amountTokens : 0,
+  };
+}
+
 /** Buy `usd` worth of `token` with native currency through the v2 router. */
 export async function v2Buy(
   chainId: ChainId,
@@ -109,17 +205,20 @@ export async function v2Buy(
   const client: PublicClient = getEvmClient(chainId);
   const { account, wallet } = getWallet(chainId);
 
+  // Pre-broadcast gate: validate the whole swap read-only first, so a doomed
+  // trade (no route / drained pool / excessive slippage / honeypot) fails
+  // without spending gas.
+  const pre = await preflightV2Buy(chainId, token, usd, slippageBps);
+  if (!pre.ok) {
+    throw new Error(
+      `v2Buy preflight failed for ${token} on ${chainId}: ${pre.reason}`,
+    );
+  }
+
   const native = await nativePriceUsd(chainId);
   const amountIn = parseUnits((usd / native).toFixed(18), 18);
   const path = [cfg.wrappedNative, token];
-
-  const amounts = await client.readContract({
-    address: cfg.router,
-    abi: ROUTER_ABI,
-    functionName: "getAmountsOut",
-    args: [amountIn, path],
-  });
-  const quotedOut = amounts[amounts.length - 1];
+  const quotedOut = pre.quotedOut;
   const minOut = (quotedOut * BigInt(10_000 - slippageBps)) / 10_000n;
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
 

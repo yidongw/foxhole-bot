@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { V2_ROUTERS, nativeProceeds, tokensReceived } from "../src/chains/evm/v2-swap.js";
+import {
+  V2_ROUTERS,
+  nativeProceeds,
+  preflightV2Buy,
+  tokensReceived,
+} from "../src/chains/evm/v2-swap.js";
 
 /**
  * Guard the wrapped-native addresses — a wrong one makes every getAmountsOut
@@ -8,6 +13,20 @@ import { V2_ROUTERS, nativeProceeds, tokensReceived } from "../src/chains/evm/v2
  * A wrong BSC WBNB (…F60aF814…Ee75) shipped undetected until on-chain
  * simulation caught it; these are the canonical, on-chain-verified values.
  */
+describe("preflightV2Buy", () => {
+  it("fails closed (no network) for a chain without a v2 router", async () => {
+    const r = await preflightV2Buy(
+      "robinhood" as never,
+      "0x0000000000000000000000000000000000000001",
+      50,
+      100,
+    );
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("no v2 router");
+    expect(r.quotedOut).toBe(0n);
+  });
+});
+
 describe("V2_ROUTERS wrapped-native addresses", () => {
   it("uses the canonical wrapped-native per chain", () => {
     expect(V2_ROUTERS.bsc?.wrappedNative).toBe(

@@ -274,3 +274,14 @@ v2 买/卖的 path=[错WBNB,token] 必 revert → BSC live 交易从 P1 起就�
 1 BNB->700 USDT ✅;对真实 $5.1M 池代币模拟买入 quote+swap 均不 revert,0 花费。
 175/175。下次: 只剩真金广播实测(需 funded 钱包 + TRADE_CHAINS=bsc);可加 preflight
 模拟门作为广播前保护(honeypot/无路由/池干直接拦)。
+
+## 2026-09-03 (循环) — v2 广播前 preflight 模拟门 + preflight CLI
+把上轮验证 WBNB 用的 stateOverride 只读模拟手法固化成生产代码。新增 preflightV2Buy
+(v2-swap.ts): 无需私钥/不广播/0 花费——getAmountsOut 报价 + simulateContract 用
+stateOverride 给合成账户虚拟充 native 币,在真实链上状态模拟买入,返回 {ok,reason,
+quotedOut,amountTokens,priceUsd}。捕获: 无路由/池干/滑点过大/貔貅买入 revert。
+v2Buy 广播前先跑 preflight,!ok 直接抛错——doomed 交易不再白烧 gas。另加
+`npm run preflight <chain> <token> [usd] [bps]` CLI 供人工核。实测: CAKE/真实 v2 代币
+✅ OK(WBNB 修复后 CAKE 也有 v2 路由了), dead 地址 ⛔ BLOCKED(no v2 route)。
+178/178。下次: v2Sell 的 preflight(需持仓模拟,可用 stateOverride 伪造余额+allowance);
+或 four.meme 非 WBNB 计价代币多跳路由。
