@@ -1072,11 +1072,8 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
       consecutiveFailures++;
       console.error(`monitor tick error (${consecutiveFailures} in a row):`, err);
       if (consecutiveFailures === 3) {
-        // Ops warning — goes to #filter-log, not the trade-signal channel
-        const url =
-          process.env.DISCORD_FILTER_WEBHOOK_URL ??
-          options.webhookUrl ??
-          process.env.DISCORD_WEBHOOK_URL;
+        // Ops warning — main webhook (filter-log channel removed)
+        const url = options.webhookUrl ?? process.env.DISCORD_WEBHOOK_URL;
         if (url && !options.dryRun) {
           await sendDiscordMessage(
             url,

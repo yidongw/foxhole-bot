@@ -28,7 +28,6 @@ import { appendReviewJournal, journalHeader } from "./journal.js";
 import {
   appendFilterDecisions,
   appendFilterJournal,
-  formatFilterDigest,
 } from "./filter-journal.js";
 import { resolveWebhook } from "../notify/routes.js";
 
@@ -101,26 +100,11 @@ export async function runDailyReview(options: {
   const ledger = [...(await loadLabeledOutcomes()), ...(await loadPendingOutcomes())];
   const movers = await scanMissedMovers(enabledChains(), state, ledger);
 
-  // 过滤日志: record every judgment of the day, kept and filtered alike
+  // 过滤日志（本地留痕，非频道）: record every judgment of the day,
+  // kept and filtered alike — the filter-log Discord channel was removed.
   await appendFilterJournal("Phase 1 暴涨扫描", movers).catch((err) =>
     console.error("filter journal failed:", (err as Error).message),
   );
-  // Per-chain filter digests: each chain's judgments go to its own
-  // filter-log channel (falling back to the global filter webhook).
-  if (movers.length && !options.dryRun) {
-    const byChain = new Map<string, ClassifiedMover[]>();
-    for (const m of movers) {
-      byChain.set(m.chain, [...(byChain.get(m.chain) ?? []), m]);
-    }
-    for (const [chain, chainMovers] of byChain) {
-      const url = resolveWebhook("filter", chain);
-      if (!url) continue;
-      await sendDiscordMessage(
-        url,
-        formatFilterDigest(`Phase 1 暴涨扫描 [${chain}]`, chainMovers),
-      ).catch((err) => console.error(err));
-    }
-  }
 
   // Candidates = misses that survived ALL automatic filters
   const candidates = movers.filter(
