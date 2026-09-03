@@ -11,6 +11,7 @@ import {
 } from "../chains/robinhood/smart-money.js";
 import { GmgnError, gmgnWalletActivity } from "./gmgn.js";
 import { smartMoneyEngine, type SmartMoneyBuy } from "./engine.js";
+import { cieloCoveredChains, cieloEnabled } from "./cielo.js";
 
 /**
  * Live wallet tracking for non-RB chains (bsc/sol/base/eth) via GMGN
@@ -40,12 +41,17 @@ async function loadState(): Promise<ActivityState> {
   }
 }
 
-/** Chains other than robinhood that have at least one tracked wallet. */
-function nonRbWalletsByChain(wallets: TrackedWallet[]): Map<string, TrackedWallet[]> {
+/**
+ * Chains this poller owns: everything except robinhood (its own wss watcher)
+ * and — when Cielo is enabled — the chains Cielo pushes in real time.
+ */
+function pollableWalletsByChain(wallets: TrackedWallet[]): Map<string, TrackedWallet[]> {
+  const cieloChains = cieloEnabled() ? cieloCoveredChains() : new Set<string>();
   const byChain = new Map<string, TrackedWallet[]>();
   for (const w of wallets) {
     const chain = walletChain(w);
     if (chain === "robinhood") continue;
+    if (cieloChains.has(chain)) continue; // Cielo handles this chain via push
     (byChain.get(chain) ?? byChain.set(chain, []).get(chain)!).push(w);
   }
   return byChain;
@@ -58,7 +64,7 @@ export async function startActivityWatcher(): Promise<void> {
   while (true) {
     try {
       const wallets = await loadTrackedWallets();
-      const byChain = nonRbWalletsByChain(wallets);
+      const byChain = pollableWalletsByChain(wallets);
       if (byChain.size === 0) {
         await sleep(POLL_MS);
         continue;

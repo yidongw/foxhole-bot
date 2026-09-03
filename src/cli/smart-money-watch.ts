@@ -4,6 +4,7 @@ loadEnv();
 
 import { startSmartMoneyWatcher } from "../chains/robinhood/smart-money-watcher.js";
 import { startActivityWatcher } from "../smartmoney/activity-watcher.js";
+import { startCieloWatcher } from "../smartmoney/cielo.js";
 
 /**
  * Run ONLY the smart-money watcher (no discovery / trading / other channels).
@@ -29,4 +30,7 @@ startSmartMoneyWatcher().catch((err) => {
 });
 startActivityWatcher().catch((err) => {
   console.error("activity watcher:", (err as Error).message);
+});
+startCieloWatcher().catch((err) => {
+  console.error("cielo watcher:", (err as Error).message);
 });

@@ -15,6 +15,7 @@ import {
   type TransferHit,
 } from "../src/chains/robinhood/smart-money.js";
 import { qualifyWallet, type ProfitWallet } from "../src/smartmoney/profit.js";
+import { parseCieloBuy } from "../src/smartmoney/cielo.js";
 import { encodeAbiParameters, parseAbiParameters } from "viem";
 
 const WALLET = "0x1111111111111111111111111111111111111111";
@@ -155,6 +156,36 @@ describe("qualifyWallet (winner-finder filter)", () => {
     expect(qualifyWallet({ ...base, sellTx: 0 })).toBe(false);
     expect(qualifyWallet({ ...base, tags: ["dex_bot"] })).toBe(false);
     expect(qualifyWallet({ ...base, tags: ["bundler"] })).toBe(false);
+  });
+});
+
+describe("parseCieloBuy", () => {
+  const label = () => "whale";
+  it("maps a Cielo swap message to a buy on the received token", () => {
+    const buy = parseCieloBuy(
+      {
+        tx_type: "swap",
+        wallet: WALLET,
+        chain: "solana",
+        tx_hash: "0xhash",
+        timestamp: 1700000000,
+        token0_symbol: "USDC",
+        token1_address: "Mint111",
+        token1_symbol: "WIF",
+        token1_amount_usd: 5000,
+      },
+      label,
+    );
+    expect(buy?.chain).toBe("sol"); // solana → sol alias
+    expect(buy?.token).toBe("Mint111");
+    expect(buy?.symbol).toBe("WIF");
+    expect(buy?.usd).toBe(5000);
+    expect(buy?.source).toBe("cielo");
+  });
+
+  it("ignores non-swap events and messages with no received token", () => {
+    expect(parseCieloBuy({ tx_type: "transfer", wallet: WALLET }, label)).toBeNull();
+    expect(parseCieloBuy({ tx_type: "swap", wallet: WALLET }, label)).toBeNull();
   });
 });
 

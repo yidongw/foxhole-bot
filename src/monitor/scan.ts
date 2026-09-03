@@ -784,6 +784,10 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     startActivityWatcher().catch((err) =>
       console.error("smart-money activity watcher failed to start:", (err as Error).message),
     );
+    const { startCieloWatcher } = await import("../smartmoney/cielo.js");
+    startCieloWatcher().catch((err) =>
+      console.error("smart-money cielo watcher failed to start:", (err as Error).message),
+    );
   }
 
   const positionLoopPromise = positionLoop();
