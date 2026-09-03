@@ -1,11 +1,16 @@
 import {
   createWalletClient,
+  encodeAbiParameters,
   erc20Abi,
   formatUnits,
   http,
+  keccak256,
+  pad,
   parseAbi,
   parseUnits,
+  toHex,
   type Address,
+  type Hex,
   type PublicClient,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -254,6 +259,172 @@ export async function preflightV2Buy(
   };
 }
 
+// --- Sell-side (round-trip honeypot) preflight ------------------------------
+// Simulating a sell needs the synthetic sender to already hold the token and to
+// have approved the router. We can't transfer real tokens, so we override the
+// ERC20's storage: auto-detect the balanceOf / allowance mapping slots (probe
+// standard Solidity layouts) and stateDiff them. Non-standard tokens (Vyper,
+// proxies, packed slots) won't be detected → we skip rather than false-block.
+
+const SLOT_PROBE_LIMIT = 25;
+const PROBE_VALUE = 10n ** 30n;
+
+/** Storage slot of `mapping(address => _)[holder]` at declaration `slotIndex`. */
+function mappingSlot(holder: Address, slotIndex: number): Hex {
+  return keccak256(
+    encodeAbiParameters(
+      [{ type: "address" }, { type: "uint256" }],
+      [holder, BigInt(slotIndex)],
+    ),
+  );
+}
+
+/** Storage slot of `mapping(owner => mapping(spender => _))[owner][spender]`. */
+function allowanceSlot(owner: Address, spender: Address, slotIndex: number): Hex {
+  const inner = keccak256(
+    encodeAbiParameters(
+      [{ type: "address" }, { type: "uint256" }],
+      [owner, BigInt(slotIndex)],
+    ),
+  );
+  return keccak256(
+    encodeAbiParameters(
+      [{ type: "address" }, { type: "bytes32" }],
+      [spender, inner],
+    ),
+  );
+}
+
+async function detectBalanceSlot(
+  client: PublicClient,
+  token: Address,
+  holder: Address,
+): Promise<Hex | undefined> {
+  for (let i = 0; i < SLOT_PROBE_LIMIT; i++) {
+    const slot = mappingSlot(holder, i);
+    try {
+      const bal = await client.readContract({
+        address: token,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [holder],
+        stateOverride: [
+          { address: token, stateDiff: [{ slot, value: pad(toHex(PROBE_VALUE)) }] },
+        ],
+      });
+      if (bal === PROBE_VALUE) return slot;
+    } catch {
+      // reverted for this probe — try next slot index
+    }
+  }
+  return undefined;
+}
+
+async function detectAllowanceSlot(
+  client: PublicClient,
+  token: Address,
+  owner: Address,
+  spender: Address,
+): Promise<Hex | undefined> {
+  for (let i = 0; i < SLOT_PROBE_LIMIT; i++) {
+    const slot = allowanceSlot(owner, spender, i);
+    try {
+      const al = await client.readContract({
+        address: token,
+        abi: erc20Abi,
+        functionName: "allowance",
+        args: [owner, spender],
+        stateOverride: [
+          { address: token, stateDiff: [{ slot, value: pad(toHex(PROBE_VALUE)) }] },
+        ],
+      });
+      if (al === PROBE_VALUE) return slot;
+    } catch {
+      // try next slot index
+    }
+  }
+  return undefined;
+}
+
+export interface V2SellPreflight {
+  ok: boolean;
+  reason?: string;
+  /** true = simulated to a real verdict; false = skipped (undetectable slots). */
+  simulated: boolean;
+  path?: Address[];
+}
+
+/**
+ * Keyless round-trip honeypot check: can `amountTokens` of `token` actually be
+ * SOLD back to native? Fakes the sender's balance + router allowance via
+ * storage override and simulates the sell on real chain state (0 funds). This
+ * catches "can buy, can't sell" honeypots that a buy-only preflight and (when
+ * unavailable) the GoPlus gate would miss. Skips (simulated=false, ok=true)
+ * when the token's storage layout can't be introspected — never false-blocks.
+ */
+export async function preflightV2Sell(
+  chainId: ChainId,
+  token: Address,
+  amountTokens: number,
+  slippageBps: number,
+): Promise<V2SellPreflight> {
+  const cfg = V2_ROUTERS[chainId];
+  if (!cfg) return { ok: false, reason: `no v2 router for ${chainId}`, simulated: false };
+  const client: PublicClient = getEvmClient(chainId);
+
+  let decimals = 18;
+  try {
+    decimals = await client.readContract({ address: token, abi: erc20Abi, functionName: "decimals" });
+  } catch {
+    // default 18
+  }
+  const amountIn = parseUnits(amountTokens.toFixed(decimals), decimals);
+  if (amountIn <= 0n) return { ok: true, reason: "zero amount", simulated: false };
+
+  const route = await bestRoute(chainId, token, cfg.wrappedNative, amountIn);
+  if (!route) return { ok: false, reason: "no v2 sell route", simulated: false };
+
+  const balSlot = await detectBalanceSlot(client, token, SIM_SENDER);
+  const allowSlot = await detectAllowanceSlot(client, token, SIM_SENDER, cfg.router);
+  if (!balSlot || !allowSlot) {
+    return {
+      ok: true,
+      reason: "sell-sim skipped (non-standard token storage; GoPlus still gates honeypot)",
+      simulated: false,
+      path: route.path,
+    };
+  }
+
+  const minOut = (route.out * BigInt(10_000 - slippageBps)) / 10_000n;
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+  const fake = pad(toHex(amountIn * 4n));
+  try {
+    await client.simulateContract({
+      address: cfg.router,
+      abi: ROUTER_ABI,
+      functionName: "swapExactTokensForETHSupportingFeeOnTransferTokens",
+      args: [amountIn, minOut, route.path, SIM_SENDER, deadline],
+      account: SIM_SENDER,
+      stateOverride: [
+        { address: SIM_SENDER, balance: parseUnits("1", 18) },
+        {
+          address: token,
+          stateDiff: [
+            { slot: balSlot, value: fake },
+            { slot: allowSlot, value: fake },
+          ],
+        },
+      ],
+    });
+  } catch (err) {
+    const short =
+      (err as { shortMessage?: string }).shortMessage ??
+      (err as Error).message.split("\n")[0];
+    return { ok: false, reason: `sell would revert (honeypot/illiquid): ${short}`, simulated: true, path: route.path };
+  }
+  return { ok: true, simulated: true, path: route.path };
+}
+
 /** Buy `usd` worth of `token` with native currency through the v2 router. */
 export async function v2Buy(
   chainId: ChainId,
@@ -273,6 +444,18 @@ export async function v2Buy(
     throw new Error(
       `v2Buy preflight failed for ${token} on ${chainId}: ${pre.reason}`,
     );
+  }
+
+  // Honeypot gate: don't buy what we can't sell. Round-trip simulate the exit
+  // (unless disabled). Skips silently for tokens whose storage can't be
+  // introspected — GoPlus still covers those.
+  if (process.env.TRADE_SELL_PREFLIGHT !== "0") {
+    const sellPre = await preflightV2Sell(chainId, token, pre.amountTokens, slippageBps);
+    if (!sellPre.ok) {
+      throw new Error(
+        `v2Buy blocked for ${token} on ${chainId}: fails sell preflight — ${sellPre.reason}`,
+      );
+    }
   }
 
   const native = await nativePriceUsd(chainId);

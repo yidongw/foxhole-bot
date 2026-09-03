@@ -4,6 +4,7 @@ import {
   V2_ROUTERS,
   nativeProceeds,
   preflightV2Buy,
+  preflightV2Sell,
   tokensReceived,
 } from "../src/chains/evm/v2-swap.js";
 
@@ -24,6 +25,20 @@ describe("preflightV2Buy", () => {
     expect(r.ok).toBe(false);
     expect(r.reason).toContain("no v2 router");
     expect(r.quotedOut).toBe(0n);
+  });
+});
+
+describe("preflightV2Sell", () => {
+  it("fails closed (no network) for a chain without a v2 router", async () => {
+    const r = await preflightV2Sell(
+      "robinhood" as never,
+      "0x0000000000000000000000000000000000000001",
+      100,
+      100,
+    );
+    expect(r.ok).toBe(false);
+    expect(r.simulated).toBe(false);
+    expect(r.reason).toContain("no v2 router");
   });
 });
 

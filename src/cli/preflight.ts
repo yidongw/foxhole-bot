@@ -4,7 +4,7 @@ loadEnv();
 
 import { getAddress, type Address } from "viem";
 
-import { preflightV2Buy } from "../chains/evm/v2-swap.js";
+import { preflightV2Buy, preflightV2Sell } from "../chains/evm/v2-swap.js";
 import { ALL_CHAINS, type ChainId } from "../chains/adapter.js";
 
 /**
@@ -37,16 +37,29 @@ async function main() {
   const usd = usdArg ? Number(usdArg) : 50;
   const slippageBps = slipArg ? Number(slipArg) : 100;
 
-  const r = await preflightV2Buy(chain, token, usd, slippageBps);
-  console.log(`preflight v2 buy — ${chain} ${token}`);
+  console.log(`preflight round-trip — ${chain} ${token}`);
   console.log(`  $${usd} @ ${slippageBps}bps slippage`);
-  if (r.ok) {
-    console.log(`  ✅ OK — would receive ~${r.amountTokens} tokens (≈$${r.priceUsd.toExponential(4)}/token)`);
-    console.log(`  quotedOut=${r.quotedOut}`);
-  } else {
-    console.log(`  ⛔ BLOCKED — ${r.reason}`);
+
+  const buy = await preflightV2Buy(chain, token, usd, slippageBps);
+  if (!buy.ok) {
+    console.log(`  BUY  ⛔ BLOCKED — ${buy.reason}`);
+    process.exit(2);
   }
-  process.exit(r.ok ? 0 : 2);
+  const via =
+    buy.path && buy.path.length > 2 ? ` via ${buy.path.length - 2} hop(s)` : " direct";
+  console.log(
+    `  BUY  ✅ OK${via} — ~${buy.amountTokens} tokens (≈$${buy.priceUsd.toExponential(4)}/token)`,
+  );
+
+  const sell = await preflightV2Sell(chain, token, buy.amountTokens, slippageBps);
+  if (sell.ok && sell.simulated) {
+    console.log(`  SELL ✅ OK — token is sellable (not a honeypot)`);
+  } else if (sell.ok && !sell.simulated) {
+    console.log(`  SELL ⚠️  ${sell.reason}`);
+  } else {
+    console.log(`  SELL ⛔ BLOCKED — ${sell.reason}`);
+  }
+  process.exit(sell.ok ? 0 : 2);
 }
 
 main().catch((err) => {
