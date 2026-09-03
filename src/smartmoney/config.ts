@@ -26,6 +26,8 @@ export interface SmartMoneyFilter {
   aiWindowMin: number;
   aiMinUsd: number;
   soloTrigger: boolean;
+  /** Suppress repeat alerts for the same (wallet, token) within N minutes. */
+  alertCooldownMin: number;
 }
 
 export interface SmartMoneyConfig {
@@ -44,6 +46,7 @@ function envDefaults(): SmartMoneyFilter {
     aiWindowMin: num("SMART_MONEY_WINDOW_MIN", 60),
     aiMinUsd: num("SMART_MONEY_AI_MIN_USD", 0),
     soloTrigger: false,
+    alertCooldownMin: num("SMART_MONEY_ALERT_COOLDOWN_MIN", 0),
   };
 }
 
@@ -53,7 +56,9 @@ function envDefaults(): SmartMoneyFilter {
  * cut noise and only wake AI on meaningful size.
  */
 const CHAIN_DEFAULTS: Record<string, Partial<SmartMoneyFilter>> = {
-  robinhood: { alertMinUsd: 0, aiMinUsd: 0 },
+  // RB is the home chain (keep all sizes) but a wallet re-buying the same token
+  // (e.g. the HOOD accumulator) spams — so cool down repeat same-token alerts.
+  robinhood: { alertMinUsd: 0, aiMinUsd: 0, alertCooldownMin: 30 },
   bsc: { alertMinUsd: 1000, aiMinUsd: 3000 },
   sol: { alertMinUsd: 500, aiMinUsd: 2000 },
   solana: { alertMinUsd: 500, aiMinUsd: 2000 },

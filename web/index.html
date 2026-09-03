@@ -432,7 +432,7 @@
           <div style="border-left:4px solid ${smColor(c)};background:var(--card,#161616);padding:8px 12px;border-radius:6px;font-size:12px;">
             <b style="color:${smColor(c)};">${c.toUpperCase()}</b><br>
             警报 ≥ $${(f.alertMinUsd||0).toLocaleString()}<br>
-            AI 唤醒: ${f.aiConvictionN} 钱包 / ${f.aiWindowMin}min 且每笔 ≥ $${(f.aiMinUsd||0).toLocaleString()}${f.soloTrigger ? ' · solo' : ''}
+            AI 唤醒: ${f.aiConvictionN} 钱包 / ${f.aiWindowMin}min 且每笔 ≥ $${(f.aiMinUsd||0).toLocaleString()}${f.soloTrigger ? ' · solo' : ''}${f.alertCooldownMin ? '<br>冷却: ' + f.alertCooldownMin + 'min/同币' : ''}
           </div>`).join('');
 
         // Wallets grouped by chain, each with its resolved filter

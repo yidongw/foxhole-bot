@@ -53,6 +53,7 @@ interface RecentBuy {
 export class SmartMoneyEngine {
   private recent = new Map<string, RecentBuy[]>(); // chain:token -> buys
   private alerted = new Set<string>(); // txHash:wallet:token
+  private cooldown = new Map<string, number>(); // chain:wallet:token -> last alert ts
   private escalated = new Map<string, number>(); // chain:token -> last escalate ts
 
   /** Distinct tracked wallets that bought this token within the window. */
@@ -91,6 +92,15 @@ export class SmartMoneyEngine {
         reason: `below alert min $${filter.alertMinUsd}`,
       });
       return;
+    }
+
+    // --- Per-(wallet,token) cooldown: silence a wallet re-buying the same token. ---
+    if (filter.alertCooldownMin > 0) {
+      const cdKey = `${buy.chain.toLowerCase()}:${buy.wallet.toLowerCase()}:${buy.token.toLowerCase()}`;
+      const lastCd = this.cooldown.get(cdKey) ?? 0;
+      if (buy.ts - lastCd < filter.alertCooldownMin * 60_000) return; // silent skip
+      this.cooldown.set(cdKey, buy.ts);
+      if (this.cooldown.size > 8000) this.cooldown.clear();
     }
 
     const key = `${buy.chain.toLowerCase()}:${buy.token.toLowerCase()}`;

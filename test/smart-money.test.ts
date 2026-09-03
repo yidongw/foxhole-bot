@@ -196,6 +196,9 @@ describe("resolveFilterSync (per-chain / per-wallet filters)", () => {
     expect(resolveFilterSync(empty, "robinhood", "0x0").alertMinUsd).toBe(0);
     expect(resolveFilterSync(empty, "bsc", "0x0").alertMinUsd).toBe(1000);
     expect(resolveFilterSync(empty, "bsc", "0x0").aiMinUsd).toBe(3000);
+    // RB cools down a wallet re-buying the same token to kill spam.
+    expect(resolveFilterSync(empty, "robinhood", "0x0").alertCooldownMin).toBe(30);
+    expect(resolveFilterSync(empty, "bsc", "0x0").alertCooldownMin).toBe(0);
   });
   it("wallet override beats chain override beats defaults", () => {
     const cfg: SmartMoneyConfig = {
