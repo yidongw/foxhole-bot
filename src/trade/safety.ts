@@ -76,7 +76,11 @@ export function safetyGateEnabled(): boolean {
  * then rug). Both candle sources empty on a trading token usually means a
  * drained pool — veto rather than assume clean.
  */
-async function checkChart(chain: string, poolId: string): Promise<string | undefined> {
+async function checkChart(
+  chain: string,
+  poolId: string,
+  onBondingCurve = false,
+): Promise<string | undefined> {
   let hourly: Awaited<ReturnType<typeof fetchPoolOhlcv>> = [];
   let fine: typeof hourly = [];
   try {
@@ -87,7 +91,11 @@ async function checkChart(chain: string, poolId: string): Promise<string | undef
     fine = await fetchGtOhlcv(chain, poolId, { timeframe: "minute", aggregate: 15, limit: 100 });
   } catch {}
 
-  if (!hourly.length && !fine.length) return "no_chart_history";
+  // Bonding-curve tokens pre-graduation have no AMM pool yet, so absent OHLCV
+  // is expected, not a drained pool — GoPlus + curve state carry safety there.
+  if (!hourly.length && !fine.length) {
+    return onBondingCurve ? undefined : "no_chart_history";
+  }
 
   for (const [candles, label] of [
     [hourly, "1h"],
@@ -155,8 +163,11 @@ export async function checkTokenSafety(
   chain: string,
   token: string,
   poolId?: string,
+  opts?: { onBondingCurve?: boolean },
 ): Promise<SafetyVerdict> {
-  const key = `${chain}:${token.toLowerCase()}`;
+  // Curve flag in the key so a pre-graduation verdict (chart check skipped)
+  // doesn't mask the full chart check once the token graduates to an AMM pool.
+  const key = `${chain}:${token.toLowerCase()}:${opts?.onBondingCurve ? "curve" : "amm"}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.verdict;
 
@@ -227,7 +238,7 @@ export async function checkTokenSafety(
   }
 
   if (poolId) {
-    const chartFlag = await checkChart(chain, poolId);
+    const chartFlag = await checkChart(chain, poolId, opts?.onBondingCurve);
     if (chartFlag) {
       verdict = { ...verdict, ok: false, flags: [...verdict.flags, chartFlag] };
     }
