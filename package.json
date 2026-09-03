@@ -23,6 +23,7 @@
     "news": "tsx src/cli/news.ts",
     "news:search": "tsx src/cli/news.ts search",
     "smartmoney": "tsx src/cli/smart-money.ts",
+    "preflight": "tsx src/cli/preflight.ts",
     "deploy": "bash scripts/deploy-local.sh",
     "serve": "python3 -m http.server 8787 --directory web",
     "dev": "npm run fetch:long && npm run serve",

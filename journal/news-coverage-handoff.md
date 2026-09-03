@@ -3,6 +3,43 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-03 11:0x UTC 第 4 轮(验证前修 + 新面扫描,无新代码改动)
+
+本轮无新增修复——三处旧修均在生效,新代码面无高危。
+
+### ① 新闻(24h 192 条回放,健康)
+- 无新噪音模式:32 wake 全是 legit RB/BNB meme(PONS/CASHCAT/JINQIAN/FLORK/
+  MARSCOIN/NUDES/INDEX/USELESS)。R2「watched 只看标题」再次验证有效。
+- 「交易赚币」「借壳收割」仍出现在 wake,但**来自 R3 修复前种下的 hotSymbols**
+  (时间戳冻在 02:47/02:50,未再刷新)→ 确认 R3 的 pure-CJK 守卫已部署且停止再种,
+  48h 后自然过期。无需再动。
+- drop 侧无真漏(Fomo平台收入/HYPE增持/ETH建仓/「牛来」转 Binance 均正确丢弃)。
+
+### ② 覆盖率(健康)
+- robinhood ≥100% 对照干净:2 mover 全在册(738 币,持续增长)。
+- 哑弹分析仍无数据(labeled.json 未产出)。
+
+### ③ 安全(1 条新观察,扩充 P2)
+- 部署库已追平 origin(R3 的 deploy-lag 已由 smart-money 部署对账化解)。
+- **smart-money 新模块扩大了 decider 注入面**:engine.ts 把 GMGN 来的 symbol/CA
+  (如「刘大根」「云九」,攻击者可任意命名)写进 ai-inbox 并 maybeSpawnDecider("signal")
+  → 同 news 一类的 prompt-injection 通道(P2)。另 RB 币被 smart-money 信号自动加进
+  v4 watchlist 且 verified:true(信任 GMGN 数据)。缓解仍在:decider 自查
+  DexScreener+safety 门 + $50 paper 夹死,非自动买。**建议**:symbol/address 进
+  inbox 前做校验/转义(需与 smart-money owner 协调)。无 .buy/execute 绕过 CLI。
+- 新代码无私钥/webhook 日志泄漏。npm audit 同旧。
+
+### ④ 健康(绿)
+- npx tsc 干净;npm test **177 passed**(smart-money 加了测试)。
+- monitor 存活,3 分钟前(11:05Z=本地18:05)刚被 smart-money 部署重启,news lastRunAt
+  与 lastId 均实时(**注意:ps/stat 打本地时区 UTC+7,log/state 是 UTC——别把
+  18:05 本地 误当 7h 前**)。无 stall,无未捕获异常。
+
+**下轮重点:** ① 继续盯「」junk 是否随过期消失(约 09-05 02:47Z 后应清零)。
+② labeled.json 一出现即做哑弹分析。③ 若 smart-money owner 未处理,注入面校验可自己补。
+
+---
+
 ## 2026-09-03 16:0x UTC 第 3 轮(自迭代循环首触发)
 
 ### ① 新闻(24h 191 条回放,已修)

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { V2_ROUTERS, nativeProceeds, tokensReceived } from "../src/chains/evm/v2-swap.js";
+import {
+  V2_ROUTERS,
+  nativeProceeds,
+  preflightV2Buy,
+  tokensReceived,
+} from "../src/chains/evm/v2-swap.js";
 
 /**
  * Guard the wrapped-native addresses — a wrong one makes every getAmountsOut
@@ -8,6 +13,20 @@ import { V2_ROUTERS, nativeProceeds, tokensReceived } from "../src/chains/evm/v2
  * A wrong BSC WBNB (…F60aF814…Ee75) shipped undetected until on-chain
  * simulation caught it; these are the canonical, on-chain-verified values.
  */
+describe("preflightV2Buy", () => {
+  it("fails closed (no network) for a chain without a v2 router", async () => {
+    const r = await preflightV2Buy(
+      "robinhood" as never,
+      "0x0000000000000000000000000000000000000001",
+      50,
+      100,
+    );
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("no v2 router");
+    expect(r.quotedOut).toBe(0n);
+  });
+});
+
 describe("V2_ROUTERS wrapped-native addresses", () => {
   it("uses the canonical wrapped-native per chain", () => {
     expect(V2_ROUTERS.bsc?.wrappedNative).toBe(
@@ -19,6 +38,22 @@ describe("V2_ROUTERS wrapped-native addresses", () => {
     expect(V2_ROUTERS.ethereum?.wrappedNative).toBe(
       "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     ); // WETH
+  });
+
+  it("carries on-chain-verified multi-hop base intermediaries", () => {
+    // USDT/BTCB on BSC — the hops that recover four.meme graduates lacking a
+    // direct WBNB pair (e.g. GOLD/USDT). Verified via symbol() on-chain.
+    expect(V2_ROUTERS.bsc?.bases).toEqual([
+      "0x55d398326f99059fF775485246999027B3197955", // USDT
+      "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c", // BTCB
+    ]);
+    expect(V2_ROUTERS.base?.bases).toEqual([
+      "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC
+    ]);
+    expect(V2_ROUTERS.ethereum?.bases).toEqual([
+      "0xdAC17F958D2ee523a2206206994597C13D831ec7", // USDT
+      "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", // USDC
+    ]);
   });
 });
 
