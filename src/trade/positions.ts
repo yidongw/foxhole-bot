@@ -70,11 +70,18 @@ export function findOpen(file: PositionsFile, token: string): Position | undefin
   );
 }
 
-/** USD spent on entries since the given time (for the daily cap). */
+/**
+ * Capital still at risk from entries since the given time (24h cap basis).
+ * Realized proceeds are netted out per position: recycling returned money
+ * can't raise the worst case (if every position rugs, proceeds are 0 and
+ * the cap binds on gross anyway), but gross counting starved the learning
+ * loop — 4 closed round-trips "spent" $200 while true exposure was ~$50,
+ * blocking every later entry for a full day (LIGMA, BONER 2026-09-03).
+ */
 export function spendSince(file: PositionsFile, sinceIso: string): number {
   return file.positions
     .filter((p) => p.openedAt >= sinceIso)
-    .reduce((sum, p) => sum + p.costUsd, 0);
+    .reduce((sum, p) => sum + Math.max(0, p.costUsd - realizedUsd(p)), 0);
 }
 
 export function remainingFraction(p: Position): number {

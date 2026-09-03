@@ -126,3 +126,38 @@ describe("falling-knife entry veto", () => {
     expect(v.reason).toMatch(/falling knife/);
   });
 });
+
+describe("24h capital-at-risk cap", () => {
+  const now = new Date().toISOString();
+  const closedRoundTrip = {
+    id: "p1", token: "0xoldtoken", chain: "robinhood" as const, symbol: "OLD",
+    openedAt: now, costUsd: 50, amountTokens: 100, entryPriceUsd: 0.5,
+    highPriceUsd: 0.6, status: "closed" as const,
+    exits: [{ at: now, fraction: 1, priceUsd: 0.55, proceedsUsd: 55, reason: "tp" }],
+  };
+  const candidate = {
+    token: "0xAbC0000000000000000000000000000000000004",
+    chain: "robinhood", symbol: "NEW", priceUsd: 1, liquidityUsd: 100_000,
+    triggers: ["lock_strong"],
+  };
+
+  it("closed round-trips free their window allowance", () => {
+    const file = {
+      version: 1 as const,
+      positions: [1, 2, 3, 4].map((i) => ({ ...closedRoundTrip, id: `p${i}`, token: `0xt${i}` })),
+    };
+    // gross entries $200 but all returned with proceeds — new entry allowed
+    expect(checkEntry({ ...CONFIG }, file, candidate).ok).toBe(true);
+  });
+
+  it("rugged (zero-proceed) entries still bind the cap", () => {
+    const rug = { ...closedRoundTrip, exits: [] };
+    const file = {
+      version: 1 as const,
+      positions: [1, 2, 3, 4].map((i) => ({ ...rug, id: `p${i}`, token: `0xt${i}`, status: "closed" as const })),
+    };
+    const v = checkEntry({ ...CONFIG }, file, candidate);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/capital-at-risk/);
+  });
+});

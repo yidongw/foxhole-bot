@@ -104,7 +104,7 @@ describe("checkEntry", () => {
     ]);
     const v = checkEntry(CONFIG, file, CANDIDATE);
     expect(v.ok).toBe(false);
-    expect(v.reason).toMatch(/daily spend/);
+    expect(v.reason).toMatch(/capital-at-risk/);
   });
 });
 

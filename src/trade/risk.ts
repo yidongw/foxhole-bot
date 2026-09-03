@@ -67,7 +67,7 @@ export function checkEntry(
   if (spent + config.usdPerTrade > config.maxDailySpendUsd) {
     return {
       ok: false,
-      reason: `daily spend cap: $${Math.round(spent)} + $${config.usdPerTrade} > $${config.maxDailySpendUsd}`,
+      reason: `24h capital-at-risk cap: $${Math.round(spent)} + $${config.usdPerTrade} > $${config.maxDailySpendUsd}`,
     };
   }
 
