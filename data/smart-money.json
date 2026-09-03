@@ -35,33 +35,6 @@
       "realizedUsd": 254525,
       "addedAt": "2026-09-03T14:46:03.712Z",
       "addedBy": "winner-finder-v2"
-    },
-    {
-      "address": "0x776b1e178Bd80fEa40999Bf4291e30Af1A56ec10",
-      "label": "A v2 $455k",
-      "chain": "bsc",
-      "tier": "A",
-      "realizedUsd": 455118,
-      "addedAt": "2026-09-03T14:46:03.713Z",
-      "addedBy": "winner-finder-v2"
-    },
-    {
-      "address": "0xB9DEE5a24C8a90cE5eB7a3ffFF234b7AABc8593a",
-      "label": "A v2 $115k",
-      "chain": "bsc",
-      "tier": "A",
-      "realizedUsd": 114818,
-      "addedAt": "2026-09-03T14:46:03.713Z",
-      "addedBy": "winner-finder-v2"
-    },
-    {
-      "address": "0x80cFE861cEBdaD77C425E383e26973785Bd44C25",
-      "label": "B v2 $130k",
-      "chain": "bsc",
-      "tier": "B",
-      "realizedUsd": 129679,
-      "addedAt": "2026-09-03T14:46:03.713Z",
-      "addedBy": "winner-finder-v2"
     }
   ]
 }
