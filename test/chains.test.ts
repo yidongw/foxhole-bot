@@ -11,6 +11,7 @@ const CONFIG: TradeConfig = {
   usdPerTrade: 50,
   maxDailySpendUsd: 200,
   paperStartUsd: 1000,
+  autoEntry: true,
   maxOpenPositions: 3,
   minEntryLiquidityUsd: 50_000,
   slippageBps: 100,

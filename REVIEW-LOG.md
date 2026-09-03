@@ -183,3 +183,9 @@ checkChart(collapsed_pump veto):信号在投递与入场之前就被拦截。102
 $28.8万 dust 与 $7000万 JINQIAN 同套阈值。修复: FDV < $1M 的 strong 降为
 alert + micro_cap 触发器, checkEntry 拒绝入场(FDV 缺失则 fail-open)。
 实测 I→alert/micro_cap, PONS($340M)不受影响。112/112。
+## 2026-09-03 — 引擎机械入场 vs AI 决策的冲突(用户指出)
+用户看 "I" thread 问为什么 AI 分析没起作用。真相: thread 里 02:48 决策进程
+明确"跳过"(事后警报+微盘),02:49 引擎却自动买入 $50 —— 两条路径互不通气,
+AI 的判断对执行毫无约束力。根因: processSignals 机械自动入场,与 AI 决策进程
+并行运行且优先。修复: 新增 TRADE_AUTO_ENTRY(默认关),AI 决策进程成为唯一买家,
+其 buy/skip 判断即最终执行; 引擎仍机械管理出场(快速止损保留)。113/113。
