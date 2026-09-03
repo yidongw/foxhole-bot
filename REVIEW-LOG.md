@@ -296,3 +296,13 @@ direct + 经各配置 base(BSC=USDT/BTCB, Base=USDC, ETH=USDT/USDC,均链上 sym
 实测: GOLD 现在 preflight ✅ OK,买 WBNB→USDT→GOLD、卖 GOLD→USDT→WBNB 均报价+模拟通过;
 WBNB 直连代币仍走 direct(不回归)。加 bases 守卫测试。179/179。下次: v2Sell 广播前
 preflight(stateOverride 伪造余额+allowance 做完整往返貔貅检测);或 BSC 曲线量能阈值。
+
+## 2026-09-03 (循环) — v2Sell 往返貔貅检测 preflight (能买不能卖直接拦)
+补上买入 preflight 抓不到、GoPlus fail-open 时无防护的盲区: 貔貅(能买不能卖)。
+新增 preflightV2Sell: 用 stateOverride 的 stateDiff 伪造合成账户的 token 余额+对
+router 的 allowance(余额/allowance 存储槽用探测法自动定位 keccak256(abi.encode(holder,
+i)),i=0..24,不臆造),再模拟 swapExactTokensForETH 卖出——真实链上状态、0 花费。
+存储非标准(Vyper/proxy/packed)探不到时跳过(simulated=false, ok=true, 不误杀,GoPlus 仍兜)。
+v2Buy 广播前跑它(TRADE_SELL_PREFLIGHT!=0),卖出会 revert 直接 abort 买入。preflight
+CLI 升级为完整往返(BUY/SELL 双行)。实测: GOLD/USDT 买(经USDT跳)+卖均 ✅; CAKE 直连
+买卖均 ✅。180/180。下次: BSC 曲线量能阈值,或槽探测结果按 token 缓存降延迟。
