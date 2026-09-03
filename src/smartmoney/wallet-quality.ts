@@ -66,6 +66,26 @@ export const DEFAULT_QUALITY: QualityConfig = {
   maxIdleDays: 14,
 };
 
+/**
+ * Relaxed bar for RE-VETTING already-tracked wallets. Selection (find2) is
+ * strict — we only add proven wallets — but once a wallet is in, we give it
+ * more slack so a temporary dip doesn't churn a good tracker out. A wallet is
+ * only dropped when it clearly deteriorated (negative-ish ROI, dormant, or
+ * turned into a bot). Bot/arbitrager tags still drop it.
+ */
+export const REVET_QUALITY: QualityConfig = {
+  minRoi: 0.3,
+  minWinrate: 0.2,
+  minTokens: 3,
+  maxTokens: 600,
+  minRealizedUsd: 1_000,
+  minBigWins: 0,
+  minAvgBuyUsd: 100,
+  entryMcapMin: 5_000,
+  entryMcapMax: 10_000_000,
+  maxIdleDays: 30,
+};
+
 const BAD_TAGS = new Set([
   "sandwich_bot",
   "mev_bot",

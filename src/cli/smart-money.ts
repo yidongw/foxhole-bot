@@ -16,7 +16,7 @@ import {
   type SmartMoneyFilter,
 } from "../smartmoney/config.js";
 import { findWorthTracking } from "../smartmoney/winner-finder.js";
-import { assessWallet } from "../smartmoney/wallet-quality.js";
+import { assessWallet, REVET_QUALITY } from "../smartmoney/wallet-quality.js";
 import {
   addGoodToken,
   goodTokensForChain,
@@ -269,7 +269,7 @@ async function main() {
     const drop = process.argv.includes("--drop");
     const now = Math.floor(Date.now() / 1000);
     const wallets = await loadTrackedWallets();
-    console.log(`重评 ${wallets.length} 个追踪钱包(v2 assessWallet)…`);
+    console.log(`重评 ${wallets.length} 个追踪钱包(宽松门槛,只踢明显退化的)…`);
     const fails: { address: string; chain: string; reasons: string[] }[] = [];
     for (const w of wallets) {
       const chain = walletChain(w);
@@ -279,7 +279,7 @@ async function main() {
         continue;
       }
       try {
-        const v = await assessWallet(chain, w.address, now);
+        const v = await assessWallet(chain, w.address, now, REVET_QUALITY);
         if (!v) {
           console.log(`  [${chain}] ${w.address} — 无数据(跳过,不踢)`);
         } else if (v.pass) {
