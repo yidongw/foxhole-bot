@@ -3,6 +3,29 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-03 23:0x UTC 第 10 轮(安静轮:全绿;OpenNews 复活)
+
+四项全稳,无新问题需修;一个正向变化:OpenNews 恢复产出。
+
+- ① 新闻:BlockBeats 35 wake 全 legit,无新噪音/漏。**OpenNews/6551 复活**——日志
+  `opennews tick: 30 scored, 2~6 posted`,累计降级仅 13(R7 时是 12,几乎不再降级)→
+  说明 OPENNEWS_TOKEN 额度恢复,AI 打分定向搜索重新上线,每 tick 向 #news-radar 发
+  2~6 条。它是 informational-only(不唤醒 decider、不自动买),即便略多也无交易风险,
+  暂不动;若 #news-radar 觉得吵可在 opennews-poll 收紧 CAP/score 阈值。
+- ② 覆盖率:robinhood ≥100% 对照干净(7 mover 全在册,**1047 币**)。哑弹仍无解
+  (labeled 15/clean 9,grader 未产新标签)。
+- ③ 安全:无新代码可扫;smart-money P2、Solana audit 6 high 仍挂账。
+- ④ 健康:tsc 干净、npm test **251 passed**、monitor 稳定运行 ~4h+ 未重启(pid 82431)、
+  BN 未复现、0 uncaught。**(复核:一度疑 news lastRunAt 停摆 7h,实为真实 UTC now
+  =23:06Z、lastRunAt=23:04Z 仅 2min 前——又是时区错觉,已用 date -u + feed 最新
+  flash 时间交叉验证确认无停摆。)**
+- 「」junk:交易赚币 02:47Z / 借壳收割 02:50Z 仍冻结,距 09-05 02:47Z TTL 到期约 27h。
+
+**下轮重点:** ① 「」junk 09-05 02:47Z 后复查是否消失。② grader 产新标签后做哑弹分析。
+③ OpenNews 复活后如 #news-radar 偏吵,评估 opennews-poll 的 score/CAP 收紧。
+
+---
+
 ## 2026-09-04 04:0x UTC 第 9 轮(安静轮:全绿,无新改动)
 
 BlockBeats 隔夜出稿少,feed 与 R8 高度重合;四项全稳。
