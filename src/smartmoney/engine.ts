@@ -1,4 +1,4 @@
-import { sendDiscordMessage } from "../notify/discord.js";
+import { sendDiscordEmbed } from "../notify/discord.js";
 import { resolveWebhook } from "../notify/routes.js";
 import { appendAiInboxNews } from "../notify/ai-inbox.js";
 import { ConvictionTracker } from "../chains/robinhood/smart-money.js";
@@ -30,6 +30,19 @@ export interface SmartMoneyBuy {
 }
 
 const num = (k: string, d: number) => Number(process.env[k] ?? d);
+
+/** Per-chain brand color (embed border) + emoji, so alerts are distinguishable. */
+const CHAIN_STYLE: Record<string, { color: number; emoji: string; name: string }> = {
+  robinhood: { color: 0x00c805, emoji: "🟢", name: "RB" },
+  bsc: { color: 0xf0b90b, emoji: "🟡", name: "BSC" },
+  solana: { color: 0x9945ff, emoji: "🟣", name: "SOL" },
+  sol: { color: 0x9945ff, emoji: "🟣", name: "SOL" },
+  base: { color: 0x0052ff, emoji: "🔵", name: "BASE" },
+  ethereum: { color: 0x627eea, emoji: "⚪", name: "ETH" },
+  eth: { color: 0x627eea, emoji: "⚪", name: "ETH" },
+};
+const chainStyle = (c: string) =>
+  CHAIN_STYLE[c.toLowerCase()] ?? { color: 0x808080, emoji: "⚫", name: c.toUpperCase() };
 
 export class SmartMoneyEngine {
   private conviction = new ConvictionTracker(num("SMART_MONEY_WINDOW_MIN", 60) * 60_000);
@@ -92,19 +105,24 @@ export class SmartMoneyEngine {
   }
 
   private async alert(buy: SmartMoneyBuy, distinct: number): Promise<void> {
+    const style = chainStyle(buy.chain);
     const usdStr = buy.usd ? ` (~$${Math.round(buy.usd).toLocaleString()})` : "";
-    const lines = [
-      `🐳 **聪明钱买入 / SMART MONEY BUY** [${buy.chain}]`,
+    const description = [
       `\`${buy.walletLabel}\` 买入 **$${buy.symbol}**${usdStr}`,
       `窗口内 **${distinct}** 个追踪钱包买入 $${buy.symbol}`,
       `CA: \`${buy.token}\``,
       `👛 \`${buy.wallet}\``,
-      `🔗 <${this.tokenLink(buy.chain, buy.token)}>`,
-    ];
+      `🔗 [查看代币](${this.tokenLink(buy.chain, buy.token)})`,
+    ].join("\n");
     const webhook =
       resolveWebhook("smartmoney", buy.chain) ?? resolveWebhook("signal", buy.chain);
     if (webhook) {
-      await sendDiscordMessage(webhook, lines.join("\n")).catch((err) =>
+      await sendDiscordEmbed(webhook, {
+        title: `${style.emoji} 聪明钱买入 · ${style.name} SMART MONEY BUY`,
+        description,
+        color: style.color,
+        footer: { text: `${style.name} · smart-money` },
+      }).catch((err) =>
         console.error("smart-money alert failed:", (err as Error).message),
       );
     }

@@ -3,6 +3,7 @@ import { loadEnv } from "../lib/env.js";
 loadEnv();
 
 import { startSmartMoneyWatcher } from "../chains/robinhood/smart-money-watcher.js";
+import { startActivityWatcher } from "../smartmoney/activity-watcher.js";
 
 /**
  * Run ONLY the smart-money watcher (no discovery / trading / other channels).
@@ -24,6 +25,8 @@ console.log(
   `[smart-money] standalone watch starting${minutes > 0 ? ` for ${minutes}min` : ""}…`,
 );
 startSmartMoneyWatcher().catch((err) => {
-  console.error(err);
-  process.exit(1);
+  console.error("RB watcher:", (err as Error).message);
+});
+startActivityWatcher().catch((err) => {
+  console.error("activity watcher:", (err as Error).message);
 });

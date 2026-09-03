@@ -89,6 +89,90 @@
       "label": "gmgn x2 $172k",
       "addedAt": "2026-09-03T08:36:29.020Z",
       "addedBy": "gmgn-winner-finder"
+    },
+    {
+      "address": "0x6795F7EeaF2745700009E759eCD31dcbFB2A6767",
+      "label": "gmgn smart_degen",
+      "chain": "bsc",
+      "addedAt": "2026-09-03T09:26:13.950Z",
+      "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "0x8FB06B6cA4A6c09A513dD960c90b793b45390a90",
+      "label": "gmgn smart_degen",
+      "chain": "bsc",
+      "addedAt": "2026-09-03T09:26:13.951Z",
+      "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "0x0f93496909E0f93424a9DB8cfA141b1094c9Abb3",
+      "label": "gmgn smart_degen",
+      "chain": "bsc",
+      "addedAt": "2026-09-03T09:26:13.952Z",
+      "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "0x34Bf8E63179a2a975a53d6c727E6381900B739FC",
+      "label": "gmgn smart_degen",
+      "chain": "bsc",
+      "addedAt": "2026-09-03T09:26:13.952Z",
+      "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "0x3DA960D149A994E15D01BA56fd35350D66515dBA",
+      "label": "gmgn smart_degen",
+      "chain": "bsc",
+      "addedAt": "2026-09-03T09:26:13.952Z",
+      "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "0xB750f03e86980A3dFFDfaD269a88F008bB78EA51",
+      "label": "gmgn smart_degen",
+      "chain": "bsc",
+      "addedAt": "2026-09-03T09:26:13.953Z",
+      "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "pwZpq97vcUqG5r79PMYJ2rPdJeVfuqdTaxmNvj5KYMR",
+      "label": "gmgn smart_degen",
+      "chain": "sol",
+      "addedAt": "2026-09-03T09:26:13.953Z",
+      "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "Gfsk5ZojnHSLoxRhUBD5vviJELFuTGkyBh9QTqEo7Ehg",
+      "label": "gmgn smart_degen",
+      "chain": "sol",
+      "addedAt": "2026-09-03T09:26:13.953Z",
+      "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "E1wnZSpCYhCjA2MYRpxoVT3gnHRWqY3XZK75kk2RMVJn",
+      "label": "gmgn smart_degen",
+      "chain": "sol",
+      "addedAt": "2026-09-03T09:26:13.954Z",
+      "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "9haKJiniE7HR5im7b9a74VUGD7vHDu6waBwAdQegwqQm",
+      "label": "gmgn smart_degen",
+      "chain": "sol",
+      "addedAt": "2026-09-03T09:26:13.954Z",
+      "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "7TNYdvwDzuRKvquzn24grcGwvrtpsYK58GAWdRBnm3UT",
+      "label": "gmgn smart_degen",
+      "chain": "sol",
+      "addedAt": "2026-09-03T09:26:13.954Z",
+      "addedBy": "smartmoney-seed"
+    },
+    {
+      "address": "HdFB61p3pCZWjvPBP2GeVwczcE21VZGVswuDMPob4iCH",
+      "label": "gmgn smart_degen",
+      "chain": "sol",
+      "addedAt": "2026-09-03T09:26:13.954Z",
+      "addedBy": "smartmoney-seed"
     }
   ]
 }
