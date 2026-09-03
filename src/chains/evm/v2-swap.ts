@@ -80,6 +80,24 @@ export interface V2Fill {
   txHash: `0x${string}`;
 }
 
+/** Real tokens received across a buy = post-swap balance minus pre-swap. */
+export function tokensReceived(before: bigint, after: bigint): bigint {
+  return after > before ? after - before : 0n;
+}
+
+/**
+ * Real native proceeds from a sell = balance delta plus the gas this swap
+ * burned (the raw delta is net of gas, so add it back). Never negative.
+ */
+export function nativeProceeds(
+  before: bigint,
+  after: bigint,
+  gasCost: bigint,
+): bigint {
+  const received = after + gasCost - before;
+  return received > 0n ? received : 0n;
+}
+
 /** Buy `usd` worth of `token` with native currency through the v2 router. */
 export async function v2Buy(
   chainId: ChainId,
@@ -138,7 +156,7 @@ export async function v2Buy(
     functionName: "balanceOf",
     args: [account.address],
   });
-  const received = balAfter > balBefore ? balAfter - balBefore : 0n;
+  const received = tokensReceived(balBefore, balAfter);
   const amountTokens = Number(formatUnits(received, decimals));
   return {
     priceUsd: amountTokens > 0 ? usd / amountTokens : 0,
@@ -210,8 +228,7 @@ export async function v2Sell(
   const receipt = await client.waitForTransactionReceipt({ hash });
   const nativeAfter = await client.getBalance({ address: account.address });
   const gasCost = receipt.gasUsed * receipt.effectiveGasPrice;
-  const receivedNative = nativeAfter + gasCost - nativeBefore;
-  const proceedsNative = receivedNative > 0n ? receivedNative : 0n;
+  const proceedsNative = nativeProceeds(nativeBefore, nativeAfter, gasCost);
 
   const native = await nativePriceUsd(chainId);
   const proceedsUsd = Number(formatUnits(proceedsNative, 18)) * native;
