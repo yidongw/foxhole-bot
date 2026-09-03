@@ -3,6 +3,43 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-03 13:0x UTC 第 5 轮(抓到并修了一个真覆盖盲区)
+
+### ② 覆盖率(**修了 1 个真漏报盲区** — 本轮重点)
+- **robinhood 实时发现独缺 movers feed**,commit 8c799fe(已部署):主战场
+  robinhoodAdapter.trendingCandidates 此前只用 DexScreener 推广位,唯独没接
+  其它链都在用的 fetchMoverCandidates(DexPaprika 有机暴涨榜)。后果:非 Long.xyz
+  股票对上线、又不在推广位的**有机暴涨会实时漏扫**,只能等日更 review 兜底。
+  - 实证:**SHRUB**(robinhood,0x5d9144d2…)+235%/6h、$4.2M vol、$329k liq、
+    $37M FDV —— 非 dust 非崩盘,却从未被扫也不在任何 outcomes。
+  - 修:改为与 generic 链同款双发现源(boosts + movers,去重)。SHRUB 类今后实时入扫。
+- 其余 robinhood ≥100% mover 均在册(799 币)。哑弹分析仍无数据(labeled.json 未产出)。
+
+### ① 新闻(BlockBeats 稳定 + 审计了新源 OpenNews)
+- BlockBeats 回放(195 条)无新噪音/漏:38 wake 全 legit(新增 HOOKR/USELESS/BUN
+  等真 RB meme)。「GoPro 永续合约」以 listing 叫醒属"合约上线放行交下游"既有设计。
+  「交易赚币」「借壳收割」仍在 wake 但是 R3 前种的 hotSymbol,时间戳冻结,继续过期中。
+- **新源 6551/OpenNews 审计**:informational-only —— 拉 AI 打分的 news+twitter,
+  去重后只发 #news-radar,**不唤醒 decider、不自动买、不进 ai-inbox、无 shell 用外部数据**。
+  有 CAP_PER_TICK+600s 限流。token 从 env 取(Bearer),不落日志/git(.env、.signup/
+  已 ignore)。安全面很小。
+
+### ③ 安全(无新高危)
+- OpenNews token/钱包无泄漏(见上)。smart-money 的 P2 注入面观察(R4)仍挂账。
+- npm audit 同旧(Solana 依赖树 6 high 留观)。
+
+### ④ 健康(绿)
+- tsc 干净;npm test **180 passed**。monitor 重启健康(pid 38567,BN 未复现)。
+- **OpenNews 402 降级已生效**:日志 `opennews: authed search unavailable
+  (news_search HTTP 402) → free feed` —— OPENNEWS_TOKEN 免费额度用尽,authed 搜索
+  停用但自动回退免票热榜,功能不断。想要 AI 打分全量搜索需给 6551 token 充额度(可选)。
+
+**下轮重点:** ① 复查 8c799fe 是否让 SHRUB 类 robinhood 有机暴涨实时进扫(看
+monitor-state 是否新增此类)。② 「」junk 约 09-05 02:47Z 后应清零。③ labeled.json
+出现即做哑弹分析。④ smart-money 注入面校验若 owner 未处理可自补。
+
+---
+
 ## 2026-09-03 11:0x UTC 第 4 轮(验证前修 + 新面扫描,无新代码改动)
 
 本轮无新增修复——三处旧修均在生效,新代码面无高危。
