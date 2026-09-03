@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { enabledChains } from "../chains/adapter.js";
+import { fetchStockRegistry } from "../chains/robinhood/stock-registry.js";
 import { loadMonitorState } from "../monitor/state.js";
 import { appendAlertLog } from "../notify/alert-log.js";
 import {
@@ -90,7 +91,18 @@ export async function runDailyReview(options: {
   webhookUrl?: string;
 } = {}): Promise<DailyReviewResult> {
   console.log("daily review: grading outcomes…");
-  const graded = await gradePendingOutcomes();
+  // Robinhood tokenized stocks (QQQ/MU/…) and spam tokens with junk symbols
+  // pollute the meme review — drop them from grading and candidates entirely.
+  const stockReg = await fetchStockRegistry().catch(() => undefined);
+  const isStock = (r: { chain: string; symbol?: string }): boolean =>
+    r.chain === "robinhood" &&
+    !!r.symbol &&
+    !!stockReg?.symbols.has(r.symbol.toUpperCase());
+  const isMalformed = (r: { symbol?: string }): boolean =>
+    (r.symbol?.length ?? 0) > 40;
+  const graded = await gradePendingOutcomes({
+    drop: (r) => isStock(r) || isMalformed(r),
+  });
 
   console.log("daily review: scanning movers…");
   const state = await loadMonitorState();
@@ -110,6 +122,8 @@ export async function runDailyReview(options: {
       !m.ladder &&
       !m.noData &&
       !m.safetyFlags?.length &&
+      !isStock(m) &&
+      !isMalformed(m) &&
       (m.fdvUsd == null || m.fdvUsd >= MOVER_MIN_FDV_USD),
   );
 
