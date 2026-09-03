@@ -8,6 +8,7 @@ import { sendDiscordMessage } from "../notify/discord.js";
 import { resolveWebhook } from "../notify/routes.js";
 import {
   findSignalThreadBySymbol,
+  postNewsCardThread,
   postToSignalThread,
 } from "../notify/signal-threads.js";
 import type { LaunchesPayload } from "../types.js";
@@ -191,6 +192,27 @@ export async function newsTick(options: {
           delivered = await postToSignalThread(thread.chain, thread.address, msg);
           if (delivered) break;
         }
+
+        // 没有现成 thread：值得开的（关注币/负面/上所/动能）且正文能解析出
+        // 合约地址，就开一张“新闻来源”卡片+thread；否则回落 #news-radar
+        const worthyThread =
+          cls.negative ||
+          cls.reasons.some(
+            (r) => r.startsWith("watched:") || r === "listing" || r === "momentum",
+          );
+        if (!delivered && worthyThread && flash.refs?.length) {
+          const bySymbol = cls.reasons.some((r) => r.startsWith("watched:"));
+          const symHint = extractSymbols(flash.title)[0];
+          for (const ref of flash.refs) {
+            delivered = await postNewsCardThread(
+              { ...ref, symbol: bySymbol ? candidateSymbols[0] : symHint },
+              flash.title,
+              msg,
+            ).catch(() => false);
+            if (delivered) break;
+          }
+        }
+
         if (!delivered && newsUrl) {
           // 换掉 NEWS SIGNAL 抬头 — 落在 #news-radar 的是备考，不是交易信号
           const fallbackMsg = msg.replace(

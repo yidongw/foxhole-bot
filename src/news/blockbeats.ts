@@ -23,12 +23,71 @@ function apiKey(): string | undefined {
  * 鉴权是 `api-key` 请求头）；没有或接口失败时退回 SSR 页面抓取：
  * 快讯 ID 严格递增，列表页取最新 ID，再逐条抓详情页。
  */
+/** 从快讯正文里解析出的链+合约地址（用于开 trade-signal thread）。 */
+export interface TokenRef {
+  chain: string;
+  address: string;
+}
+
 export interface Flash {
   id: number;
   title: string;
   content?: string;
   url: string;
   fetchedAt: string;
+  /** 正文 HTML 里带链的 token 链接解析出的合约（GMGN/DexScreener/Long/Blockscout）。 */
+  refs?: TokenRef[];
+}
+
+// GMGN / DexScreener 链 slug → 本 bot 的 chain id
+const CHAIN_SLUG: Record<string, string> = {
+  sol: "solana",
+  solana: "solana",
+  eth: "ethereum",
+  ethereum: "ethereum",
+  bsc: "bsc",
+  bnb: "bsc",
+  base: "base",
+  robinhood: "robinhood",
+};
+
+/** 从一段 token 路径里抽出真实地址（GMGN robinhood 链接带 i_xxx_ 前缀）。 */
+function pickAddress(segment: string): string | undefined {
+  const evm = segment.match(/0x[a-fA-F0-9]{40}/);
+  if (evm) return evm[0];
+  const sol = segment.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);
+  return sol?.[0];
+}
+
+/**
+ * 从快讯正文 HTML 里解析 token 合约地址（strip 前调用 — strip 会抹掉链接）。
+ * 只认带“链”信息的链接，避免拿到地址却不知道在哪条链：
+ *   gmgn.ai/<chain>/token/<...addr> · dexscreener.com/<chain>/<...addr>
+ *   app.long.xyz/tokens/0x… 和 robinhoodchain.blockscout.com/token/0x… → robinhood
+ */
+export function extractTokenRefs(html: string): TokenRef[] {
+  const refs: TokenRef[] = [];
+  const seen = new Set<string>();
+  const push = (chain: string | undefined, address: string | undefined) => {
+    if (!chain || !address) return;
+    const key = `${chain}:${address.toLowerCase()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      refs.push({ chain, address });
+    }
+  };
+  for (const m of html.matchAll(/gmgn\.ai\/([a-z]+)\/token\/([^"'<>\\ )]+)/g)) {
+    push(CHAIN_SLUG[m[1]], pickAddress(m[2]));
+  }
+  for (const m of html.matchAll(/dexscreener\.com\/([a-z]+)\/([^"'<>\\ )]+)/g)) {
+    push(CHAIN_SLUG[m[1]], pickAddress(m[2]));
+  }
+  for (const m of html.matchAll(
+    /(?:app\.long\.xyz\/tokens\/|robinhoodchain\.blockscout\.com\/token\/)(0x[a-fA-F0-9]{40})/g,
+  )) {
+    push("robinhood", m[1]);
+  }
+  return refs;
 }
 
 export interface NewsSearchHit {
@@ -112,13 +171,17 @@ async function fetchNewFlashesOfficial(
   const now = new Date().toISOString();
   const flashes = rows
     .filter((r) => r.id > sinceId)
-    .map((r) => ({
-      id: r.id,
-      title: r.title,
-      content: r.content ? stripHtml(r.content) : undefined,
-      url: FLASH_URL(r.id),
-      fetchedAt: now,
-    }))
+    .map((r) => {
+      const refs = r.content ? extractTokenRefs(r.content) : [];
+      return {
+        id: r.id,
+        title: r.title,
+        content: r.content ? stripHtml(r.content) : undefined,
+        url: FLASH_URL(r.id),
+        fetchedAt: now,
+        ...(refs.length ? { refs } : {}),
+      };
+    })
     .sort((a, b) => a.id - b.id);
   const latestId = Math.max(sinceId, ...rows.map((r) => r.id));
   return { flashes, latestId };

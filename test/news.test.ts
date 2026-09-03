@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { classifyFlash, extractSymbols, usableSymbols } from "../src/news/filter.js";
+import { extractTokenRefs } from "../src/news/blockbeats.js";
 
 // 2026-09-02 真实快讯标题回归测试
 const WATCHED = ["FAMI", "BONER", "MU", "JINQIAN"];
@@ -167,6 +168,30 @@ describe("classifyFlash momentum without meme keyword", () => {
       [],
     );
     expect(c.action).toBe("wake");
+  });
+});
+
+describe("extractTokenRefs", () => {
+  it("parses GMGN robinhood links with the i_xxx_ prefix", () => {
+    // 真实 BlockBeats 正文格式
+    const html =
+      '据 <a href="https://gmgn.ai/robinhood/token/i_m4TE56o8_0x56910d4409f3a0c78c64dd8d0545ff0705389870">GMGN</a> 显示';
+    expect(extractTokenRefs(html)).toEqual([
+      { chain: "robinhood", address: "0x56910d4409f3a0c78c64dd8d0545ff0705389870" },
+    ]);
+  });
+
+  it("parses solana GMGN links and dedupes", () => {
+    const html =
+      'gmgn.ai/sol/token/i_m4TE56o8_9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM ' +
+      'dexscreener.com/solana/9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
+    const refs = extractTokenRefs(html);
+    expect(refs).toHaveLength(1);
+    expect(refs[0].chain).toBe("solana");
+  });
+
+  it("returns empty when no chain-carrying link is present", () => {
+    expect(extractTokenRefs("市值突破 4000 万美元，无链接")).toEqual([]);
   });
 });
 
