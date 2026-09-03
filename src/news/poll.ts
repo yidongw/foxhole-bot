@@ -94,7 +94,8 @@ export interface NewsTickResult {
 
 /**
  * One news tick: pull new BlockBeats flashes, archive, classify, wake.
- * wake 候选先过 Claude 判定（fail-open）；signal=false 的降级进 filter-log。
+ * wake 候选先过 Claude 判定；否决/降级/备考全部走 #news-radar，
+ * 不碰 filter-log（那是过滤器自己的审计日志）。
  */
 export async function newsTick(options: {
   dryRun?: boolean;
@@ -127,7 +128,9 @@ export async function newsTick(options: {
   const watched = [
     ...new Set([...(await loadWatchedSymbols()), ...Object.keys(state.hotSymbols)]),
   ];
-  const filterUrl = options.webhookUrl ?? resolveWebhook("filter", "robinhood");
+  // 新闻雷达频道（#news-radar）— 未配置 DISCORD_NEWS_WEBHOOK_URL 时不上 Discord，
+  // 归档/收件箱/thread 投递照常。绝不落 filter-log：那是过滤器自己的审计日志
+  const newsUrl = options.webhookUrl ?? resolveWebhook("news", "robinhood");
 
   let woke = 0;
   let noted = 0;
@@ -150,9 +153,9 @@ export async function newsTick(options: {
         cls.reasons.some((r) => r.startsWith("watched:") || r === "listing");
       if ((verdict && !verdict.signal) || (!verdict && !strongWake)) {
         const why = verdict ? `判定: ${verdict.note || "非交易信号"}` : "判定不可用，叙事级降级";
-        if (filterUrl && !options.dryRun) {
+        if (newsUrl && !options.dryRun) {
           await sendDiscordMessage(
-            filterUrl,
+            newsUrl,
             `📰🚫 ${flash.title}\n${why} | ${flash.url}`,
           ).catch((err) => console.error("news filter post failed:", err.message));
         }
@@ -173,7 +176,7 @@ export async function newsTick(options: {
         void maybeSpawnDecider("news");
 
         // trade-signal 频道是分币的（每币一张卡片+thread）—— 新闻只允许
-        // 发进已有卡片的币的 thread；对不上的去 filter-log，不发散消息
+        // 发进已有卡片的币的 thread；对不上的去 #news-radar，不发散消息
         const candidateSymbols = [
           ...(cls.reasons
             .find((r) => r.startsWith("watched:"))
@@ -188,22 +191,22 @@ export async function newsTick(options: {
           delivered = await postToSignalThread(thread.chain, thread.address, msg);
           if (delivered) break;
         }
-        if (!delivered && filterUrl) {
-          // 换掉 NEWS SIGNAL 抬头 — 落在 filter-log 的是备考，不是交易信号
+        if (!delivered && newsUrl) {
+          // 换掉 NEWS SIGNAL 抬头 — 落在 #news-radar 的是备考，不是交易信号
           const fallbackMsg = msg.replace(
             /^(⚠️|📰) \*\*NEWS [^*]+\*\*/,
             "$1 **NEWS 备考**（无对应币 thread）",
           );
-          await sendDiscordMessage(filterUrl, fallbackMsg).catch((err) =>
+          await sendDiscordMessage(newsUrl, fallbackMsg).catch((err) =>
             console.error("news filter post failed:", err.message),
           );
         }
       }
       woke++;
     } else {
-      if (filterUrl && !options.dryRun) {
+      if (newsUrl && !options.dryRun) {
         await sendDiscordMessage(
-          filterUrl,
+          newsUrl,
           `📰 ${flash.title}\n${cls.reasons.join(", ")} | ${flash.url}`,
         ).catch((err) => console.error("news note post failed:", err.message));
       }

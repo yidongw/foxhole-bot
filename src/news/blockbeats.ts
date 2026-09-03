@@ -57,7 +57,7 @@ async function reportKeyProblem(detail: string): Promise<void> {
   console.error(`BlockBeats API key problem: ${detail}`);
   const { resolveWebhook } = await import("../notify/routes.js");
   const { sendDiscordMessage } = await import("../notify/discord.js");
-  const url = resolveWebhook("filter", "robinhood");
+  const url = resolveWebhook("news", "robinhood") ?? resolveWebhook("filter", "robinhood");
   if (url) {
     await sendDiscordMessage(
       url,
