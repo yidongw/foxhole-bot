@@ -51,6 +51,14 @@ import {
   formatEthPairDigest,
   getEthLatestBlock,
 } from "../chains/ethereum/uniswap-watcher.js";
+import {
+  addPumpProbation,
+  fetchRecentPumpLaunches,
+  formatPumpLaunchDigest,
+  loadPumpWatch,
+  savePumpWatch,
+  screenPumpProbation,
+} from "../chains/solana/pumpfun-launches.js";
 import { loadTradeConfig } from "../trade/config.js";
 import { checkTokenSafety } from "../trade/safety.js";
 import { resolveWebhook } from "../notify/routes.js";
@@ -600,6 +608,86 @@ async function scanFourmemeWatch(
   await saveFourmemeWatch(entries);
 }
 
+/** Solana first-run lookback for pump.fun launches (30 min). */
+const PUMP_FIRST_RUN_LOOKBACK_MS = 30 * 60_000;
+
+async function checkPumpLaunches(
+  state: MonitorState,
+  options: ScanOptions,
+): Promise<void> {
+  const mode = process.env.LAUNCH_ALERT_MODE ?? "digest";
+  const since =
+    state.lastPumpLaunchAt ?? Date.now() - PUMP_FIRST_RUN_LOOKBACK_MS;
+
+  const launches = await fetchRecentPumpLaunches(since);
+  if (launches.length && mode !== "off") {
+    await deliverFeed(formatPumpLaunchDigest(launches), options, "solana");
+  }
+  // Advance the cursor to the newest launch seen this pass (or keep it if none).
+  state.lastPumpLaunchAt = launches.reduce(
+    (max, l) => Math.max(max, l.createdAt),
+    state.lastPumpLaunchAt ?? since,
+  );
+  if (launches.length) {
+    // Track every fresh mint on probation so the ones that graduate to a real
+    // PumpSwap/Raydium pool get analyzed + signal-graded (the squeeze moment) —
+    // symmetric to the four.meme watcher, not just a fire-and-forget digest.
+    const entries = await loadPumpWatch();
+    const added = addPumpProbation(launches, entries);
+    if (added) await savePumpWatch(entries);
+    console.log(
+      `pump.fun watcher: ${launches.length} new launch(es), ${added} on probation`,
+    );
+  }
+}
+
+/**
+ * Screen probation pump.fun tokens; verified (graduated, liquid) ones get a
+ * full analysis + signal evaluation + graded alert each tick — the Solana
+ * analogue of scanFourmemeWatch.
+ */
+async function scanPumpWatch(
+  state: MonitorState,
+  options: ScanOptions,
+  minRank: number,
+  hits: ScanHit[],
+  rows: SignalRow[],
+): Promise<void> {
+  const entries = await loadPumpWatch();
+  if (!entries.length) return;
+
+  const promoted = await screenPumpProbation(entries);
+  if (promoted) {
+    console.log(`pump.fun watcher: ${promoted} token(s) verified — tracking`);
+  }
+
+  const adapter = getAdapter("solana");
+  for (const entry of entries.filter((e) => e.verified)) {
+    try {
+      const analysis = await adapter.analyze(entry.address);
+      const key = stateKey("solana", entry.address);
+      const prev = state.tokens[key];
+      const accel =
+        prev && prev.volume24hUsd > 0
+          ? (analysis.volume24hUsd ?? 0) / prev.volume24hUsd
+          : undefined;
+      const input = analysisToSignalInput(analysis, {
+        volumeAccelRatio: accel,
+        isStockPaired: false,
+        dexUrl: `https://dexscreener.com/solana/${entry.address}`,
+      });
+      const evaluation = evaluateSignal(input, loadSignalConfig());
+      snapshotAndRow(state, key, analysis, evaluation, rows);
+      const hit = await maybeAlert(state, evaluation, key, prev?.level, minRank, options);
+      if (hit) hits.push(hit);
+    } catch {
+      entry.attempts++;
+    }
+    await sleep(250);
+  }
+  await savePumpWatch(entries);
+}
+
 /** Base first-run lookback ≈1h at 2s blocks. */
 const CLANKER_FIRST_RUN_LOOKBACK = 1_800n;
 
@@ -662,6 +750,14 @@ async function scanChainTrending(
       await scanFourmemeWatch(state, options, minRank, hits, rows);
     } catch (err) {
       console.error("fourmeme watcher failed (continuing):", (err as Error).message);
+    }
+  }
+  if (chain === "solana") {
+    try {
+      await checkPumpLaunches(state, options);
+      await scanPumpWatch(state, options, minRank, hits, rows);
+    } catch (err) {
+      console.error("pump.fun watcher failed (continuing):", (err as Error).message);
     }
   }
   if (chain === "base") {

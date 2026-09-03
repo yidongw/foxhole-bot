@@ -113,6 +113,8 @@ work for tokens with a v3 route — `NoRouteError` is surfaced, never swallowed.
 - [x] **P1**: BSC Four.meme `TokenCreate` watcher (verified on-chain) + PancakeSwap v2 execution
 - [x] **P2**: Base Clanker v4 `TokenCreated` watcher (ABI mined from MIT sdk) + Uniswap v2 execution
 - [x] **P3**: Solana pump.fun curve state (@pump-fun/pump-sdk) + graduation signals + Jupiter lite-api execution
+  + pump.fun launch watcher (fresh mints → probation → DexScreener-verified graduation → analyzed/graded alert,
+  symmetric to the four.meme pipeline; `PUMP_MIN_DISCOVERY_MCAP`/`PUMP_MIN_LIQUIDITY_USD`)
 - [x] **P4**: ETH Uniswap v2/v3 new-WETH-pair watcher (monitor-only by design)
 - [x] **P5**: GoPlus safety gate — hard entry veto on honeypot/taxes>10%/mint/rug mechanics (`TRADE_SAFETY_GATE=0` to disable)
 - [x] **Self-review loop** (see [PLAN-SELFTUNE.md](./PLAN-SELFTUNE.md)): daily alert
