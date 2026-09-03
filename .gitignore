@@ -29,3 +29,5 @@ data/stock-threads.json
 data/smart-money-config.json
 data/smart-money-dashboard.json
 web/data/smart-money.json
+.signup/
+data/opennews-state.json

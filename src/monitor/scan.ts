@@ -965,6 +965,25 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     }
   };
 
+  // 6551 / OpenNews loop: AI-scored news+twitter(meme) directional signals →
+  // #news-radar. Off unless OPENNEWS_TOKEN is set (free tier has tight quota),
+  // so it stays a supplement to the BlockBeats radar. OPENNEWS_WATCH=0 forces off.
+  const openNewsInterval = Number(process.env.OPENNEWS_POLL_MS ?? 600_000);
+  const openNewsLoop = async () => {
+    if (process.env.OPENNEWS_WATCH === "0") return;
+    if (!process.env.OPENNEWS_TOKEN) return; // free tier is mostly neutral — opt-in only
+    const { openNewsTick } = await import("../news/opennews-poll.js");
+    while (!stopped) {
+      try {
+        const r = await openNewsTick({ dryRun: options.dryRun, webhookUrl: options.webhookUrl });
+        if (r.posted) console.log(`opennews tick: ${r.fetched} scored, ${r.posted} posted`);
+      } catch (err) {
+        console.error("opennews tick error:", (err as Error).message);
+      }
+      await sleep(openNewsInterval);
+    }
+  };
+
   // Fast loop: open positions get priced and exit-checked every ~15s —
   // 5-minute stops are far too slow for meme trailing exits.
   const positionLoop = async () => {
@@ -1034,6 +1053,8 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
   const positionLoopPromise = positionLoop();
   const newsLoopPromise = newsLoop();
   void newsLoopPromise;
+  const openNewsLoopPromise = openNewsLoop();
+  void openNewsLoopPromise;
   const stockLoopPromise = stockLoop();
   void stockLoopPromise;
 
