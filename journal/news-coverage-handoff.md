@@ -3,6 +3,33 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-03 07:xx UTC 第 2 轮(扩样本 + 深挖)
+
+### ① 新闻(拉 24h 全量 193 条回放,已修)
+- **误叫醒 36→30**,commit 7fcc547:24h 大样本暴露 R1 没看到的第二类噪音——
+  **股票同名 meme(NVDA/SPCX/TSLA/AAPL)在美股宏观快讯正文里被顺带提及 → watched
+  命中误叫醒**(「美股三大股指收涨」「奥本海默上调 SpaceX 目标价」「合约巨鲸做空美股」)。
+  根因:hitSymbols 匹配 title+content 组合串,与文档注释「点名哪个币只看标题」矛盾。
+  修:watched 只匹配 rawTitle;rb-chain/动能/负面 仍看 title+content。去掉 3×NVDA
+  宏观 + 3×SPCX 股票新闻,无 legit 信号丢失。test +1(共 25)。
+- 漏分析:193 条 drop 侧仍健康,无真漏(核对了所有含 Robinhood/Meme/巨鲸/上线
+  关键词的 drop:HYPE 清仓/BTC 巨鲸/Predict.fun 预测市场 等均正确丢弃)。
+  小瑕疵:WHALE_BUY 只认「巨鲸/交易者/聪明钱」不认「鲸鱼」,漏了「某鲸鱼建仓 HYPE」
+  ——但 HYPE 是大币非我方标的,不值当放宽。
+- 挂账仍在:「」引号名 junk hotSymbol(交易赚币/借壳收割)未动,48h 自过期。
+
+### ② 覆盖率(复核,健康)
+- monitor 重启后 solana/bsc/base 全在扫(SOLCAT +504%、four.meme BSC 都在流)。
+- **重要发现-已澄清**:registry.ts 顶层静态 import pumpfun→@pump-fun/pump-sdk,
+  若该 sdk 加载失败会拖垮**整个 monitor**(非仅 solana)。但两次 kickstart 重启
+  在 Node 26 下都加载成功,BN 崩溃未复现 → 判定为**潜在脆弱性而非活跃故障**,
+  不动(改一个正常工作的 import 风险更大)。若日后重启频繁命中再考虑懒加载兜底。
+
+### ③ 安全 / ④ 健康
+- 无新增。tsc 干净,npm test 125 passed。monitor 重启健康。
+
+---
+
 ## 2026-09-03 04:2x UTC 第 1 轮(建立基线)
 
 ### ① 新闻(archive 回放 82 条快讯,已修)
