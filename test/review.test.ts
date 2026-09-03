@@ -167,3 +167,30 @@ describe("tuner candidates + scoring", () => {
     expect(s.net).toBe(2);
   });
 });
+
+describe("collapseRatio (NUDES gate lesson)", () => {
+  it("flags a token trading far below its window high", async () => {
+    const { collapseRatio } = await import("../src/trade/safety.js");
+    const candles = [
+      { high: 1.0, close: 0.9 },
+      { high: 1.2, close: 1.1 },
+      { high: 1.1, close: 0.35 }, // -70% off the high — distribution over
+    ];
+    expect(collapseRatio(candles)!).toBeLessThan(0.4);
+  });
+
+  it("healthy consolidation stays above the veto line", async () => {
+    const { collapseRatio } = await import("../src/trade/safety.js");
+    const candles = [
+      { high: 1.0, close: 0.9 },
+      { high: 1.2, close: 1.0 },
+      { high: 1.1, close: 0.8 }, // -33% pullback — normal
+    ];
+    expect(collapseRatio(candles)!).toBeGreaterThan(0.4);
+  });
+
+  it("returns undefined on empty candles (no false veto)", async () => {
+    const { collapseRatio } = await import("../src/trade/safety.js");
+    expect(collapseRatio([])).toBeUndefined();
+  });
+});

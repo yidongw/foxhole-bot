@@ -92,7 +92,27 @@ async function checkChart(chain: string, poolId: string): Promise<string | undef
       return `ladder_pump (${verdict.metrics.candles}×${label} straight, ${(verdict.metrics.greenRatio * 100).toFixed(0)}% green)`;
     }
   }
+
+  // Collapsed pump (same 40%-of-high rule as the mover sweep): NUDES kept
+  // re-triggering trade signals during its distribution phase and the AI
+  // decider had to veto each one by hand — the pump being over is a fact
+  // the gate can see itself.
+  const collapsed = collapseRatio(hourly.length ? hourly : fine);
+  if (collapsed != null && collapsed < 0.4) {
+    return `collapsed_pump (now ${(collapsed * 100).toFixed(0)}% of window high)`;
+  }
   return undefined;
+}
+
+/** Last close as a fraction of the window high; undefined when unknowable. */
+export function collapseRatio(
+  candles: Array<{ high: number; close: number }>,
+): number | undefined {
+  if (!candles.length) return undefined;
+  const maxHigh = Math.max(...candles.map((c) => c.high));
+  const last = candles[candles.length - 1].close;
+  if (maxHigh <= 0) return undefined;
+  return last / maxHigh;
 }
 
 export async function checkTokenSafety(

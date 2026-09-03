@@ -167,3 +167,7 @@ PONS 类成熟币回归真实主池)。实测 PONS 现读 PONS/WETH vol $6.8M。
 并指出引擎层缺陷: spike/accel 触发器分不清突破放量和派发放量。
 已按其建议固化: 24h ≤ -10% 时 strong 一律降 alert + falling_knife 触发器,
 checkEntry 硬性拒绝(与 post_pump 同族)。测试 99/99。
+## 2026-09-03 — 崩盘态进安全门(NUDES 教训)
+NUDES 派发期反复触发 trade 级信号,决策进程每次都要人肉否决。
+把 mover 扫描已有的"现价 < 窗口最高 40% = 已崩盘"规则搬进实时安全门
+checkChart(collapsed_pump veto):信号在投递与入场之前就被拦截。102/102。
