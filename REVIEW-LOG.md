@@ -285,3 +285,14 @@ v2Buy 广播前先跑 preflight,!ok 直接抛错——doomed 交易不再白烧 
 ✅ OK(WBNB 修复后 CAKE 也有 v2 路由了), dead 地址 ⛔ BLOCKED(no v2 route)。
 178/178。下次: v2Sell 的 preflight(需持仓模拟,可用 stateOverride 伪造余额+allowance);
 或 four.meme 非 WBNB 计价代币多跳路由。
+
+## 2026-09-03 (循环) — v2 多跳路由: 补齐非 WBNB 计价(USDT/BTCB)代币的可交易性
+发现真实覆盖缺口: v2Buy/Sell 硬编码 path=[WBNB,token],而 four.meme 的 BEP20-计价
+代币(债券曲线 quote != BNB)毕业后对 USDT/BTCB 成对、无 WBNB 直连池 → 直接路径
+getAmountsOut revert → preflight 直接拦死 → 根本没法买卖。实测确认: GOLD/USDT($361K)
+direct=REVERT 但 [WBNB,USDT,GOLD]=OK。新增 bestRoute(chainId,from,to,amountIn): 试
+direct + 经各配置 base(BSC=USDT/BTCB, Base=USDC, ETH=USDT/USDC,均链上 symbol() 核实)
+单跳,取报价最高路径。preflightV2Buy 返回选中 path;v2Buy/v2Sell 都改用 bestRoute。
+实测: GOLD 现在 preflight ✅ OK,买 WBNB→USDT→GOLD、卖 GOLD→USDT→WBNB 均报价+模拟通过;
+WBNB 直连代币仍走 direct(不回归)。加 bases 守卫测试。179/179。下次: v2Sell 广播前
+preflight(stateOverride 伪造余额+allowance 做完整往返貔貅检测);或 BSC 曲线量能阈值。

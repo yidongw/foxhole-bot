@@ -22,25 +22,46 @@ import { getEvmClient } from "./clients.js";
  */
 
 export const V2_ROUTERS: Partial<
-  Record<ChainId, { router: Address; wrappedNative: Address; nativeSymbol: string; keyVar: string }>
+  Record<
+    ChainId,
+    {
+      router: Address;
+      wrappedNative: Address;
+      nativeSymbol: string;
+      keyVar: string;
+      /** Intermediary bases for multi-hop routing (all verified on-chain). */
+      bases: Address[];
+    }
+  >
 > = {
   bsc: {
     router: "0x10ED43C718714eb63d5aA57B78B54704E256024E", // PancakeSwap v2
     wrappedNative: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c", // WBNB (verified on-chain: router.WETH())
     nativeSymbol: "BNB",
     keyVar: "BSC_PRIVATE_KEY",
+    bases: [
+      "0x55d398326f99059fF775485246999027B3197955", // USDT
+      "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c", // BTCB
+    ],
   },
   base: {
     router: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24", // Uniswap v2 (Base)
     wrappedNative: "0x4200000000000000000000000000000000000006", // WETH
     nativeSymbol: "ETH",
     keyVar: "BASE_PRIVATE_KEY",
+    bases: [
+      "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC
+    ],
   },
   ethereum: {
     router: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D", // Uniswap v2
     wrappedNative: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH
     nativeSymbol: "ETH",
     keyVar: "ETH_PRIVATE_KEY",
+    bases: [
+      "0xdAC17F958D2ee523a2206206994597C13D831ec7", // USDT
+      "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", // USDC
+    ],
   },
 };
 
@@ -101,12 +122,61 @@ export function nativeProceeds(
 /** Synthetic sender for keyless read-only swap simulation. */
 const SIM_SENDER = "0x000000000000000000000000000000000000dEaD" as Address;
 
+export interface RouteQuote {
+  path: Address[];
+  out: bigint;
+}
+
+/**
+ * Best v2 route for `amountIn` from → to: tries the direct pair plus one hop
+ * through each configured base (USDT/BTCB/USDC), returns the highest-output
+ * path. Many four.meme graduates pair against USDT/BTCB rather than WBNB, so
+ * the direct [WBNB, token] path reverts — multi-hop recovers them. Returns
+ * undefined when no path quotes.
+ */
+export async function bestRoute(
+  chainId: ChainId,
+  fromToken: Address,
+  toToken: Address,
+  amountIn: bigint,
+): Promise<RouteQuote | undefined> {
+  const cfg = V2_ROUTERS[chainId];
+  if (!cfg) return undefined;
+  const client: PublicClient = getEvmClient(chainId);
+  const from = fromToken.toLowerCase();
+  const to = toToken.toLowerCase();
+  const candidates: Address[][] = [[fromToken, toToken]];
+  for (const base of cfg.bases) {
+    const b = base.toLowerCase();
+    if (b === from || b === to) continue;
+    candidates.push([fromToken, base, toToken]);
+  }
+  let best: RouteQuote | undefined;
+  for (const path of candidates) {
+    try {
+      const amounts = await client.readContract({
+        address: cfg.router,
+        abi: ROUTER_ABI,
+        functionName: "getAmountsOut",
+        args: [amountIn, path],
+      });
+      const out = amounts[amounts.length - 1];
+      if (out > 0n && (!best || out > best.out)) best = { path, out };
+    } catch {
+      // no pair for this candidate path — try the next
+    }
+  }
+  return best;
+}
+
 export interface V2Preflight {
   ok: boolean;
   reason?: string;
   quotedOut: bigint;
   amountTokens: number;
   priceUsd: number;
+  /** The route the swap should use (direct or multi-hop). */
+  path?: Address[];
 }
 
 /**
@@ -140,20 +210,9 @@ export async function preflightV2Buy(
   } catch (err) {
     return fail(`native price unavailable: ${(err as Error).message}`);
   }
-  const path = [cfg.wrappedNative, token];
-
-  let quotedOut: bigint;
-  try {
-    const amounts = await client.readContract({
-      address: cfg.router,
-      abi: ROUTER_ABI,
-      functionName: "getAmountsOut",
-      args: [amountIn, path],
-    });
-    quotedOut = amounts[amounts.length - 1];
-  } catch {
-    return fail("no v2 route (getAmountsOut reverted)");
-  }
+  const route = await bestRoute(chainId, cfg.wrappedNative, token, amountIn);
+  if (!route) return fail("no v2 route (direct + multi-hop all reverted)");
+  const { path, out: quotedOut } = route;
   if (quotedOut <= 0n) return fail("zero output quote", quotedOut);
 
   const minOut = (quotedOut * BigInt(10_000 - slippageBps)) / 10_000n;
@@ -191,6 +250,7 @@ export async function preflightV2Buy(
     quotedOut,
     amountTokens,
     priceUsd: amountTokens > 0 ? usd / amountTokens : 0,
+    path,
   };
 }
 
@@ -217,7 +277,7 @@ export async function v2Buy(
 
   const native = await nativePriceUsd(chainId);
   const amountIn = parseUnits((usd / native).toFixed(18), 18);
-  const path = [cfg.wrappedNative, token];
+  const path = pre.path ?? [cfg.wrappedNative, token];
   const quotedOut = pre.quotedOut;
   const minOut = (quotedOut * BigInt(10_000 - slippageBps)) / 10_000n;
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
@@ -281,7 +341,14 @@ export async function v2Sell(
     functionName: "decimals",
   });
   const amountIn = parseUnits(amountTokens.toFixed(decimals), decimals);
-  const path = [token, cfg.wrappedNative];
+
+  // Multi-hop aware: sell back to native directly or via a base (USDT/BTCB),
+  // whichever quotes best — four.meme graduates often lack a direct WBNB pair.
+  const route = await bestRoute(chainId, token, cfg.wrappedNative, amountIn);
+  if (!route) {
+    throw new Error(`v2Sell: no v2 route for ${token} on ${chainId}`);
+  }
+  const { path, out: quotedOut } = route;
 
   const allowance = await client.readContract({
     address: token,
@@ -301,13 +368,6 @@ export async function v2Sell(
     await client.waitForTransactionReceipt({ hash: approveHash });
   }
 
-  const amounts = await client.readContract({
-    address: cfg.router,
-    abi: ROUTER_ABI,
-    functionName: "getAmountsOut",
-    args: [amountIn, path],
-  });
-  const quotedOut = amounts[amounts.length - 1];
   const minOut = (quotedOut * BigInt(10_000 - slippageBps)) / 10_000n;
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
 
