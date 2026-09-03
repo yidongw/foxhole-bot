@@ -159,6 +159,15 @@
       "chain": "bsc",
       "addedAt": "2026-09-03T17:39:33.243Z",
       "addedBy": "cli"
+    },
+    {
+      "address": "0xD219952698d5f460c2cA89880e0C0875d5b9f3d6",
+      "label": "S v2 胜率75% $7k",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 7157.2333631934,
+      "addedAt": "2026-09-03T18:11:26.589Z",
+      "addedBy": "winner-finder-v2"
     }
   ]
 }
