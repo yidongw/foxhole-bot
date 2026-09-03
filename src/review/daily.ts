@@ -16,6 +16,7 @@ import {
 } from "./ledger.js";
 import {
   loadMissedCases,
+  MOVER_MIN_FDV_USD,
   saveMissedCases,
   scanMissedMovers,
   type ClassifiedMover,
@@ -70,7 +71,9 @@ function moverLine(m: ClassifiedMover, index?: number): string {
   const prefix = index != null ? `${index}. ` : "  ";
   return (
     `${prefix}${tag} ${m.symbol ?? m.address.slice(0, 10)} [${m.chain}] +${m.priceChange24h.toFixed(0)}% ` +
-    `vol $${(m.volume24hUsd / 1e6).toFixed(1)}M liq $${(m.liquidityUsd / 1e3).toFixed(0)}K\n` +
+    `vol $${(m.volume24hUsd / 1e6).toFixed(1)}M liq $${(m.liquidityUsd / 1e3).toFixed(0)}K` +
+    (m.fdvUsd ? ` mcap $${(m.fdvUsd / 1e6).toFixed(1)}M` : "") +
+    `\n` +
     `   \`${m.address}\`` +
     (m.newsNote ? `\n   📰 ${m.newsNote}` : "")
   );
@@ -106,10 +109,14 @@ export async function runDailyReview(options: {
     console.error("filter journal failed:", (err as Error).message),
   );
 
-  // Candidates = misses that survived ALL automatic filters
+  // Candidates = misses that survived ALL automatic filters (incl. 市值≥$10M)
   const candidates = movers.filter(
     (m) =>
-      m.kind !== "alerted" && !m.ladder && !m.noData && !m.safetyFlags?.length,
+      m.kind !== "alerted" &&
+      !m.ladder &&
+      !m.noData &&
+      !m.safetyFlags?.length &&
+      (m.fdvUsd == null || m.fdvUsd >= MOVER_MIN_FDV_USD),
   );
 
   // BlockBeats 对照：漏掉的暴涨在律动上搜一把 — 报道过 = 新闻通道也漏了，
@@ -142,6 +149,15 @@ export async function runDailyReview(options: {
   const filtered = movers.filter(
     (m) => m.ladder || m.noData || m.safetyFlags?.length,
   );
+  const lowMcap = movers.filter(
+    (m) =>
+      m.kind !== "alerted" &&
+      !m.ladder &&
+      !m.noData &&
+      !m.safetyFlags?.length &&
+      m.fdvUsd != null &&
+      m.fdvUsd < MOVER_MIN_FDV_USD,
+  );
 
   const lines = [
     `📊 **每日复盘 Phase 1** — ${new Date().toISOString().slice(0, 10)}`,
@@ -157,6 +173,11 @@ export async function runDailyReview(options: {
   if (filtered.length) {
     lines.push(
       `已自动过滤 ${filtered.length} 个 (🪜刷单/💀无数据): ${filtered.slice(0, 6).map((m) => m.symbol ?? "?").join(", ")}`,
+    );
+  }
+  if (lowMcap.length) {
+    lines.push(
+      `已按当前市值<$${(MOVER_MIN_FDV_USD / 1e6).toFixed(0)}M 过滤 ${lowMcap.length} 个: ${lowMcap.slice(0, 6).map((m) => m.symbol ?? "?").join(", ")}`,
     );
   }
   if (candidates.length) {
