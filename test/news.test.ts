@@ -104,6 +104,28 @@ describe("classifyFlash", () => {
     ).toBe("wake");
   });
 
+  it("only matches watched symbols in the title, not the article body", () => {
+    // 2026-09-03: 股票同名 meme(NVDA/SPCX/TSLA)在美股宏观快讯正文里被提及 →
+    // watched 命中误叫醒。watched 只能看标题;正文只参与 rb-chain/动能/负面。
+    const watched = ["NVDA", "SPCX", "TSLA", "JINQIAN"];
+    const c = classifyFlash(
+      "美股三大股指收涨，戴尔大涨15%，加密概念股普跌",
+      watched,
+      "英伟达(NVDA)涨近5%，特斯拉(TSLA)微跌，SpaceX(SPCX)未上市。",
+    );
+    expect(c.reasons.some((r) => r.startsWith("watched:"))).toBe(false);
+    expect(c.action).toBe("drop");
+    // 标题真点名了 meme → 照常叫醒(正文的无关 ticker 不额外加噪)
+    const c2 = classifyFlash(
+      "Robinhood链Meme币JINQIAN市值突破7000万美元",
+      watched,
+      "英伟达NVDA今日下跌。",
+    );
+    expect(c2.action).toBe("wake");
+    expect(c2.reasons).toContain("watched:JINQIAN");
+    expect(c2.reasons.join()).not.toContain("NVDA");
+  });
+
   it("does not seed exchange/index tickers as hot symbols", () => {
     // extractSymbols 曾把 OKX/SPY/QQQ 抓成 hotSymbols → 后续误叫醒
     for (const junk of ["OKX", "SPY", "QQQ", "BITGET", "UPBIT"]) {

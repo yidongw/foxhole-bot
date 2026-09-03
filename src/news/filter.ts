@@ -87,12 +87,13 @@ export function classifyFlash(
   const title = content ? `${rawTitle} ${content}` : rawTitle;
   const reasons: string[] = [];
   const memeContext = MEME_CONTEXT.test(title);
-  // 停用词里的主流币/交易所/指数代码永远不是我们盯的 meme：即便正文带
-  // “Robinhood” 语境(memeContext)也不当作命中——否则 ARB 涨12%、HOOD 股价、
-  // OKX 闪赚这类快讯会被 stale hotSymbols 误叫醒(2026-09-03 教训)。
+  // “具体点名了哪个币”只看标题：正文常引用 NVDA/TSLA/AAPL/SPCX 等无关 ticker
+  // (美股宏观快讯正文提一句 NVIDIA → 撞股票同名 meme 误叫醒 — 2026-09-03 教训)。
+  // rb-chain/动能/负面 仍看标题+正文(正文才有“Robinhood 生态”字样)。
+  // 停用词里的主流币/交易所/指数代码永远不是我们盯的 meme,即便 memeContext 也不命中。
   const hitSymbols = watched.filter(
     (s) =>
-      symbolPattern(s).test(title) &&
+      symbolPattern(s).test(rawTitle) &&
       !SYMBOL_STOPLIST.has(s.toUpperCase()) &&
       (memeContext || !isAmbiguous(s)),
   );
