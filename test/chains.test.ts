@@ -10,6 +10,7 @@ const CONFIG: TradeConfig = {
   mode: "paper",
   usdPerTrade: 50,
   maxDailySpendUsd: 200,
+  paperStartUsd: 1000,
   maxOpenPositions: 3,
   minEntryLiquidityUsd: 50_000,
   slippageBps: 100,

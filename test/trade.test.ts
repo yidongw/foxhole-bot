@@ -15,6 +15,7 @@ const CONFIG: TradeConfig = {
   mode: "paper",
   usdPerTrade: 50,
   maxDailySpendUsd: 200,
+  paperStartUsd: 1000,
   maxOpenPositions: 3,
   minEntryLiquidityUsd: 50_000,
   slippageBps: 100,
@@ -187,5 +188,25 @@ describe("position math", () => {
     const p = makePosition();
     // 50 tokens @ $1.4 = $70 vs $50 cost
     expect(totalPnlUsd(p, 1.4)).toBeCloseTo(20);
+  });
+});
+
+describe("paperCashUsd + cap opt-out", () => {
+  it("cash = start - costs + proceeds", async () => {
+    const { paperCashUsd } = await import("../src/trade/positions.js");
+    const file = makeFile([
+      makePosition({ id: "a", token: "0x1000000000000000000000000000000000000000", costUsd: 50,
+        status: "closed", exits: [{ at: new Date().toISOString(), fraction: 1, priceUsd: 1, proceedsUsd: 60 }] }),
+      makePosition({ id: "b", token: "0x2000000000000000000000000000000000000000", costUsd: 45, exits: [] }),
+    ]);
+    // 1000 - 50 - 45 + 60 = 965
+    expect(paperCashUsd(file, 1000)).toBeCloseTo(965, 2);
+  });
+
+  it("maxDailySpendUsd <= 0 disables the 24h cap", () => {
+    const file = makeFile([
+      makePosition({ id: "a", token: "0x1000000000000000000000000000000000000000", costUsd: 5000 }),
+    ]);
+    expect(checkEntry({ ...CONFIG, maxDailySpendUsd: 0 }, file, CANDIDATE).ok).toBe(true);
   });
 });

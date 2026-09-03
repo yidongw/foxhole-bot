@@ -84,6 +84,20 @@ export function spendSince(file: PositionsFile, sinceIso: string): number {
     .reduce((sum, p) => sum + Math.max(0, p.costUsd - realizedUsd(p)), 0);
 }
 
+/**
+ * Free cash in the paper account: starting capital minus what every entry
+ * cost, plus everything exits have returned. Open positions hold the rest
+ * as tokens (their market value is added back for equity).
+ */
+export function paperCashUsd(file: PositionsFile, startUsd: number): number {
+  let cash = startUsd;
+  for (const p of file.positions) {
+    cash -= p.costUsd;
+    cash += realizedUsd(p);
+  }
+  return cash;
+}
+
 export function remainingFraction(p: Position): number {
   return Math.max(0, 1 - p.exits.reduce((s, e) => s + e.fraction, 0));
 }

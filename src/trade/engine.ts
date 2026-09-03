@@ -19,6 +19,7 @@ import { loadTradeConfig, type TradeConfig } from "./config.js";
 import {
   loadPositions,
   openPositions,
+  paperCashUsd,
   recordExit,
   remainingFraction,
   savePositions,
@@ -518,10 +519,12 @@ export async function managePositions(
 
 export async function formatPortfolioReport(): Promise<string> {
   const file = await loadPositions();
-  if (!file.positions.length) return "No positions yet.";
+  const start = loadTradeConfig().paperStartUsd;
+  const cash = paperCashUsd(file, start);
 
   const lines: string[] = [];
   const open = openPositions(file);
+  let openValue = 0;
   if (open.length) {
     lines.push(`**Open positions (${open.length})**`);
     for (const p of open) {
@@ -531,6 +534,7 @@ export async function formatPortfolioReport(): Promise<string> {
       } catch {}
       const pnl = totalPnlUsd(p, price);
       const rem = remainingFraction(p);
+      openValue += rem * p.amountTokens * (price ?? p.entryPriceUsd);
       lines.push(
         `• ${p.symbol ?? p.token} [${positionChain(p.chain)}/${p.mode}] ${(rem * 100).toFixed(0)}% left, ` +
           `entry $${p.entryPriceUsd.toPrecision(4)}${price ? `, now $${price.toPrecision(4)}` : ""}, ` +
@@ -547,5 +551,15 @@ export async function formatPortfolioReport(): Promise<string> {
       `**Closed: ${closed.length}, realized P&L ${realized >= 0 ? "+" : ""}$${realized.toFixed(2)}**`,
     );
   }
+
+  // Paper account balance — the number the strategy is judged against.
+  const equity = cash + openValue;
+  const pnl = equity - start;
+  const pct = (pnl / start) * 100;
+  lines.push(
+    `**💰 账户余额 $${equity.toFixed(2)}** ` +
+      `(起始 $${start.toFixed(0)} · ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} / ${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%) — ` +
+      `现金 $${cash.toFixed(2)}${openValue > 0 ? ` · 持仓市值 $${openValue.toFixed(2)}` : ""}`,
+  );
   return lines.join("\n");
 }

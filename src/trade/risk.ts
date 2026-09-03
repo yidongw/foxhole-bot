@@ -62,13 +62,16 @@ export function checkEntry(
     return { ok: false, reason: `max open positions (${config.maxOpenPositions})` };
   }
 
-  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-  const spent = spendSince(file, dayAgo);
-  if (spent + config.usdPerTrade > config.maxDailySpendUsd) {
-    return {
-      ok: false,
-      reason: `24h capital-at-risk cap: $${Math.round(spent)} + $${config.usdPerTrade} > $${config.maxDailySpendUsd}`,
-    };
+  // maxDailySpendUsd <= 0 disables the cap entirely (user opt-out).
+  if (config.maxDailySpendUsd > 0) {
+    const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const spent = spendSince(file, dayAgo);
+    if (spent + config.usdPerTrade > config.maxDailySpendUsd) {
+      return {
+        ok: false,
+        reason: `24h capital-at-risk cap: $${Math.round(spent)} + $${config.usdPerTrade} > $${config.maxDailySpendUsd}`,
+      };
+    }
   }
 
   return { ok: true };
