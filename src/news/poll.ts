@@ -148,17 +148,15 @@ export async function newsTick(options: {
         state.hotSymbols[sym] = new Date().toISOString();
       }
       const verdict = await judgeFlash(flash, cls);
-      // 免判定放行只给三类硬信号：关注币 / 负面 / 上所。
-      // 叙事级（裸 rb-chain/momentum）在判定不可用时降级留痕 — fail-closed
-      const strongWake =
-        cls.negative ||
-        cls.reasons.some((r) => r.startsWith("watched:") || r === "listing");
-      if ((verdict && !verdict.signal) || (!verdict && !strongWake)) {
-        const why = verdict ? `判定: ${verdict.note || "非交易信号"}` : "判定不可用，叙事级降级";
+      // 只有内联 judge **明确判否** 才降级留痕。judge 不可用（部署机没
+      // ANTHROPIC_API_KEY 是常态）绝不能吞掉信号 —— 真正的深度判断由
+      // decider（独立 claude -p 进程）在 thread 里做,这里只管把够格的
+      // 送进 thread。否则 FLORK +230% 这种也会被 fail-closed 埋掉。
+      if (verdict && !verdict.signal) {
         if (newsUrl && !options.dryRun) {
           await sendDiscordMessage(
             newsUrl,
-            `📰🚫 ${flash.title}\n${why} | ${flash.url}`,
+            `📰🚫 ${flash.title}\n判定: ${verdict.note || "非交易信号"} | ${flash.url}`,
           ).catch((err) => console.error("news filter post failed:", err.message));
         }
         noted++;
