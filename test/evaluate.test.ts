@@ -164,3 +164,41 @@ describe("falling-knife demotion (BONER 2026-09-03 lesson)", () => {
     expect(ev.triggers).not.toContain("falling_knife");
   });
 });
+
+describe("micro-cap demotion (token I lesson)", () => {
+  it("demotes strong signals on nano-cap FDV", () => {
+    const ev = evaluateSignal(
+      baseInput({
+        quoteLockRatio: SIGNAL_CONFIG.lockStrong,
+        volumeSpikeRatio: SIGNAL_CONFIG.volumeSpikeStrong,
+        priceChange24h: 450,
+        fdvUsd: 288_000, // token "I"
+      }),
+    );
+    expect(ev.level).toBe("alert");
+    expect(ev.triggers).toContain("micro_cap");
+  });
+
+  it("leaves real-cap tokens untouched", () => {
+    const ev = evaluateSignal(
+      baseInput({
+        quoteLockRatio: SIGNAL_CONFIG.lockStrong,
+        volumeSpikeRatio: SIGNAL_CONFIG.volumeSpikeStrong,
+        fdvUsd: 50_000_000,
+      }),
+    );
+    expect(ev.level).toBe("strong");
+    expect(ev.triggers).not.toContain("micro_cap");
+  });
+
+  it("undefined FDV fails open (no demotion)", () => {
+    const ev = evaluateSignal(
+      baseInput({
+        quoteLockRatio: SIGNAL_CONFIG.lockStrong,
+        volumeSpikeRatio: SIGNAL_CONFIG.volumeSpikeStrong,
+      }),
+    );
+    expect(ev.level).toBe("strong");
+    expect(ev.triggers).not.toContain("micro_cap");
+  });
+});

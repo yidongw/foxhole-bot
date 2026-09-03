@@ -83,6 +83,16 @@ export const SIGNAL_CONFIG = {
   postPumpMaxChangePct: 500,
 
   /**
+   * Minimum FDV for a TRADE-grade signal. Below this a token is nano-dust:
+   * "I" (single-letter meme, $288K FDV, $137K liq fragmented across 14
+   * pools) pumped +450% and auto-bought because momentum/volume/stock-pair
+   * triggers all fired — but a $288K cap should never be an entry. Real RB
+   * memes that mattered (JINQIAN, PONS, BONER) were all $M+. Undefined FDV
+   * fails open (no demotion) so missing data doesn't blind the radar.
+   */
+  minTradeFdvUsd: 1_000_000,
+
+  /**
    * 24h drop beyond this while volume triggers fire = distribution, not a
    * breakout. The spike/accel triggers compare against peer pairs or the
    * last scan snapshot, so sell-off volume on a falling token reads as

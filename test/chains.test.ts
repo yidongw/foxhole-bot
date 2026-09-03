@@ -162,3 +162,16 @@ describe("24h capital-at-risk cap", () => {
     expect(v.reason).toMatch(/capital-at-risk/);
   });
 });
+
+describe("micro-cap entry veto", () => {
+  it("refuses entries carrying the micro_cap trigger", () => {
+    process.env.TRADE_CHAINS = "robinhood,solana";
+    const v = checkEntry(CONFIG, { version: 1, positions: [] }, {
+      token: "0xAbC0000000000000000000000000000000000005",
+      chain: "solana", symbol: "DUST", priceUsd: 1, liquidityUsd: 100_000,
+      triggers: ["lock_strong", "micro_cap"],
+    });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/micro-cap/);
+  });
+});

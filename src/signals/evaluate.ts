@@ -83,6 +83,7 @@ export function evaluateSignal(
     priceMomentumStrong,
     postPumpMaxChangePct,
     fallingKnifeDropPct,
+    minTradeFdvUsd,
     launchWatchDays,
   } = config;
 
@@ -260,6 +261,15 @@ export function evaluateSignal(
     level = "alert";
     reasons.push(`+${pct.toFixed(0)}% 24h 已走完 — 事后信号降级, 不入场`);
     triggers.push("post_pump");
+  }
+
+  // --- Nano-cap demotion: a trade signal needs a real market cap ---
+  // Guards against single-letter dust ("I", $288K FDV) being auto-bought
+  // off momentum/volume triggers. Undefined FDV fails open.
+  if (input.fdvUsd != null && input.fdvUsd < minTradeFdvUsd && level === "strong") {
+    level = "alert";
+    reasons.push(`FDV $${(input.fdvUsd / 1e3).toFixed(0)}K < $${(minTradeFdvUsd / 1e6).toFixed(1)}M — 微盘 dust, 不入场`);
+    triggers.push("micro_cap");
   }
 
   // --- Falling-knife demotion: volume triggers on a dropping token ---

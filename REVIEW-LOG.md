@@ -176,3 +176,10 @@ checkChart(collapsed_pump veto):信号在投递与入场之前就被拦截。102
 4 笔已全部平仓回款,真实敞口 ~$0,是毛周转 $200 触顶,不是风险触顶。
 改为按"仍在风险中的资金"计算: 每笔入场净掉已实现回款(全 rug 时回款为 0,
 最坏情况仍被 $200 硬顶住,保护不变)。学习循环不再被回收资金饿死。104/104。
+## 2026-09-03 — 微盘 dust 降级(用户指出 token "I")
+用户问"I"(0xe9ae…1E18)为什么会来信号。查明: 单字母 meme, FDV $28.8万,
+主池 $13.7万碎在 14 池,已 +450%,却因 momentum+volume+stock-pair(NU 被当股票)
+触发全套 trade 级信号并被引擎 02:49 自动买入。根因: 信号引擎对市值无下限,
+$28.8万 dust 与 $7000万 JINQIAN 同套阈值。修复: FDV < $1M 的 strong 降为
+alert + micro_cap 触发器, checkEntry 拒绝入场(FDV 缺失则 fail-open)。
+实测 I→alert/micro_cap, PONS($340M)不受影响。112/112。
