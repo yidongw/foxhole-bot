@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { writeJsonAtomic } from "../lib/atomic-json.js";
 import { sleep } from "../lib/utils.js";
 import {
-  loadTrackedWallets,
+  loadActiveTrackedWallets,
   walletChain,
   type TrackedWallet,
 } from "../chains/robinhood/smart-money.js";
@@ -63,7 +63,7 @@ export async function startActivityWatcher(): Promise<void> {
 
   while (true) {
     try {
-      const wallets = await loadTrackedWallets();
+      const wallets = await loadActiveTrackedWallets();
       const byChain = pollableWalletsByChain(wallets);
       if (byChain.size === 0) {
         await sleep(POLL_MS);

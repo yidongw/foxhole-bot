@@ -26,7 +26,7 @@ import {
   decodeSwap,
   decodeTransfer,
   detectBuys,
-  loadTrackedWallets,
+  loadActiveTrackedWallets,
   walletChain,
   type DetectedBuy,
   type PoolPair,
@@ -77,7 +77,7 @@ class RbBuyWatcher {
   private poolCache = new Map<string, PoolPair>();
 
   async reloadWallets(): Promise<boolean> {
-    const wallets = (await loadTrackedWallets()).filter(
+    const wallets = (await loadActiveTrackedWallets()).filter(
       (w) => walletChain(w) === "robinhood",
     );
     const next = new Set(wallets.map((w) => w.address.toLowerCase()));

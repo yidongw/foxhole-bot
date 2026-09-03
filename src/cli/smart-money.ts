@@ -4,6 +4,8 @@ loadEnv();
 
 import {
   addTrackedWallet,
+  disableWallet,
+  enableWallet,
   loadTrackedWallets,
   removeTrackedWallet,
   walletChain,
@@ -56,9 +58,11 @@ async function main() {
       return;
     }
     for (const w of wallets) {
-      console.log(`[${walletChain(w)}] ${w.address}  ${w.label}`);
+      const flag = w.disabled ? "⏸️ 已禁用 " : "";
+      console.log(`[${walletChain(w)}] ${flag}${w.address}  ${w.label}`);
     }
-    console.log(`\n共 ${wallets.length} 个地址。`);
+    const active = wallets.filter((w) => !w.disabled).length;
+    console.log(`\n共 ${wallets.length} 个(追踪中 ${active},已禁用 ${wallets.length - active})。`);
     return;
   }
 
@@ -265,6 +269,17 @@ async function main() {
     return;
   }
 
+  if (cmd === "enable") {
+    const [address] = rest;
+    if (!address) {
+      console.error("用法: smartmoney enable <address>");
+      process.exit(1);
+    }
+    const { enabled } = await enableWallet(address);
+    console.log(enabled ? `▶️ 已恢复追踪 ${address}` : `未找到或未禁用 ${address}`);
+    return;
+  }
+
   if (cmd === "revet") {
     const drop = process.argv.includes("--drop");
     const now = Math.floor(Date.now() / 1000);
@@ -296,15 +311,15 @@ async function main() {
     }
     console.log(`\n不达标 ${fails.length} 个。`);
     if (drop) {
-      for (const f of fails) await removeTrackedWallet(f.address);
-      console.log(`🗑️ 已踢掉 ${fails.length} 个。`);
+      for (const f of fails) await disableWallet(f.address, f.reasons.join("; "));
+      console.log(`⏸️ 已禁用 ${fails.length} 个(保留记录,不再追踪;可 enable 恢复)。`);
     } else if (fails.length) {
-      console.log("(加 --drop 自动踢掉)");
+      console.log("(加 --drop 自动禁用)");
     }
     return;
   }
 
-  console.error(`未知命令: ${cmd}。可用: list | add | rm | find | find2 | good | config | filter | revet`);
+  console.error(`未知命令: ${cmd}。可用: list | add | rm | enable | find | find2 | good | config | filter | revet`);
   process.exit(1);
 }
 

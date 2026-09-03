@@ -2,7 +2,7 @@ import WebSocket from "ws";
 
 import { sleep } from "../lib/utils.js";
 import {
-  loadTrackedWallets,
+  loadActiveTrackedWallets,
   walletChain,
   type TrackedWallet,
 } from "../chains/robinhood/smart-money.js";
@@ -88,7 +88,7 @@ export async function startCieloWatcher(): Promise<void> {
   const tierFor = (w: string) => tiers.get(w.toLowerCase());
 
   const cieloWallets = async (): Promise<TrackedWallet[]> => {
-    const all = await loadTrackedWallets();
+    const all = await loadActiveTrackedWallets();
     const list = all.filter((w) => covered.has(walletChain(w)));
     labels = new Map(list.map((w) => [w.address.toLowerCase(), w.label]));
     tiers = new Map(list.map((w) => [w.address.toLowerCase(), w.tier]));

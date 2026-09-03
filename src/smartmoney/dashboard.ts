@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { writeJsonAtomic } from "../lib/atomic-json.js";
 import { sleep } from "../lib/utils.js";
-import { loadTrackedWallets, walletChain } from "../chains/robinhood/smart-money.js";
+import { loadActiveTrackedWallets, walletChain } from "../chains/robinhood/smart-money.js";
 import { loadConfig, resolveFilterSync, type SmartMoneyFilter } from "./config.js";
 import { readSmLog } from "./log.js";
 
@@ -38,7 +38,7 @@ export async function buildDashboard(): Promise<{
   recent: Awaited<ReturnType<typeof readSmLog>>;
 }> {
   const config = await loadConfig();
-  const wallets = await loadTrackedWallets();
+  const wallets = await loadActiveTrackedWallets();
   const rows: DashboardWallet[] = wallets.map((w) => {
     const chain = walletChain(w);
     return {

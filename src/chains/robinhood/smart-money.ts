@@ -86,6 +86,10 @@ export interface TrackedWallet {
   tier?: string;
   /** Realized USD profit that qualified it (from winner-finder), optional. */
   realizedUsd?: number;
+  /** Disabled (filtered out by revet) — kept for review, not tracked live. */
+  disabled?: boolean;
+  disabledReason?: string;
+  disabledAt?: string;
 }
 
 interface BookFile {
@@ -115,6 +119,42 @@ export async function loadTrackedWallets(): Promise<TrackedWallet[]> {
   } catch {
     return [];
   }
+}
+
+/** Only the live-tracked wallets (excludes disabled) — used by the watchers. */
+export async function loadActiveTrackedWallets(): Promise<TrackedWallet[]> {
+  return (await loadTrackedWallets()).filter((w) => !w.disabled);
+}
+
+/** Disable a wallet (revet filter) — kept on record, not tracked live. */
+export async function disableWallet(
+  address: string,
+  reason: string,
+): Promise<{ disabled: boolean }> {
+  const target = address.toLowerCase();
+  const wallets = await loadTrackedWallets();
+  const w = wallets.find((x) => x.address.toLowerCase() === target);
+  if (!w || w.disabled) return { disabled: false };
+  w.disabled = true;
+  w.disabledReason = reason;
+  w.disabledAt = new Date().toISOString();
+  await saveTrackedWallets(wallets);
+  return { disabled: true };
+}
+
+/** Re-enable a previously disabled wallet. */
+export async function enableWallet(
+  address: string,
+): Promise<{ enabled: boolean }> {
+  const target = address.toLowerCase();
+  const wallets = await loadTrackedWallets();
+  const w = wallets.find((x) => x.address.toLowerCase() === target);
+  if (!w || !w.disabled) return { enabled: false };
+  delete w.disabled;
+  delete w.disabledReason;
+  delete w.disabledAt;
+  await saveTrackedWallets(wallets);
+  return { enabled: true };
 }
 
 export async function saveTrackedWallets(wallets: TrackedWallet[]): Promise<void> {
