@@ -206,8 +206,8 @@ describe("resolveFilterSync (per-chain / per-wallet filters)", () => {
   const empty: SmartMoneyConfig = { defaults: {}, chains: {}, wallets: {} };
   it("applies built-in chain defaults (RB open, BSC gated)", () => {
     expect(resolveFilterSync(empty, "robinhood", "0x0").alertMinUsd).toBe(0);
-    expect(resolveFilterSync(empty, "bsc", "0x0").alertMinUsd).toBe(1000);
-    expect(resolveFilterSync(empty, "bsc", "0x0").aiMinUsd).toBe(3000);
+    expect(resolveFilterSync(empty, "bsc", "0x0").alertMinUsd).toBe(300);
+    expect(resolveFilterSync(empty, "bsc", "0x0").aiMinUsd).toBe(500);
     // RB cools down a wallet re-buying the same token to kill spam.
     expect(resolveFilterSync(empty, "robinhood", "0x0").alertCooldownMin).toBe(30);
     expect(resolveFilterSync(empty, "bsc", "0x0").alertCooldownMin).toBe(0);

@@ -46,6 +46,10 @@ export const QUOTE_ASSETS: Record<string, { symbol: string; decimals: number }> 
   // USDG (Global Dollar) is a 6-decimal stablecoin — verified on-chain.
   "0x5fc5360d0400a0fd4f2af552add042d716f1d168": { symbol: "USDG", decimals: 6 },
   "0x4e3468951d49f2eea976ed0d6e75ffcb44a9a544": { symbol: "LONG", decimals: 18 },
+  // HOOD is the Robinhood stock token used as a base pair on RB — tracked
+  // wallets buy/sell it constantly and the AI skips it every time, so treat it
+  // as a quote asset (not a meme signal) to kill the dominant RB noise source.
+  "0x32ac8c1d7672667d5ebdea22935f7b06fc8d496f": { symbol: "HOOD", decimals: 18 },
 };
 
 export function isQuoteAsset(addr: string): boolean {

@@ -175,13 +175,6 @@
       "addedBy": "smartmoney-seed"
     },
     {
-      "address": "0xf24022Ba0FEa5926D30Fba8feCE6d7A852732989",
-      "label": "gmgn x2 $319k 牛来+marscoin",
-      "chain": "bsc",
-      "addedAt": "2026-09-03T13:29:30.491Z",
-      "addedBy": "cli"
-    },
-    {
       "address": "0x639cF6961B227d73FC4015380104249571c73Da4",
       "label": "S v2 $475k",
       "chain": "bsc",

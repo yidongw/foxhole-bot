@@ -59,12 +59,14 @@ const CHAIN_DEFAULTS: Record<string, Partial<SmartMoneyFilter>> = {
   // RB is the home chain (keep all sizes) but a wallet re-buying the same token
   // (e.g. the HOOD accumulator) spams — so cool down repeat same-token alerts.
   robinhood: { alertMinUsd: 0, aiMinUsd: 0, alertCooldownMin: 30 },
-  bsc: { alertMinUsd: 1000, aiMinUsd: 3000 },
-  sol: { alertMinUsd: 500, aiMinUsd: 2000 },
-  solana: { alertMinUsd: 500, aiMinUsd: 2000 },
-  base: { alertMinUsd: 500, aiMinUsd: 2000 },
-  eth: { alertMinUsd: 500, aiMinUsd: 2000 },
-  ethereum: { alertMinUsd: 500, aiMinUsd: 2000 },
+  // Calibrated on live data: BSC smart-money buys are small (median ~$48, max
+  // ~$712 over 3h), so the old $1000/$3000 gates blocked 100% of buys.
+  bsc: { alertMinUsd: 300, aiMinUsd: 500 },
+  sol: { alertMinUsd: 150, aiMinUsd: 400 },
+  solana: { alertMinUsd: 150, aiMinUsd: 400 },
+  base: { alertMinUsd: 200, aiMinUsd: 500 },
+  eth: { alertMinUsd: 200, aiMinUsd: 500 },
+  ethereum: { alertMinUsd: 200, aiMinUsd: 500 },
 };
 
 let cache: { at: number; config: SmartMoneyConfig } | undefined;
