@@ -189,3 +189,13 @@ alert + micro_cap 触发器, checkEntry 拒绝入场(FDV 缺失则 fail-open)。
 AI 的判断对执行毫无约束力。根因: processSignals 机械自动入场,与 AI 决策进程
 并行运行且优先。修复: 新增 TRADE_AUTO_ENTRY(默认关),AI 决策进程成为唯一买家,
 其 buy/skip 判断即最终执行; 引擎仍机械管理出场(快速止损保留)。113/113。
+
+## 2026-09-03 — BSC four.meme 补齐: 从 digest 升级为 probation→verify→analyze→分级警报
+BSC 之前只有 generic 发现 + four.meme launch 的 digest 流水,新铸代币发完就
+不管了。对齐 RB v4-watcher 模式: 新增 data/fourmeme-watch.json 观察名单,每次
+tick 把新 TokenCreate 挂到 probation; 用 DexScreener 批量查询(chainId=bsc,
+流动性≥$15K)筛选毕业到真实 PancakeSwap 池的代币 → verified 后每 tick 走
+adapter.analyze + evaluateSignal + maybeAlert,得到与 RB 同级的分级警报(含
+量能加速)。12h 窗口、40 verified 上限、按新鲜度截断。新增 addFourmemeProbation
+的去重测试。134/134,typecheck 绿。下次: four.meme 债券曲线毕业进度接入
+analysis(类比 pump.fun curveProgress),或 BSC live 交易路径实测/GoPlus 安全门。

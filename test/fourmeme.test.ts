@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeTokenCreate } from "../src/chains/bsc/fourmeme.js";
+import {
+  addFourmemeProbation,
+  decodeTokenCreate,
+  type FourmemeLaunch,
+  type FourmemeWatchEntry,
+} from "../src/chains/bsc/fourmeme.js";
 
 /** Real TokenCreate log captured from BSC block 119483869. */
 const CREATE_LOG = {
@@ -31,5 +36,54 @@ describe("decodeTokenCreate", () => {
     expect(launch.symbol).toBe("PUSSYBUTT");
     expect(launch.totalSupply).toBe(10n ** 27n); // 1B tokens × 1e18
     expect(launch.blockNumber).toBe(119483869n);
+  });
+});
+
+function launch(token: string, symbol: string): FourmemeLaunch {
+  return {
+    creator: "0x0000000000000000000000000000000000000001",
+    token: token as `0x${string}`,
+    name: symbol,
+    symbol,
+    totalSupply: 10n ** 27n,
+    blockNumber: 1n,
+    txHash: "0x0" as `0x${string}`,
+  };
+}
+
+describe("addFourmemeProbation", () => {
+  it("adds new mints as unverified probation entries", async () => {
+    const entries: FourmemeWatchEntry[] = [];
+    const added = await addFourmemeProbation(
+      [
+        launch("0x1111111111111111111111111111111111111111", "AAA"),
+        launch("0x2222222222222222222222222222222222222222", "BBB"),
+      ],
+      entries,
+    );
+    expect(added).toBe(2);
+    expect(entries).toHaveLength(2);
+    expect(entries[0].verified).toBe(false);
+    expect(entries[0].symbol).toBe("AAA");
+  });
+
+  it("dedupes against existing entries case-insensitively", async () => {
+    const entries: FourmemeWatchEntry[] = [
+      {
+        address: "0x1111111111111111111111111111111111111111",
+        firstSeen: new Date().toISOString(),
+        verified: true,
+        attempts: 0,
+      },
+    ];
+    const added = await addFourmemeProbation(
+      [
+        launch("0X1111111111111111111111111111111111111111", "AAA"),
+        launch("0x3333333333333333333333333333333333333333", "CCC"),
+      ],
+      entries,
+    );
+    expect(added).toBe(1);
+    expect(entries).toHaveLength(2);
   });
 });

@@ -33,9 +33,13 @@ import {
 import { enabledChains, type ChainId } from "../chains/adapter.js";
 import { getAdapter } from "../chains/registry.js";
 import {
+  addFourmemeProbation,
   fetchFourmemeLaunches,
   formatFourmemeDigest,
   getBscLatestBlock,
+  loadFourmemeWatch,
+  saveFourmemeWatch,
+  screenFourmemeProbation,
 } from "../chains/bsc/fourmeme.js";
 import {
   fetchClankerLaunches,
@@ -528,8 +532,63 @@ async function checkFourmemeLaunches(
   }
   state.lastFourmemeBlock = latest.toString();
   if (launches.length) {
-    console.log(`fourmeme watcher: ${launches.length} new launch(es)`);
+    // Track every mint on probation so the ones that graduate to a real
+    // PancakeSwap pool get analyzed + signal-graded (the squeeze moment) —
+    // symmetric to the RB v4-watcher, not just a fire-and-forget digest.
+    const entries = await loadFourmemeWatch();
+    const added = await addFourmemeProbation(launches, entries);
+    if (added) await saveFourmemeWatch(entries);
+    console.log(
+      `fourmeme watcher: ${launches.length} new launch(es), ${added} on probation`,
+    );
   }
+}
+
+/**
+ * Screen probation four.meme tokens; verified (graduated, liquid) ones get a
+ * full analysis + signal evaluation + graded alert each tick — the BSC
+ * analogue of scanV4Watch.
+ */
+async function scanFourmemeWatch(
+  state: MonitorState,
+  options: ScanOptions,
+  minRank: number,
+  hits: ScanHit[],
+  rows: SignalRow[],
+): Promise<void> {
+  const entries = await loadFourmemeWatch();
+  if (!entries.length) return;
+
+  const promoted = await screenFourmemeProbation(entries);
+  if (promoted) {
+    console.log(`fourmeme watcher: ${promoted} token(s) verified — tracking`);
+  }
+
+  const adapter = getAdapter("bsc");
+  for (const entry of entries.filter((e) => e.verified)) {
+    try {
+      const analysis = await adapter.analyze(entry.address);
+      const key = stateKey("bsc", entry.address);
+      const prev = state.tokens[key];
+      const accel =
+        prev && prev.volume24hUsd > 0
+          ? (analysis.volume24hUsd ?? 0) / prev.volume24hUsd
+          : undefined;
+      const input = analysisToSignalInput(analysis, {
+        volumeAccelRatio: accel,
+        isStockPaired: false,
+        dexUrl: `https://dexscreener.com/bsc/${entry.address}`,
+      });
+      const evaluation = evaluateSignal(input, loadSignalConfig());
+      snapshotAndRow(state, key, analysis, evaluation, rows);
+      const hit = await maybeAlert(state, evaluation, key, prev?.level, minRank, options);
+      if (hit) hits.push(hit);
+    } catch {
+      entry.attempts++;
+    }
+    await sleep(250);
+  }
+  await saveFourmemeWatch(entries);
 }
 
 /** Base first-run lookback ≈1h at 2s blocks. */
@@ -591,6 +650,7 @@ async function scanChainTrending(
   if (chain === "bsc") {
     try {
       await checkFourmemeLaunches(state, options);
+      await scanFourmemeWatch(state, options, minRank, hits, rows);
     } catch (err) {
       console.error("fourmeme watcher failed (continuing):", (err as Error).message);
     }
