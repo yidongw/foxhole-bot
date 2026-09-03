@@ -34,3 +34,24 @@ describe("selectPrimaryPair", () => {
     expect(selectPrimaryPair([bonerHims, bonerWeth], HIMS)).toBeUndefined();
   });
 });
+
+describe("selectPrimaryPair — PONS regression", () => {
+  const PONS = "0x39dBED3a2bd333467115dE45665cC57F813C4571";
+  const ponsWeth: DexPair = {
+    baseToken: { address: PONS, symbol: "PONS" },
+    quoteToken: { address: "0x1", symbol: "WETH" },
+    liquidity: { usd: 5_100_000 },
+  };
+  const ponsAi: DexPair = {
+    baseToken: { address: PONS, symbol: "PONS" },
+    quoteToken: { address: "0x2", symbol: "AI" },
+    liquidity: { usd: 189_000 },
+  };
+
+  it("tiny meme-quote side pools do not hijack primary selection", () => {
+    // PONS was analyzed off a $189K PONS/AI pool ($31K vol) instead of its
+    // $5.1M WETH main pool ($24M/day) — score 0, invisible to every signal.
+    const primary = selectPrimaryPair([ponsAi, ponsWeth], PONS);
+    expect(primary?.quoteToken?.symbol).toBe("WETH");
+  });
+});

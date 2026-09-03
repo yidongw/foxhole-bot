@@ -154,3 +154,10 @@ rb 频道同时兼任全局兜底(复盘确认清单发 🟢🧹-rb-filter-log)�
 - **BLOCKBEATS_API_KEY 终于进了部署 .env**(此前只在已删除的 worktree 里,
   新闻轮询一直默默走页面抓取回退;f29de49 的"Key 死亡告警"守着一个从未安装
   的 Key)。已从 MCP 配置找回并实测官方接口 200。
+## 2026-09-03 — PONS 主池选择 bug(自主复查发现)
+律动报 PONS 市值破 5 亿创新高,查我方状态:已发现但分析数据全错
+(vol $31K vs 实际 ~$95M)。根因: selectPrimaryPair 无条件偏好"股票配对"
+(quote 不在 ETH/WETH/USDG/USDC/USDT 即算),PONS/AI 这类 $189K 的小 meme
+互配池劫持了主池判定,$5.1M 的 WETH 主池被无视 → 永远 0 分。
+修复: 股票配对需流动性 ≥ 最深池的 25% 才可当主池(BONER/HIMS 场景保留,
+PONS 类成熟币回归真实主池)。实测 PONS 现读 PONS/WETH vol $6.8M。96/96。

@@ -41,14 +41,27 @@ export function selectPrimaryPair(
   const own = pairs.filter(
     (p) => p.baseToken?.address?.toLowerCase() === address.toLowerCase(),
   );
+  const byLiq = (a: DexPair, b: DexPair) =>
+    Number(b.liquidity?.usd ?? 0) - Number(a.liquidity?.usd ?? 0);
+  const deepest = [...own].sort(byLiq)[0];
   const stockPairs = own.filter((p) => {
     const q = p.quoteToken?.symbol ?? "";
     return !["ETH", "WETH", "USDG", "USDC", "USDT"].includes(q);
   });
-  const ranked = [...(stockPairs.length ? stockPairs : own)].sort(
-    (a, b) => Number(b.liquidity?.usd ?? 0) - Number(a.liquidity?.usd ?? 0),
-  );
-  return ranked[0];
+  const bestStock = [...stockPairs].sort(byLiq)[0];
+  // Prefer the stock pair only when it is the token's real venue (BONER/HIMS,
+  // where the stock pair IS the deepest pool). A mature token's tiny
+  // meme-quote side pools must not hijack primary selection: PONS ($5.1M
+  // WETH main pool, $24M/day) was analyzed off a $189K PONS/AI pool and
+  // scored 0 with $31K "volume" — invisible to every signal.
+  if (
+    bestStock &&
+    Number(bestStock.liquidity?.usd ?? 0) >=
+      Number(deepest?.liquidity?.usd ?? 0) * 0.25
+  ) {
+    return bestStock;
+  }
+  return deepest;
 }
 
 export async function analyzeToken(addressInput: string): Promise<TokenAnalysis> {
