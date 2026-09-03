@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   addFourmemeProbation,
   decodeTokenCreate,
+  fourmemeCurveProgress,
   type FourmemeLaunch,
   type FourmemeWatchEntry,
 } from "../src/chains/bsc/fourmeme.js";
@@ -85,5 +86,23 @@ describe("addFourmemeProbation", () => {
     );
     expect(added).toBe(1);
     expect(entries).toHaveLength(2);
+  });
+});
+
+describe("fourmemeCurveProgress", () => {
+  it("is BNB raised over the graduation target", () => {
+    // real on-chain sample: funds 0.49 BNB of an 18 BNB target ≈ 2.7%
+    expect(fourmemeCurveProgress(490196078431372545n, 18n * 10n ** 18n)).toBeCloseTo(
+      0.0272,
+      3,
+    );
+  });
+
+  it("returns undefined when the target is unknown (non-four.meme)", () => {
+    expect(fourmemeCurveProgress(0n, 0n)).toBeUndefined();
+  });
+
+  it("clamps to 1 at/after graduation", () => {
+    expect(fourmemeCurveProgress(20n, 18n)).toBe(1);
   });
 });

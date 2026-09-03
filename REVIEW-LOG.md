@@ -221,3 +221,22 @@ native 余额差 + 回执 gasUsed*effectiveGasPrice 还原真实收入。对齐 
 端到端实跑 `CHAINS=bsc monitor:once --dry-run`: four.meme watcher 抓到 59 个新盘
 全部入 probation;BSC 发现→分析→分级警报(STRONG/ALERT)全部正常触发,含事后
 信号降级、量能倍数、FDV 微盘下限——BSC 已达 RB 同级发现/分析/警报能力。134/134。
+## 2026-09-03 09:18 UTC — Phase 1 — 扫描
+- 警报评分: 0 (赢 0 / 假 0)
+- 暴涨扫描: 9 个, 自动过滤 0 个, 待人工确认 0 个
+
+
+## 2026-09-03 (循环) — four.meme 债券曲线进度接入 = BSC 首个 pre-pump 信号源
+诊断确认: BSC 一直出不了 #trade-signal 是因为 isTradeGrade 要求 strong + 入场
+触发器(lock_*/boner/curve_near_grad_strong/ai_decision),而 BSC 只能产 momentum/
+volume(事后回声,故意排除)。缺的是 pre-pump 信号源。修法: 接入 four.meme 曲线。
+先从 BscScan/文档拿到 TokenManagerHelper3(0xF251F83e...E46034)的 getTokenInfo,
+再链上实测核实(不臆造): on-curve 返回 version=2/liquidityAdded=false/funds→maxFunds,
+非 four.meme 返回 version=0/maxFunds=0(不 revert)。新增 getFourmemeCurveState +
+纯函数 fourmemeCurveProgress(funds/maxFunds)。bscAdapter.analyze 接入(对称 Solana
+pumpfun): 设 curveProgress/curveGraduated,并用 funds(BNB 深度)覆盖 DexScreener
+对 curve token 报 null 的 liquidity,让临近毕业的 token 过流动性门。曲线≥92%+有量
+即触发 curve_near_grad_strong → BSC 终于能出 pre-pump 交易信号。实测 analyze 一个
+on-curve token 显示"four.meme curve X% to graduation",CAKE 不误报。143/143。
+下次: BSC-specific 曲线量能阈值(curve trigger 的 vol 门 $50K 对 curve token 偏高),
+或 live 交易实测。

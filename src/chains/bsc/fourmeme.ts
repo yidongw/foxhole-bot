@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { decodeAbiParameters, getAddress, type Address } from "viem";
+import {
+  decodeAbiParameters,
+  formatUnits,
+  getAddress,
+  parseAbi,
+  type Address,
+} from "viem";
 
 import { getEvmClient } from "../evm/clients.js";
 import { fetchLogsChunked, type RawLog } from "../evm/log-watcher.js";
@@ -93,6 +99,74 @@ export async function fetchFourmemeLaunches(
 
 export async function getBscLatestBlock(): Promise<bigint> {
   return getEvmClient("bsc").getBlockNumber();
+}
+
+/**
+ * Four.meme bonding-curve state reader — the BSC analogue of pump.fun's
+ * getPumpCurveState, giving BSC a *pre-pump* signal source (curve nearing
+ * graduation) rather than only lagging DexScreener momentum.
+ *
+ * TokenManagerHelper3 (V3, covers V1+V2 tokens). getTokenInfo signature and
+ * the funds/maxFunds progress semantics verified live on BSC 2026-09-03:
+ * on-curve tokens return version=2 with liquidityAdded=false and funds rising
+ * toward maxFunds; non-four.meme tokens return version=0/maxFunds=0 (no
+ * revert); graduation flips liquidityAdded=true once the PancakeSwap pair is
+ * created.
+ */
+export const FOURMEME_HELPER =
+  "0xF251F83e40a78868FcfA3FA4599Dad6494E46034" as const;
+
+const HELPER_ABI = parseAbi([
+  "function getTokenInfo(address token) view returns (uint256 version, address tokenManager, address quote, uint256 lastPrice, uint256 tradingFeeRate, uint256 minTradingFee, uint256 launchTime, uint256 offers, uint256 maxOffers, uint256 funds, uint256 maxFunds, bool liquidityAdded)",
+]);
+
+export interface FourmemeCurveState {
+  isFourmemeToken: boolean;
+  graduated?: boolean;
+  /** 0..1 fraction of the BNB/quote raise target reached (graduation at 1). */
+  progress?: number;
+  /** BNB (or quote) raised so far — real curve depth DexScreener omits. */
+  fundsRaised?: number;
+}
+
+/** Pure: BNB raised as a fraction of the graduation target, clamped 0..1. */
+export function fourmemeCurveProgress(
+  funds: bigint,
+  maxFunds: bigint,
+): number | undefined {
+  if (maxFunds <= 0n) return undefined;
+  const p = Number(funds) / Number(maxFunds);
+  return Math.min(Math.max(p, 0), 1);
+}
+
+export async function getFourmemeCurveState(
+  token: string,
+): Promise<FourmemeCurveState> {
+  let addr: Address;
+  try {
+    addr = getAddress(token);
+  } catch {
+    return { isFourmemeToken: false };
+  }
+  try {
+    const [version, , , , , , , , , funds, maxFunds, liquidityAdded] =
+      await getEvmClient("bsc").readContract({
+        address: FOURMEME_HELPER,
+        abi: HELPER_ABI,
+        functionName: "getTokenInfo",
+        args: [addr],
+      });
+    // Non-four.meme tokens answer with an empty record rather than reverting.
+    if (version === 0n && maxFunds === 0n) return { isFourmemeToken: false };
+    return {
+      isFourmemeToken: true,
+      graduated: liquidityAdded,
+      progress: fourmemeCurveProgress(funds, maxFunds),
+      fundsRaised: Number(formatUnits(funds, 18)),
+    };
+  } catch {
+    return { isFourmemeToken: false };
+  }
 }
 
 export function formatFourmemeDigest(launches: FourmemeLaunch[]): string {
