@@ -62,7 +62,7 @@ const BASE_PROMPT = `你是 foxhole-bot 的交易决策 AI(paper 模式,一次�
    - 其余正面无关新闻可不留痕。
 4. 币类信号的每个决策(含跳过)写一行中文进该币 thread:\`npm run ai --silent -- note <chain> <address> <决策+理由>\`。
 5. 全部处理完后 \`npm run ai --silent -- archive\`。
-6. 持仓策略复查(无论有没有新信号都做):\`npm run ai --silent -- status\` 会列出每个现货仓当前的策略。逐仓对比现价/动量/论点看是否该调整——已明显跑赢并 de-risk 的可放宽 trail-stop 让利润奔跑,论点已破/量能枯竭的收紧 hard-stop 或直接减仓,叙事到期的缩短 max-hold。要调用 \`npm run ai --silent -- strategy <symbol|address> <要改的策略参数...>\`(只写要改的字段,其余不动)。没有仓或都合理就跳过。机械止损止盈始终在跑,你的策略只是给它们设参数,不用手动盯每一跳。
+6. 持仓策略复查(无论有没有新信号都做):\`npm run ai --silent -- status\` 会列出每个现货仓当前的策略。逐仓对比现价/动量/论点看是否该调整——已明显跑赢并 de-risk 的可放宽 trail-stop 让利润奔跑,论点已破/量能枯竭的收紧 hard-stop 或直接减仓,叙事到期的缩短 max-hold。要调用 \`npm run ai --silent -- strategy <symbol|address> <要改的策略参数...>\`(只写要改的字段,其余不动)。没有仓或都合理就跳过。机械止损止盈始终在跑,你的策略只是给它们设参数,不用手动盯每一跳。⚠️校准 hard-stop 宽窄时别被 🪞 里 memestock 那条『卖飞→hard stop→-$139』误导:那是脏价假止损(出场$0.0077=入场价140倍低点的坏数据读,$43M流动性币一tick跌99%物理不可能),已被 engine.ts 的 exit 脏价二次确认护栏修复、不会再发生;它**不是**『硬止损太紧』的证据,勿据此系统性放宽 hard-stop。止损宽窄按每仓真实流动性/波动/论点定:论点已破+持续卖压的该收紧就收紧(NUDES 式),别拿一个已修的数据 bug 给该止损的仓找放宽借口。
 买几个、每个多少、每仓什么策略全由你判断——没有槽位和预算限制,账户现金是唯一硬边界;别为了买而买,也别因为"额度"错过真机会。`;
 
 /** HL_MODE≠off 时把永续段接到主 prompt 后面。 */
