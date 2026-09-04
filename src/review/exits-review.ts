@@ -66,6 +66,15 @@ export interface LessonEntry {
   symbol?: string;
   chain: string;
   detail: string;
+  /** Ledger position behind a 卖飞 flag — lets the hourly pass revalidate it. */
+  positionId?: string;
+  /** Token address (never_bought) for revalidation price fetches. */
+  address?: string;
+  /** Price the verdict was anchored to (alert price for never_bought). */
+  anchorPriceUsd?: number;
+  /** The spike round-tripped after flagging — verdict withdrawn; do NOT count
+   *  this entry as exit-too-tight / skip-too-conservative evidence. */
+  retracted?: boolean;
 }
 
 interface ExitReviewState {
@@ -237,6 +246,62 @@ export async function reviewOwnTrades(
     state.flaggedTokens.push(key);
   }
 
+  // Revalidate earlier verdicts: a 卖飞 whose spike round-trips is NOT
+  // evidence the exit was too tight (CONCERN 2026-09-04: flagged "现价 2.0x"
+  // at 13:34, collapsed to 0.5x of the exit by 17:00 — the stop was RIGHT).
+  // Stale flags feed the "卖飞多=出场太紧" calibration hint in the wrong
+  // direction, so withdraw them once the price falls back near/below anchor.
+  const RETRACT_BELOW = 1.3;
+  let lessonsChanged = false;
+  for (const lesson of state.lessons ?? []) {
+    if (lesson.retracted) continue;
+    if (now.getTime() - new Date(lesson.at).getTime() > LESSONS_WINDOW_MS) continue;
+    let token: string | undefined;
+    let anchor: number | undefined;
+    if (lesson.kind === "sold_too_early") {
+      if (!lesson.positionId) {
+        // Backfill for entries written before positionId existed.
+        const matches = file.positions.filter(
+          (p) =>
+            p.status === "closed" &&
+            (p.chain ?? "robinhood") === lesson.chain &&
+            p.symbol === lesson.symbol &&
+            state.flaggedPositions.includes(p.id),
+        );
+        // Same-symbol tokens collide (three different GMEs on 09-04) — only
+        // backfill when the match is unambiguous, else leave the flag alone.
+        if (matches.length === 1) {
+          lesson.positionId = matches[0].id;
+          lessonsChanged = true;
+        }
+      }
+      const p = file.positions.find((x) => x.id === lesson.positionId);
+      if (!p) continue;
+      token = p.token;
+      anchor = avgExitPriceUsd(p);
+    } else {
+      token = lesson.address;
+      anchor = lesson.anchorPriceUsd;
+    }
+    if (!token || !anchor || anchor <= 0) continue;
+    let current: number | undefined;
+    try {
+      const pairs = await fetchTokenPairs(token, lesson.chain);
+      const primary = selectDeepestBasePair(pairs, token);
+      if (primary?.priceUsd) current = Number(primary.priceUsd);
+    } catch {
+      continue;
+    }
+    if (!current || current <= 0) continue;
+    const multiple = current / anchor;
+    if (multiple < RETRACT_BELOW) {
+      lesson.retracted = true;
+      lesson.detail += ` ↩️ 已回落至 ${multiple.toFixed(1)}x（标记后回吐），判定撤销`;
+      lessonsChanged = true;
+    }
+  }
+  if (lessonsChanged) await writeJsonAtomic(STATE_PATH, state);
+
   if (soldTooEarly.length || neverBought.length) {
     const lessons = state.lessons ?? [];
     for (const s of soldTooEarly) {
@@ -245,6 +310,8 @@ export async function reviewOwnTrades(
         kind: "sold_too_early",
         symbol: s.symbol,
         chain: s.chain,
+        positionId: s.positionId,
+        address: s.token,
         detail: `出场均价 $${s.avgExitPriceUsd.toPrecision(3)} → 现价 ${s.multiple.toFixed(1)}x, 出场机制: ${s.exitReasons.join(", ")}, 实现 ${s.realizedPnlUsd >= 0 ? "+" : ""}$${s.realizedPnlUsd.toFixed(2)}`,
       });
     }
@@ -254,6 +321,8 @@ export async function reviewOwnTrades(
         kind: "never_bought",
         symbol: n.symbol,
         chain: n.chain,
+        address: n.address,
+        anchorPriceUsd: n.alertPriceUsd,
         detail:
           n.sinceAlertPct != null && n.alertPriceUsd != null
             ? `警报后未开仓, 自警报价 $${n.alertPriceUsd.toPrecision(3)} 涨 +${n.sinceAlertPct.toFixed(0)}%${n.safetyFlags?.length ? ` (安全门: ${n.safetyFlags.join(",")})` : ""}`
@@ -313,6 +382,6 @@ export async function formatRecentLessons(now: Date = new Date()): Promise<strin
         (l) =>
           `${tag[l.kind]} ${l.symbol ?? "?"} [${l.chain}] ${l.detail} (${l.at.slice(5, 16)})`,
       ),
-    "决策时参考: 卖飞多=出场机制太紧; 报了没买多=跳过判断太保守。",
+    "决策时参考: 卖飞多=出场机制太紧; 报了没买多=跳过判断太保守; ↩️=标记后已回吐、判定已撤销、不计入校准。",
   ].join("\n");
 }
