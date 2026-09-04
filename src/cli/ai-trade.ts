@@ -156,12 +156,17 @@ async function main() {
       break;
     }
     case "sell": {
-      const [query, percent] = args;
+      const [query, percent, ...reasonArgs] = args;
       if (!query) {
-        console.error("用法: ai-trade sell <symbol|address> <percent>");
+        console.error("用法: ai-trade sell <symbol|address> <percent> <理由...>（理由必填：本次卖出的动机）");
         process.exit(1);
       }
-      console.log(await manualExit(query, (Number(percent) || 100) / 100));
+      const sellReason = reasonArgs.join(" ").trim();
+      if (!sellReason) {
+        console.error("缺少卖出理由：sell <symbol> <percent> <理由...>（和 buy 一样，留痕是硬要求）");
+        process.exit(1);
+      }
+      console.log(await manualExit(query, (Number(percent) || 100) / 100, sellReason));
       break;
     }
     case "strategy": {

@@ -83,6 +83,48 @@ function modeTag(config: TradeConfig): string {
   return config.mode === "paper" ? "📝 PAPER" : "💸 LIVE";
 }
 
+const signedUsd = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(2)}`;
+
+/**
+ * 统一成交消息（买卖同构，用户 2026-09-04 定稿）：
+ *   头行  <mode> 📥买入/📤卖出 **SYM** [chain] · FDV
+ *   成交行
+ *   (卖出) 本次实现 ±$ · 仓位盈亏 ±$ (closed / open 剩X%)
+ *   理由: 本次买/卖的动机
+ *   策略/后续: 接下来怎么管（「」内为策略理由）；清仓则注明停止跟踪
+ */
+function fillMessage(o: {
+  modeText: string;
+  side: "in" | "out";
+  symbol: string;
+  chain: string;
+  token: string;
+  fdvUsd?: number;
+  fillLine: string;
+  thisRealizedUsd?: number;
+  positionPnlUsd?: number;
+  statusText?: string;
+  reason: string;
+  follow: string;
+  txHash?: string;
+}): string {
+  const lines = [
+    `${o.modeText} ${o.side === "in" ? "📥 买入" : "📤 卖出"} **${o.symbol}** [${o.chain}]${fdvTag(o.fdvUsd)}`,
+    o.fillLine,
+  ];
+  if (o.side === "out") {
+    lines.push(
+      `本次实现 ${signedUsd(o.thisRealizedUsd ?? 0)} · 仓位盈亏 ${signedUsd(o.positionPnlUsd ?? 0)} (${o.statusText})`,
+    );
+  }
+  lines.push(`理由: ${o.reason}`);
+  lines.push(o.follow);
+  const link = gmgnLink(o.chain, o.token);
+  if (link) lines.push(link);
+  if (o.txHash) lines.push(`Tx: ${o.txHash}`);
+  return lines.join("\n");
+}
+
 /**
  * Capital available to size a trade on this chain, in USD.
  * paper = that chain's paper cash; live = on-chain base-currency balance
@@ -215,7 +257,11 @@ export function decideExtremePrice(
  * Sells at the position's own mode (paper stays paper). Returns a human
  * summary for the control surface.
  */
-export async function manualExit(query: string, fraction = 1): Promise<string> {
+export async function manualExit(
+  query: string,
+  fraction = 1,
+  reason?: string,
+): Promise<string> {
   const file = await loadPositions();
   const position = openPositions(file).find((p) => matchesPosition(p, query));
   if (!position) return `No open position matching "${query}".`;
@@ -247,7 +293,7 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
       priceUsd: fill.priceUsd,
       fraction: sellFraction,
       proceedsUsd: fill.proceedsUsd ?? 0,
-      reason: "manual exit",
+      reason: reason ? `manual exit: ${reason}`.slice(0, 160) : "manual exit",
       txHash: fill.txHash,
     };
     const { file: freshFile, result: freshPos } = await mutatePositions((f) => {
@@ -272,16 +318,26 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
     // exits (managePositions) always notified, but AI/manual sells via the CLI
     // only wrote the journal — the ASS exit on 2026-09-04 never reached the
     // trade log and the ledger channel silently missed a whole class of fills.
+    const remainingPct = remainingFraction(positionFresh) * 100;
     await notify(
-      [
-        `${position.mode === "paper" ? "📝 PAPER" : "💸 LIVE"} 📤 **${position.symbol ?? position.token}** [${chain}] — manual exit`,
-        `平 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}`,
-        `仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${positionFresh.status})`,
-        `策略: ${formatStrategy(position.strategy)}`,
-        gmgnLink(chain, position.token),
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      fillMessage({
+        modeText: modeTag(config),
+        side: "out",
+        symbol: position.symbol ?? position.token,
+        chain,
+        token: position.token,
+        fdvUsd,
+        fillLine: `平 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}`,
+        thisRealizedUsd: (fill.proceedsUsd ?? 0) - sellFraction * position.costUsd,
+        positionPnlUsd: pnl,
+        statusText:
+          positionFresh.status === "closed" ? "closed" : `open 剩${remainingPct.toFixed(0)}%`,
+        reason: reason ?? "手动平仓（未附理由）",
+        follow:
+          positionFresh.status === "closed"
+            ? "后续: 已清仓，停止跟踪"
+            : `策略: ${formatStrategy(positionFresh.strategy)}`,
+      }),
       {},
       chain,
       position.token,
@@ -397,9 +453,18 @@ export async function aiBuy(
   );
   const link = gmgnLink(chain, position.token);
   await notify(
-    `🤖 ${modeTag(config)} 🟢 买入 **${position.symbol}** [${chain}]${fdvTag(analysis.fdvUsd)}\n` +
-      `$${clamped.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)\n` +
-      `理由: ${reason}\n策略: ${strat}${link ? `\n${link}` : ""}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
+    fillMessage({
+      modeText: modeTag(config),
+      side: "in",
+      symbol: position.symbol ?? position.token,
+      chain,
+      token: position.token,
+      fdvUsd: analysis.fdvUsd,
+      fillLine: `$${clamped.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
+      reason,
+      follow: `策略: ${strat}`,
+      txHash: fill.txHash,
+    }),
     {},
     chain,
     position.token,
@@ -645,16 +710,18 @@ export async function processSignals(
         `📥 开仓 ${position.symbol} [${chain}/${cfg.mode}] $${cfg.usdPerTrade} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 触发: ${position.trigger} | 策略: ${formatStrategy(position.strategy)}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
       );
       await notify(
-        [
-          `${modeTag(cfg)} 🟢 买入 **${position.symbol ?? position.token}** [${chain}]${fdvTag(ev.input.fdvUsd)}`,
-          `$${cfg.usdPerTrade.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
-          `触发: ${position.trigger}`,
-          `策略: ${formatStrategy(position.strategy)}`,
-          gmgnLink(chain, position.token),
-          fill.txHash ? `Tx: ${fill.txHash}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
+        fillMessage({
+          modeText: modeTag(cfg),
+          side: "in",
+          symbol: position.symbol ?? position.token,
+          chain,
+          token: position.token,
+          fdvUsd: ev.input.fdvUsd,
+          fillLine: `$${cfg.usdPerTrade.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
+          reason: `触发 ${position.trigger}`,
+          follow: `策略: ${formatStrategy(position.strategy)}`,
+          txHash: fill.txHash,
+        }),
         options,
         chain,
         position.token,
@@ -807,16 +874,27 @@ export async function managePositions(
           `📤 平仓 ${position.symbol} [${chain}/${pcfg.mode}] 卖出 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)} — 原因: ${action.reason} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status}) | 策略: ${formatStrategy(position.strategy)}`,
         );
         await notify(
-          [
-            `${modeTag(pcfg)} 📤 **${position.symbol ?? position.token}** [${chain}] — ${action.reason}`,
-            `平 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}`,
-            `仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status})`,
-            `策略: ${formatStrategy(position.strategy)}`,
-            gmgnLink(chain, position.token),
-            fill.txHash ? `Tx: ${fill.txHash}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n"),
+          fillMessage({
+            modeText: modeTag(pcfg),
+            side: "out",
+            symbol: position.symbol ?? position.token,
+            chain,
+            token: position.token,
+            fdvUsd,
+            fillLine: `平 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}`,
+            thisRealizedUsd: (fill.proceedsUsd ?? 0) - action.fraction * position.costUsd,
+            positionPnlUsd: pnl,
+            statusText:
+              position.status === "closed"
+                ? "closed"
+                : `open 剩${(remainingFraction(position) * 100).toFixed(0)}%`,
+            reason: `机械出场 — ${action.reason}`,
+            follow:
+              position.status === "closed"
+                ? "后续: 已清仓，停止跟踪"
+                : `策略: ${formatStrategy(position.strategy)}`,
+            txHash: fill.txHash,
+          }),
           options,
           chain,
           position.token,
