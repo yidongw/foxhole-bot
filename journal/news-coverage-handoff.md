@@ -3,6 +3,33 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-04 13:0x UTC 第 17 轮(ultrathink:直接哑弹分析 + 退出信号补漏)
+
+### ① 新闻(**补了退出信号漏**,commit 767ab75,已部署)
+- **新角度:退出信号完整性**。关注币「James Wynn 的 CASHCAT 多单遭清算」以**中性 watched 叫醒**,
+  但持仓币爆仓/清算是看空退出信号(filter 设计:关注币负面→退出/避险)。→ NEGATIVE 加
+  `爆仓|强平|遭清算|被清算`(用"遭/被"前缀避开中性的"清算所/结算网络")。+1 回归(共 30)。
+- **drop 侧 miss-hunt(严格版)**:全量 drop 里含 Robinhood/Meme 语境的 5 条**全部正确丢弃**——
+  都是 Robinhood **股票/公司/CEO/KOL 叙事**(HOOD 收涨/投行评级/CEO 访谈),非 RB-chain meme。
+  filter 正确区分"Robinhood 股票新闻"vs"Robinhood 链 meme"。**无漏 catalyst**。
+- wake 侧无符号碰撞噪音(R15/R16 修复持续生效)。GLM/BGBTC/交易赚币 已被中和,随 TTL 清零。
+
+### ② 覆盖率 + 哑弹(**绕过卡住的 grader 直接做了哑弹分析**)
+- robinhood ≥100% 对照干净(9 mover 全在册,**1466 币**)。
+- **直接哑弹分析**(不等 labeled):取 pending 里 robinhood 告警,curl DexScreener 现价算真实收益。
+  但 pending 只剩 **1.7h 窗口**(review 循环刚修的账本跨进程竞态 bc0ae91 重写了 pending),样本太窄太新。
+  可算的 9 个:1~1.7h 后 **2 WIN/7 FLAT/0 LOSS**,最差 HOOKR -12%(高流动性)——**健康快照,无灾难哑弹**;
+  falling_knife 告警(LULU/CLAN)走平属预期(是风险信号非入场)。窗口太窄不足以 tune,别过拟合。
+
+### ③ 新闻侧安全(无新)/ ④ 健康(绿)
+- src/news/ 无泄漏。OKX/执行层不审。tsc 干净、npm test **292 passed**、monitor 重启健康
+  (pid 27790)、BN 未复现、0 uncaught。
+
+**下轮重点:** ① pending 窗口恢复(>6h 样本)后重做哑弹分析,看 trigger 组合真实胜率。
+② 「」junk/GLM/BGBTC 随 TTL 从 hotSymbols 清零复查。③ 继续 drop-side miss-hunt + 碰撞审计守新闻质量。
+
+---
+
 ## 2026-09-04 11:0x UTC 第 16 轮(ultrathink:收尾 GLM-listing 残留 + 主动碰撞审计)
 
 ### ① 新闻(**修了 R15 挂账的 listing 残留**,commit 07f5050,已部署)
