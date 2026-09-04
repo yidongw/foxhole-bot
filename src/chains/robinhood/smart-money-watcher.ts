@@ -328,7 +328,16 @@ export async function startSmartMoneyWatcher(): Promise<void> {
   await engine.reloadWallets();
   const wss = process.env.ROBINHOOD_WSS;
   if (wss) {
-    await pushLoop(engine, wss);
+    // A dead/capped wss key must not kill the watcher (the 2026-09-03 Alchemy
+    // quota exhaustion blinded discovery for days) — drop to poll mode.
+    try {
+      await pushLoop(engine, wss);
+    } catch (err) {
+      console.error(
+        `[smart-money] push mode failed (${(err as Error).message}) — falling back to poll @ ${POLL_MS}ms`,
+      );
+      await pollLoop(engine);
+    }
   } else {
     console.log(
       `[smart-money] poll mode @ ${POLL_MS}ms (set ROBINHOOD_WSS for sub-second push)`,

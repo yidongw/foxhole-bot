@@ -1,36 +1,10 @@
-import { fetchTokenPairs } from "../dex/dexscreener.js";
-import type { DexPair, TokenAnalysis } from "../types.js";
+import { fetchTokenPairs, selectDeepestBasePair } from "../dex/dexscreener.js";
+import type { TokenAnalysis } from "../types.js";
 import type { ChainId } from "./adapter.js";
 
-/** Real quote assets whose USD price DexScreener can be trusted. A pool quoted
- *  against a JUNK token (e.g. memestock/GMEB with $40M fake liquidity) reports a
- *  fabricated USD price — 100x+ off the real WBNB/USDT-quoted pools, which fed a
- *  bogus "118x 卖飞" and can corrupt entry FDV / exit management. */
-const TRUSTED_QUOTE = new Set([
-  "WBNB", "BNB", "USDT", "USDC", "USD1", "BUSD", "USDB", "DAI",
-  "WETH", "ETH", "SOL", "WSOL", "USDG", "WBTC", "BTCB",
-]);
-
-/**
- * Deepest pair where the token is the BASE side (quote-side pairs belong to
- * the other token — see the HIMS/BONER regression on Robinhood), PREFERRING
- * pools quoted in a real asset so a junk-quote fake-liquidity pool can't hand
- * us a fabricated USD price. Falls back to deepest overall if none are trusted.
- */
-export function selectDeepestBasePair(
-  pairs: DexPair[],
-  address: string,
-): DexPair | undefined {
-  const own = pairs.filter(
-    (p) => p.baseToken?.address?.toLowerCase() === address.toLowerCase(),
-  );
-  const byLiq = (a: DexPair, b: DexPair) =>
-    Number(b.liquidity?.usd ?? 0) - Number(a.liquidity?.usd ?? 0);
-  const trusted = own.filter((p) =>
-    TRUSTED_QUOTE.has((p.quoteToken?.symbol ?? "").toUpperCase()),
-  );
-  return [...(trusted.length ? trusted : own)].sort(byLiq)[0];
-}
+// TRUSTED_QUOTE + selectDeepestBasePair moved to ../dex/dexscreener.js so the
+// price helpers there can share the junk-pool consensus filter (one-way dep).
+export { TRUSTED_QUOTE, selectDeepestBasePair } from "../dex/dexscreener.js";
 
 /**
  * Chain-agnostic DexScreener analysis: market data + volume/momentum signals.

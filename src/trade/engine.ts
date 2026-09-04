@@ -99,6 +99,40 @@ function matchesPosition(p: Position, query: string): boolean {
 }
 
 /**
+ * Corroborate an adapter price that lands absurdly far from the position's own
+ * high-water mark, in EITHER direction. The exit loop already guards downside
+ * bad ticks (see the glitch guard below); upside ones are just as damaging on a
+ * manual exit: MarsCoin (real price $0.1224, high-water $0.1379) read back as
+ * $149.29, which booked $25k of phantom paper proceeds AND poisoned the
+ * high-water mark, so the trail stop immediately liquidated the rest. Returns
+ * the corroborated price, or undefined when nothing confirms the read.
+ */
+async function corroboratePrice(
+  position: Position,
+  chain: ChainId,
+  price: number,
+): Promise<number | undefined> {
+  if (price > position.highWaterUsd * 0.35 && price < position.highWaterUsd * 5) return price;
+  let confirm: number | undefined;
+  try {
+    const p2 = selectDeepestBasePair(
+      await fetchTokenPairs(position.token, chain),
+      position.token,
+    );
+    if (p2?.priceUsd) confirm = Number(p2.priceUsd);
+  } catch {}
+  if (confirm == null || confirm <= 0) {
+    try {
+      confirm = await fetchPaprikaTokenPriceUsd(chain, position.token);
+    } catch {}
+  }
+  if (confirm == null || confirm <= 0) return undefined;
+  // A second source that agrees within the same band vindicates the read; one
+  // that disagrees means the adapter tick was garbage — trust the second read.
+  return confirm;
+}
+
+/**
  * Manually exit `fraction` (0..1] of an open position by symbol or address.
  * Sells at the position's own mode (paper stays paper). Returns a human
  * summary for the control surface.
@@ -109,8 +143,12 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
   if (!position) return `No open position matching "${query}".`;
 
   const chain = positionChain(position.chain);
-  const price = await getAdapter(chain).priceUsd(position.token);
-  if (!price || price <= 0) return `No price available for ${position.symbol} — try again.`;
+  const raw = await getAdapter(chain).priceUsd(position.token);
+  if (!raw || raw <= 0) return `No price available for ${position.symbol} — try again.`;
+  const price = await corroboratePrice(position, chain, raw);
+  if (!price) {
+    return `Exit skipped for ${position.symbol}: price $${raw} is far off high-water $${position.highWaterUsd} and no second source could confirm it — try again.`;
+  }
   let fdvUsd: number | undefined;
   try {
     fdvUsd = selectDeepestBasePair(
@@ -296,10 +334,28 @@ async function writePositionsJson(
       cost_usd: p.costUsd,
       pnl_usd: totalPnlUsd(p, mark),
       strategy: p.strategy ? formatStrategy(p.strategy) : undefined,
+      amount_tokens: p.amountTokens,
+      high_water_usd: p.highWaterUsd,
+      // Full exit timeline so the dashboard can draw the realized equity
+      // curve and per-trade breakdowns client-side.
+      exits: p.exits.map((e) => ({
+        at: e.at,
+        price_usd: e.priceUsd,
+        fraction: e.fraction,
+        proceeds_usd: e.proceedsUsd,
+        reason: e.reason,
+      })),
     };
   });
   const payload = JSON.stringify(
-    { meta: { updated_at: new Date().toISOString(), count: rows.length }, positions: rows },
+    {
+      meta: {
+        updated_at: new Date().toISOString(),
+        count: rows.length,
+        start_usd: loadTradeConfig().paperStartUsd,
+      },
+      positions: rows,
+    },
     null,
     2,
   );
@@ -540,6 +596,21 @@ export async function managePositions(
         continue;
       }
       if (confirm != null && confirm > 0) price = confirm; // corroborated read
+    }
+
+    // Same guard, upside: a >5x single-tick jump above the high-water mark is a
+    // bad read too, and it is worse than a bad low one because Math.max below
+    // burns it into highWaterUsd permanently — every trail stop from then on is
+    // measured off a price the token never traded at.
+    if (price > position.highWaterUsd * 5) {
+      const confirm = await corroboratePrice(position, chain, price);
+      if (confirm != null && confirm > 0 && confirm <= position.highWaterUsd * 5) {
+        console.error(
+          `glitch guard: ${position.symbol} bad high tick $${price} vs confirm $${confirm} ` +
+            `(hw $${position.highWaterUsd}) — using confirmed price`,
+        );
+        price = confirm;
+      }
     }
 
     marks[position.token.toLowerCase()] = price;

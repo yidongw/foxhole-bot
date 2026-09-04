@@ -47,5 +47,12 @@
     "symbol": "Anthropic",
     "reason": "user: garbage",
     "addedAt": "2026-09-03T15:19:23.233Z"
+  },
+  {
+    "chain": "bsc",
+    "address": "0xa39dd40625fba2211181f732f180e754285a261c",
+    "symbol": "肥嘟嘟",
+    "reason": "user: scam — 92% unlocked top holder + 1.4M airdrop-spam holders",
+    "addedAt": "2026-09-04T09:03:56.251Z"
   }
 ]

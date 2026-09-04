@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import type { SignalEvaluation } from "../signals/types.js";
 import { resolveWebhook } from "./routes.js";
-import { fdvTag } from "../lib/format.js";
+import { fdvTag, GMGN_SLUG as GMGN_CHAIN } from "../lib/format.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const THREADS_PATH = path.resolve(__dirname, "../../data/signal-threads.json");
@@ -52,13 +52,6 @@ async function loadMap(): Promise<ThreadMap> {
 async function saveMap(map: ThreadMap): Promise<void> {
   await writeJsonAtomic(THREADS_PATH, map);
 }
-
-const GMGN_CHAIN: Record<string, string> = {
-  solana: "sol",
-  bsc: "bsc",
-  base: "base",
-  ethereum: "eth",
-};
 
 function ts(iso: string, style: "R" | "f" = "R"): string {
   return `<t:${Math.floor(new Date(iso).getTime() / 1000)}:${style}>`;

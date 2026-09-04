@@ -140,6 +140,47 @@ describe("classifyFlash", () => {
     expect(extractSymbols("新币「AB12」上线")).toContain("AB12");
   });
 
+  it("does not wake on AI-model names or exchange wrapped tokens (GLM/BGBTC)", () => {
+    // 2026-09-04: GLM(智谱模型)、BGBTC(Bitget 包装币)撞 token 代码,进了 hotSymbols
+    // 后在行业/质押新闻里误叫醒。停用词内 → 即便在 watched 也不命中,也不再被种进 hotSymbols。
+    const watched = ["GLM", "BGBTC", "JINQIAN"];
+    expect(
+      classifyFlash("智谱再发匿名模型：GLM-5.3-Flash刚转正", watched).action,
+    ).toBe("drop");
+    expect(extractSymbols("智谱GLM-5.3-Flash发布")).not.toContain("GLM");
+  });
+
+  it("notes (not wakes) watched tokens named in a pure staking/savings promo", () => {
+    // 2026-09-04: 「锁仓 BGBTC 解锁 UNI」「OKX闪赚上线 CP 交易赚币」这类质押/理财促销
+    // 里点名关注币不是可交易事件 —— 无动能/负面时降级 note。
+    const watched = ["PONS", "交易赚币"];
+    // BGBTC 已进停用词 → 直接 drop(比 note 更干净)
+    expect(
+      classifyFlash("Bitget PoolX：锁仓BGBTC解锁4,000枚UNI", watched).action,
+    ).toBe("drop");
+    // 交易赚币是 CJK 引号名(非停用词),命中 watched → 促销 veto 降级 note
+    expect(
+      classifyFlash("OKX闪赚上线CP「交易赚币」，总奖池达10,000,000 CP", watched)
+        .action,
+    ).toBe("note");
+    // 但带真动能的关注币照常叫醒(促销词不该埋掉真暴涨)
+    const c = classifyFlash("PONS上线质押活动，同时市值突破5亿美元创新高", watched);
+    expect(c.action).toBe("wake");
+    expect(c.reasons).toContain("momentum");
+  });
+
+  it("only fires listing on the title, not a listing phrase buried in the body", () => {
+    // 2026-09-04: AI 模型快讯正文含"…Alpha…上线"会误以 listing 叫醒;上所只看标题。
+    const c = classifyFlash(
+      "智谱再发匿名模型：GLM-5.3-Flash刚转正，Omen Alpha又来了",
+      [],
+      "GLM-5.3-Flash 已在内测平台 Alpha 上线，面向开发者开放。",
+    );
+    expect(c.action).toBe("drop");
+    // 标题真写了上所 → 照常叫醒
+    expect(classifyFlash("Binance将上线MarsCoin(MARSCOIN)").action).toBe("wake");
+  });
+
   it("does not seed exchange/index tickers as hot symbols", () => {
     // extractSymbols 曾把 OKX/SPY/QQQ 抓成 hotSymbols → 后续误叫醒
     for (const junk of ["OKX", "SPY", "QQQ", "BITGET", "UPBIT"]) {

@@ -212,11 +212,10 @@ export class SmartMoneyEngine {
   }
 
   private tokenLink(chain: string, token: string): string {
-    if (chain === "robinhood") {
-      return `https://robinhoodchain.blockscout.com/token/${token}`;
-    }
-    const g = chainStyle(chain).name.toLowerCase();
-    return `https://gmgn.ai/${g === "rb" ? "eth" : g}/token/${token}`;
+    // gmgn indexes Robinhood Chain too (slug `robinhood`), so every chain's
+    // smart-money alert links straight to gmgn.
+    const slug = chain === "robinhood" ? "robinhood" : chainStyle(chain).name.toLowerCase();
+    return `https://gmgn.ai/${slug}/token/${token}`;
   }
 
   private async alert(buy: SmartMoneyBuy, distinct: number): Promise<void> {
