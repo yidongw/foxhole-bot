@@ -14,6 +14,7 @@ import { appendTradeJournal } from "./trade-journal.js";
 import { resolveWebhook } from "../notify/routes.js";
 import { postToSignalThread } from "../notify/signal-threads.js";
 import { sleep } from "../lib/utils.js";
+import { fdvTag } from "../lib/format.js";
 import type { SignalEvaluation } from "../signals/types.js";
 import { loadTradeConfig, type TradeConfig } from "./config.js";
 import {
@@ -208,7 +209,9 @@ export async function aiBuy(
     `📥 AI开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 理由: ${reason}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
   );
   await notify(
-    `🤖 ${modeTag(config)} **AI ENTRY [${chain}]** ${position.symbol}\n$${clamped} @ $${fill.priceUsd.toPrecision(4)}\n理由: ${reason}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
+    `🤖 ${modeTag(config)} 🟢 买入 **${position.symbol}** [${chain}]${fdvTag(analysis.fdvUsd)}\n` +
+      `$${clamped.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)\n` +
+      `理由: ${reason}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
     {},
     chain,
     position.token,
@@ -392,9 +395,9 @@ export async function processSignals(
       );
       await notify(
         [
-          `${modeTag(config)} **ENTRY [${chain}]** ${position.symbol ?? position.token}`,
-          `$${config.usdPerTrade} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} tokens)`,
-          `Trigger: ${position.trigger}`,
+          `${modeTag(config)} 🟢 买入 **${position.symbol ?? position.token}** [${chain}]${fdvTag(ev.input.fdvUsd)}`,
+          `$${config.usdPerTrade.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
+          `触发: ${position.trigger}`,
           fill.txHash ? `Tx: ${fill.txHash}` : "",
         ]
           .filter(Boolean)
@@ -434,12 +437,14 @@ export async function managePositions(
     let price: number | undefined;
     let volume24hUsd: number | undefined;
     let priceChange24h: number | undefined;
+    let fdvUsd: number | undefined;
     try {
       const pairs = await fetchTokenPairs(position.token, chain);
       const primary = selectDeepestBasePair(pairs, position.token);
       if (primary?.priceUsd) price = Number(primary.priceUsd);
       volume24hUsd = Number(primary?.volume?.h24 ?? 0) || undefined;
       priceChange24h = primary?.priceChange?.h24;
+      fdvUsd = primary?.fdv;
     } catch (err) {
       console.error(`price fetch failed ${position.symbol}:`, (err as Error).message);
     }
@@ -496,9 +501,9 @@ export async function managePositions(
         );
         await notify(
           [
-            `${modeTag(config)} **EXIT** ${position.symbol ?? position.token} — ${action.reason}`,
-            `Sold ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}`,
-            `Position P&L: ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status})`,
+            `${modeTag(config)} 📤 **${position.symbol ?? position.token}** [${chain}] — ${action.reason}`,
+            `平 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}`,
+            `仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status})`,
             fill.txHash ? `Tx: ${fill.txHash}` : "",
           ]
             .filter(Boolean)
@@ -524,42 +529,55 @@ export async function managePositions(
   await writePositionsJson(file, marks);
 
   if (dueDailyReport) {
-    await notify(`📊 **Daily P&L**\n${await formatPortfolioReport()}`, options);
+    await notify(`📊 **现货 Daily P&L**\n${await formatPortfolioReport()}`, options);
   }
 }
 
 export async function formatPortfolioReport(): Promise<string> {
   const file = await loadPositions();
-  const start = loadTradeConfig().paperStartUsd;
+  const config = loadTradeConfig();
+  const start = config.paperStartUsd;
   const cash = paperCashUsd(file, start);
 
+  // 措辞/结构对齐永续 formatPerpReport,两条 trade-log 消息长得一样。
   const lines: string[] = [];
   const open = openPositions(file);
   let openValue = 0;
   if (open.length) {
-    lines.push(`**Open positions (${open.length})**`);
+    lines.push(`**现货持仓 (${open.length})**`);
     for (const p of open) {
+      const chain = positionChain(p.chain);
       let price: number | undefined;
+      let fdvUsd: number | undefined;
       try {
-        price = await getAdapter(positionChain(p.chain)).priceUsd(p.token);
+        const primary = selectDeepestBasePair(await fetchTokenPairs(p.token, chain), p.token);
+        if (primary?.priceUsd) price = Number(primary.priceUsd);
+        fdvUsd = primary?.fdv;
       } catch {}
+      if (price == null) {
+        try {
+          price = await getAdapter(chain).priceUsd(p.token);
+        } catch {}
+      }
       const pnl = totalPnlUsd(p, price);
       const rem = remainingFraction(p);
       openValue += rem * p.amountTokens * (price ?? p.entryPriceUsd);
       lines.push(
-        `• ${p.symbol ?? p.token} [${positionChain(p.chain)}/${p.mode}] ${(rem * 100).toFixed(0)}% left, ` +
-          `entry $${p.entryPriceUsd.toPrecision(4)}${price ? `, now $${price.toPrecision(4)}` : ""}, ` +
-          `P&L ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
+        `• 🟢 ${p.symbol ?? p.token} [${chain}/${p.mode}] ${(rem * 100).toFixed(0)}% 剩, ` +
+          `开 $${p.entryPriceUsd.toPrecision(6)}${price ? ` 现 $${price.toPrecision(6)}` : ""}${fdvTag(fdvUsd)}, ` +
+          `盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
       );
       await sleep(200);
     }
+  } else {
+    lines.push("无现货持仓");
   }
 
   const closed = file.positions.filter((p) => p.status === "closed");
   if (closed.length) {
     const realized = closed.reduce((s, p) => s + realizedUsd(p) - p.costUsd, 0);
     lines.push(
-      `**Closed: ${closed.length}, realized P&L ${realized >= 0 ? "+" : ""}$${realized.toFixed(2)}**`,
+      `**已平: ${closed.length} 笔, 已实现盈亏 ${realized >= 0 ? "+" : ""}$${realized.toFixed(2)}**`,
     );
   }
 
@@ -568,9 +586,9 @@ export async function formatPortfolioReport(): Promise<string> {
   const pnl = equity - start;
   const pct = (pnl / start) * 100;
   lines.push(
-    `**💰 账户余额 $${equity.toFixed(2)}** ` +
+    `**💰 现货账户(${config.mode}) $${equity.toFixed(2)}** ` +
       `(起始 $${start.toFixed(0)} · ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} / ${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%) — ` +
-      `现金 $${cash.toFixed(2)}${openValue > 0 ? ` · 持仓市值 $${openValue.toFixed(2)}` : ""}`,
+      `可用现金 $${cash.toFixed(2)}${openValue > 0 ? ` · 持仓市值 $${openValue.toFixed(2)}` : ""}`,
   );
   return lines.join("\n");
 }
