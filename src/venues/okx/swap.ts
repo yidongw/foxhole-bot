@@ -13,7 +13,7 @@
  */
 import { erc20Abi, type Address } from "viem";
 
-import { getTradingClient } from "../../chain/client.js";
+import { getTradingClient, waitForReceiptResilient } from "../../chain/client.js";
 import { RouteError } from "../route-error.js";
 import { OKX_RB_CHAIN_INDEX } from "./config.js";
 import { getApproveTransaction, getSwap } from "./dex.js";
@@ -79,7 +79,7 @@ export async function okxSwap(
         to: fromToken,
         data: approve.data as `0x${string}`,
       });
-      await client.public.waitForTransactionReceipt({ hash: approveHash });
+      await waitForReceiptResilient(client.public, approveHash);
     }
 
     // 2) 取 swap 交易(仅构建,未广播)。V6 用 slippagePercent(百分数)。
@@ -121,11 +121,10 @@ export async function okxSwap(
     value: tx.value ? BigInt(tx.value) : 0n,
     ...(tx.gas ? { gas: BigInt(tx.gas) } : {}),
   });
-  const receipt = await client.public.waitForTransactionReceipt({
-    hash: swapHash,
-  });
-  // 回执必须成功:waitForTransactionReceipt 对 reverted 不抛错,不查就会把
-  // revert 的 swap 当成交(2026-09-04 实测踩过)。已过模拟仍 revert 属极少数。
+  const receipt = await waitForReceiptResilient(client.public, swapHash);
+  // 回执必须成功:reverted 不抛错,不查就会把 revert 的 swap 当成交(2026-09-04
+  // 实测踩过)。用 resilient 轮询容忍 RB RPC 的 block-not-found 抖动,避免把
+  // 已上链的成交误判为失败而重试导致重复买入(SHROOM 事故)。
   if (receipt.status !== "success") {
     throw new Error(`OKX swap 交易 revert(${swapHash})`);
   }

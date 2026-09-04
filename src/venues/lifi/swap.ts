@@ -11,7 +11,7 @@
  */
 import { erc20Abi, maxUint256, type Address } from "viem";
 
-import { getTradingClient } from "../../chain/client.js";
+import { getTradingClient, waitForReceiptResilient } from "../../chain/client.js";
 import { RouteError } from "../route-error.js";
 import { getLifiQuote } from "./dex.js";
 
@@ -70,7 +70,7 @@ export async function lifiSwap(
         functionName: "approve",
         args: [spender, maxUint256],
       });
-      await client.public.waitForTransactionReceipt({ hash: approveHash });
+      await waitForReceiptResilient(client.public, approveHash);
     }
 
     // 广播前模拟 LI.FI 返回的 calldata(和 OKX 一样,杜绝广播注定 revert 的交易)。
@@ -97,9 +97,7 @@ export async function lifiSwap(
     value: quote.tx.value ? BigInt(quote.tx.value) : 0n,
     ...(quote.tx.gasLimit ? { gas: BigInt(quote.tx.gasLimit) } : {}),
   });
-  const receipt = await client.public.waitForTransactionReceipt({
-    hash: swapHash,
-  });
+  const receipt = await waitForReceiptResilient(client.public, swapHash);
   if (receipt.status !== "success") {
     throw new Error(`LI.FI swap 交易 revert(${swapHash})`);
   }

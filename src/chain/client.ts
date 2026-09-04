@@ -124,4 +124,32 @@ export async function getStockOracleUsd(symbol: string): Promise<number | undefi
   }
 }
 
+/**
+ * Wait for a receipt tolerating RB's flaky public RPC. Its nodes intermittently
+ * throw "Block at number … could not be found" while polling, which viem's
+ * waitForTransactionReceipt surfaces as an error — and a swap caller that treats
+ * that as "tx failed" will retry and DOUBLE-BUY even though the first swap landed
+ * (real incident: SHROOM, 2026-09-04). Since the tx is already broadcast, we poll
+ * getTransactionReceipt ourselves, swallowing transient errors, until it appears
+ * or the deadline passes. Only a genuine timeout throws.
+ */
+export async function waitForReceiptResilient(
+  client: { getTransactionReceipt: (a: { hash: `0x${string}` }) => Promise<{ status: "success" | "reverted" }> },
+  hash: `0x${string}`,
+  timeoutMs = 120_000,
+): Promise<{ status: "success" | "reverted" }> {
+  const deadline = Date.now() + timeoutMs;
+  let lastErr: unknown;
+  while (Date.now() < deadline) {
+    try {
+      const r = await client.getTransactionReceipt({ hash });
+      if (r) return r;
+    } catch (err) {
+      lastErr = err; // not mined yet / transient RB "block not found" — keep polling
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  throw lastErr ?? new Error(`receipt timeout for ${hash}`);
+}
+
 export { LONG_AIRLOCK };
