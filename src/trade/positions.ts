@@ -135,10 +135,15 @@ export function spendSince(file: PositionsFile, sinceIso: string): number {
  * Free cash in the paper account: starting capital minus what every entry
  * cost, plus everything exits have returned. Open positions hold the rest
  * as tokens (their market value is added back for equity).
+ *
+ * Only `mode: "paper"` positions count — live positions are settled by the
+ * real on-chain wallet balance, not this notional paper ledger, so mixing
+ * them in (once a chain runs live) would corrupt paper cash accounting.
  */
 export function paperCashUsd(file: PositionsFile, startUsd: number): number {
   let cash = startUsd;
   for (const p of file.positions) {
+    if (p.mode !== "paper") continue;
     cash -= p.costUsd;
     cash += realizedUsd(p);
   }

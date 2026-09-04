@@ -16,7 +16,12 @@ import { postToSignalThread } from "../notify/signal-threads.js";
 import { sleep } from "../lib/utils.js";
 import { fdvTag, gmgnLink } from "../lib/format.js";
 import type { SignalEvaluation } from "../signals/types.js";
-import { loadTradeConfig, type TradeConfig } from "./config.js";
+import {
+  loadTradeConfig,
+  resolveTradeMode,
+  tradingActive,
+  type TradeConfig,
+} from "./config.js";
 import {
   loadPositions,
   openPositions,
@@ -237,8 +242,12 @@ export async function aiBuy(
   opts?: { smartMoney?: boolean; momentum?: boolean; strategy?: PositionStrategy },
 ): Promise<string> {
   const chain = positionChain(chainId);
-  const config = loadTradeConfig();
-  if (config.mode === "off") return "交易未开启 (TRADE_MODE=off)";
+  const base = loadTradeConfig();
+  const mode = resolveTradeMode(base, chain);
+  if (mode === "off") return `${chain} 链交易未开启 (TRADE_MODE/TRADE_MODE_${chain.toUpperCase()})`;
+  // Chain-scoped config: shadow the global mode so every downstream check
+  // (cash accounting, position.mode, executeBuy, labels) is per-chain correct.
+  const config = { ...base, mode };
   if (tradingPaused()) return "交易已暂停 (/resume 恢复)";
 
   const analysis = await getAdapter(chain).analyze(address);
@@ -459,7 +468,7 @@ export async function processSignals(
   options: EngineOptions = {},
   config: TradeConfig = loadTradeConfig(),
 ): Promise<Position[]> {
-  if (config.mode === "off") return [];
+  if (!tradingActive(config)) return [];
   if (!config.autoEntry) {
     // AI decider owns entries — mechanical auto-entry would override its
     // skip decisions (it bought "I" 1 min after the decider said skip).
@@ -474,6 +483,10 @@ export async function processSignals(
 
   for (const ev of evaluations) {
     const chain = (ev.input.chain ?? "robinhood") as ChainId;
+    // Chain-scoped config: this chain's mode (off skips it entirely).
+    const chainMode = resolveTradeMode(config, chain);
+    if (chainMode === "off") continue;
+    const cfg: TradeConfig = { ...config, mode: chainMode };
     const candidate = {
       token: ev.input.address,
       chain,
@@ -482,7 +495,7 @@ export async function processSignals(
       liquidityUsd: ev.input.liquidityUsd,
       triggers: ev.triggers,
     };
-    const verdict = checkEntry(config, file, candidate);
+    const verdict = checkEntry(cfg, file, candidate);
     if (!verdict.ok) {
       if (verdict.reason !== "no qualifying entry trigger") {
         console.log(`entry skipped ${ev.input.symbol}: ${verdict.reason}`);
@@ -504,7 +517,7 @@ export async function processSignals(
           `🛑 否决入场 ${ev.input.symbol} [${chain}] — ${safety.flags.join(", ")} (triggers: ${ev.triggers.join(",")})`,
         );
         await notify(
-          `🛑 ${modeTag(config)} entry VETOED [${chain}] ${candidate.symbol}: ${safety.flags.join(", ")}` +
+          `🛑 ${modeTag(cfg)} entry VETOED [${chain}] ${candidate.symbol}: ${safety.flags.join(", ")}` +
             (gmgnLink(chain, candidate.token) ? `\n${gmgnLink(chain, candidate.token)}` : ""),
           options,
           chain,
@@ -517,14 +530,14 @@ export async function processSignals(
     try {
       const fill = await executeBuy(
         chain,
-        config,
+        cfg,
         candidate.token,
         candidate.priceUsd!,
-        config.usdPerTrade,
+        cfg.usdPerTrade,
       );
       const position: Position = {
         id: `${candidate.token.toLowerCase()}-${Date.now()}`,
-        mode: config.mode,
+        mode: cfg.mode,
         chain,
         token: candidate.token,
         symbol: candidate.symbol,
@@ -532,7 +545,7 @@ export async function processSignals(
         openedAt: new Date().toISOString(),
         entryPriceUsd: fill.priceUsd,
         amountTokens: fill.amountTokens,
-        costUsd: config.usdPerTrade,
+        costUsd: cfg.usdPerTrade,
         highWaterUsd: fill.priceUsd,
         exits: [],
         status: "open",
@@ -541,12 +554,12 @@ export async function processSignals(
       file.positions.push(position);
       opened.push(position);
       await appendTradeJournal(
-        `📥 开仓 ${position.symbol} [${chain}/${config.mode}] $${config.usdPerTrade} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 触发: ${position.trigger} | 策略: ${formatStrategy(position.strategy)}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
+        `📥 开仓 ${position.symbol} [${chain}/${cfg.mode}] $${cfg.usdPerTrade} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 触发: ${position.trigger} | 策略: ${formatStrategy(position.strategy)}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
       );
       await notify(
         [
-          `${modeTag(config)} 🟢 买入 **${position.symbol ?? position.token}** [${chain}]${fdvTag(ev.input.fdvUsd)}`,
-          `$${config.usdPerTrade.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
+          `${modeTag(cfg)} 🟢 买入 **${position.symbol ?? position.token}** [${chain}]${fdvTag(ev.input.fdvUsd)}`,
+          `$${cfg.usdPerTrade.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
           `触发: ${position.trigger}`,
           `策略: ${formatStrategy(position.strategy)}`,
           gmgnLink(chain, position.token),
@@ -561,7 +574,7 @@ export async function processSignals(
     } catch (err) {
       console.error(`entry failed ${candidate.symbol}:`, (err as Error).message);
       await notify(
-        `⚠️ ${modeTag(config)} entry FAILED for ${candidate.symbol}: ${(err as Error).message}` +
+        `⚠️ ${modeTag(cfg)} entry FAILED for ${candidate.symbol}: ${(err as Error).message}` +
           (gmgnLink(chain, candidate.token) ? `\n${gmgnLink(chain, candidate.token)}` : ""),
         options,
         chain,
@@ -587,7 +600,7 @@ export async function managePositions(
   options: EngineOptions = {},
   config: TradeConfig = loadTradeConfig(),
 ): Promise<void> {
-  if (config.mode === "off") return;
+  if (!tradingActive(config)) return;
   const file = await loadPositions();
   const open = openPositions(file);
   // Snapshot each position's exit count so only THIS tick's exits are replayed
@@ -600,6 +613,9 @@ export async function managePositions(
 
   for (const position of open) {
     const chain = positionChain(position.chain);
+    // Exit in the mode the position was OPENED in — a live RB position must
+    // sell live even if the global default (or another chain) is paper.
+    const pcfg: TradeConfig = { ...config, mode: position.mode };
     let price: number | undefined;
     let volume24hUsd: number | undefined;
     let priceChange24h: number | undefined;
@@ -689,7 +705,7 @@ export async function managePositions(
 
     for (const action of actions) {
       try {
-        const fill = await executeSell(chain, config, position, action.fraction, price);
+        const fill = await executeSell(chain, pcfg, position, action.fraction, price);
         recordExit(position, {
           at: new Date().toISOString(),
           priceUsd: fill.priceUsd,
@@ -700,11 +716,11 @@ export async function managePositions(
         });
         const pnl = totalPnlUsd(position, price);
         await appendTradeJournal(
-          `📤 平仓 ${position.symbol} [${chain}/${config.mode}] 卖出 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)} — 原因: ${action.reason} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status}) | 策略: ${formatStrategy(position.strategy)}`,
+          `📤 平仓 ${position.symbol} [${chain}/${pcfg.mode}] 卖出 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)} — 原因: ${action.reason} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status}) | 策略: ${formatStrategy(position.strategy)}`,
         );
         await notify(
           [
-            `${modeTag(config)} 📤 **${position.symbol ?? position.token}** [${chain}] — ${action.reason}`,
+            `${modeTag(pcfg)} 📤 **${position.symbol ?? position.token}** [${chain}] — ${action.reason}`,
             `平 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}`,
             `仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status})`,
             `策略: ${formatStrategy(position.strategy)}`,
@@ -785,7 +801,11 @@ export async function formatPortfolioReport(): Promise<string> {
       }
       const pnl = totalPnlUsd(p, price);
       const rem = remainingFraction(p);
-      openValue += rem * p.amountTokens * (price ?? p.entryPriceUsd);
+      // Paper equity only sums paper positions; live positions are settled by
+      // the on-chain wallet, shown here for visibility but not in paper cash.
+      if (p.mode === "paper") {
+        openValue += rem * p.amountTokens * (price ?? p.entryPriceUsd);
+      }
       lines.push(
         `• 🟢 ${p.symbol ?? p.token} [${chain}/${p.mode}] ${(rem * 100).toFixed(0)}% 剩, ` +
           `开 $${p.entryPriceUsd.toPrecision(6)}${price ? ` 现 $${price.toPrecision(6)}` : ""}${fdvTag(fdvUsd)}, ` +
@@ -811,7 +831,7 @@ export async function formatPortfolioReport(): Promise<string> {
   const pnl = equity - start;
   const pct = (pnl / start) * 100;
   lines.push(
-    `**💰 现货账户(${config.mode}) $${equity.toFixed(2)}** ` +
+    `**💰 现货 paper 账户 $${equity.toFixed(2)}** ` +
       `(起始 $${start.toFixed(0)} · ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} / ${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%) — ` +
       `可用现金 $${cash.toFixed(2)}${openValue > 0 ? ` · 持仓市值 $${openValue.toFixed(2)}` : ""}`,
   );

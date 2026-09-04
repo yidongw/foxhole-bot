@@ -13,7 +13,7 @@ import {
   setTradingPaused,
   tradingPaused,
 } from "../trade/engine.js";
-import { loadTradeConfig } from "../trade/config.js";
+import { loadTradeConfig, resolveTradeMode } from "../trade/config.js";
 import { enabledChains, tradeEnabledChains } from "../chains/adapter.js";
 
 /**
@@ -136,9 +136,12 @@ export async function startControlBot(): Promise<void> {
         }
         case "status": {
           const config = loadTradeConfig();
+          const perChain = tradeEnabledChains()
+            .map((c) => `${c}=${resolveTradeMode(config, c)}`)
+            .join(", ");
           reply = [
             `Chains: ${enabledChains().join(", ")}`,
-            `Trade mode: ${config.mode} (chains: ${tradeEnabledChains().join(", ")})`,
+            `Trade mode: default ${config.mode} · ${perChain} · router ${config.router}`,
             `Entries: ${tradingPaused() ? "⏸️ paused" : "active"}`,
             `Caps: $${config.usdPerTrade}/trade, $${config.maxDailySpendUsd}/day, max ${config.maxOpenPositions} open`,
           ].join("\n");

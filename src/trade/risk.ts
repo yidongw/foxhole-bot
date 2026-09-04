@@ -1,5 +1,5 @@
 import { tradeEnabledChains } from "../chains/adapter.js";
-import type { TradeConfig } from "./config.js";
+import { resolveTradeMode, type TradeConfig } from "./config.js";
 import {
   findOpen,
   openPositions,
@@ -28,9 +28,10 @@ export function checkEntry(
   candidate: EntryCandidate,
   now: Date = new Date(),
 ): RiskVerdict {
-  if (config.mode === "off") return { ok: false, reason: "trading disabled" };
-
   const chain = candidate.chain ?? "robinhood";
+  if (resolveTradeMode(config, chain) === "off") {
+    return { ok: false, reason: `trading disabled on ${chain} (TRADE_MODE)` };
+  }
   if (!tradeEnabledChains().includes(chain as never)) {
     return { ok: false, reason: `trading not enabled on ${chain} (TRADE_CHAINS)` };
   }

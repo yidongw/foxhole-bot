@@ -92,6 +92,12 @@
     }
     .chg-pos { color: var(--accent); }
     .chg-neg { color: var(--danger); }
+    .mode-badge {
+      display: inline-block; padding: 1px 7px; border-radius: 6px;
+      font-size: 11px; font-weight: 700; letter-spacing: .3px; vertical-align: middle;
+    }
+    .mode-paper { background: rgba(138,160,184,.16); color: #9fb3c8; border: 1px solid rgba(138,160,184,.35); }
+    .mode-live  { background: rgba(255,107,107,.15); color: #ff7b7b; border: 1px solid rgba(255,107,107,.45); }
     .sig { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; }
     .sig-watch { background: rgba(255, 176, 32, 0.14); color: var(--warn); }
     .sig-alert { background: rgba(255, 130, 32, 0.16); color: #ff9d4d; }
@@ -133,7 +139,7 @@
       <div>
         <div class="eyebrow">Foxhole Bot</div>
         <h1>交易仪表盘</h1>
-        <p class="sub">Paper 自动交易账户 · 数据每个引擎 tick 刷新（数据源：<code>data/positions.json</code> 单一账本镜像）</p>
+        <p class="sub">自动交易账户 · 每笔标注 <span class="mode-badge mode-paper">📝 PAPER</span> / <span class="mode-badge mode-live">💸 LIVE</span> · 数据每个引擎 tick 刷新（数据源：<code>data/positions.json</code>）</p>
       </div>
       <div class="actions">
         <button class="btn primary" id="refreshBtn">刷新数据</button>
@@ -328,6 +334,11 @@
       ].map(([l, v, h]) => `<div class="card"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h}</div></div>`).join('');
     }
 
+    function modeBadge(p) {
+      const live = p.mode === 'live';
+      return `<span class="mode-badge ${live ? 'mode-live' : 'mode-paper'}">${live ? '💸 LIVE' : '📝 PAPER'}</span>`;
+    }
+
     function renderOpen() {
       const rows = (posData.positions || []).filter(p => p.status === 'open').slice().reverse();
       const body = document.getElementById('openBody');
@@ -337,7 +348,7 @@
         const pnl = p.pnl_usd ?? 0;
         const flo = p.current_price_usd != null ? (p.current_price_usd / p.entry_price_usd - 1) * 100 : null;
         return `<tr>
-          <td><div class="token"><strong>${esc(p.symbol || '?')}</strong><span>${esc((p.token || '').slice(0, 14))}…</span></div></td>
+          <td><div class="token"><strong>${esc(p.symbol || '?')}</strong> ${modeBadge(p)}<span>${esc((p.token || '').slice(0, 14))}…</span></div></td>
           <td><span class="pair">${esc(p.chain)}</span></td>
           <td>${fmtPrice(p.entry_price_usd)}</td>
           <td>${fmtPrice(p.current_price_usd)}</td>
@@ -372,7 +383,7 @@
       document.getElementById('closedBody').innerHTML = rows.map(p => {
         const pr = proceedsOf(p), pnl = pr - (p.cost_usd ?? 0);
         return `<tr>
-          <td><strong>${esc(p.symbol || '?')}</strong></td>
+          <td><strong>${esc(p.symbol || '?')}</strong> ${modeBadge(p)}</td>
           <td><span class="pair">${esc(p.chain)}</span></td>
           <td>${fmtShort(p.opened_at)}</td>
           <td>${p.closed_at ? fmtShort(p.closed_at) : '—'}</td>

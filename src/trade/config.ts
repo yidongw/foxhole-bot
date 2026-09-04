@@ -23,7 +23,13 @@ export interface TakeProfitTier {
 }
 
 export interface TradeConfig {
+  /** 全局默认模式(未被 chainModes 覆盖的链用它)。 */
   mode: TradeMode;
+  /**
+   * 按链覆盖的模式(来自 TRADE_MODE_<CHAIN> 环境变量,键为小写链名)。
+   * 每条链可独立 off/paper/live —— 例如只让 robinhood 走 live、其余 paper。
+   */
+  chainModes: Record<string, TradeMode>;
   /** live 下单路由:hoodchain(默认)| okx。 */
   router: TradeRouter;
   /** USD notional per entry. */
@@ -86,8 +92,17 @@ function num(name: string, fallback: number): number {
 export function loadTradeConfig(): TradeConfig {
   const mode = (process.env.TRADE_MODE ?? "off") as TradeMode;
   const router = (process.env.TRADE_ROUTER ?? "hoodchain") as TradeRouter;
+  // Per-chain overrides: TRADE_MODE_<CHAIN>=off|paper|live (e.g. TRADE_MODE_ROBINHOOD=live).
+  const chainModes: Record<string, TradeMode> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    const m = k.match(/^TRADE_MODE_([A-Z0-9]+)$/);
+    if (m && v && ["off", "paper", "live"].includes(v)) {
+      chainModes[m[1].toLowerCase()] = v as TradeMode;
+    }
+  }
   return {
     mode: ["off", "paper", "live"].includes(mode) ? mode : "off",
+    chainModes,
     router: (
       ["hoodchain", "okx", "okx_hood", "lifi", "lifi_hood"] as const
     ).includes(router)
@@ -129,4 +144,17 @@ export function loadTradeConfig(): TradeConfig {
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
   };
+}
+
+/** Effective trade mode for a chain: its TRADE_MODE_<CHAIN> override, else the global default. */
+export function resolveTradeMode(config: TradeConfig, chain: string): TradeMode {
+  return (config.chainModes ?? {})[chain.toLowerCase()] ?? config.mode;
+}
+
+/** True if ANY chain (global default or a per-chain override) is paper/live. */
+export function tradingActive(config: TradeConfig): boolean {
+  return (
+    config.mode !== "off" ||
+    Object.values(config.chainModes ?? {}).some((m) => m !== "off")
+  );
 }

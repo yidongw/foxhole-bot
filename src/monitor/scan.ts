@@ -62,7 +62,7 @@ import {
   savePumpWatch,
   screenPumpProbation,
 } from "../chains/solana/pumpfun-launches.js";
-import { loadTradeConfig } from "../trade/config.js";
+import { loadTradeConfig, tradingActive } from "../trade/config.js";
 import { checkTokenSafety } from "../trade/safety.js";
 import { resolveWebhook } from "../notify/routes.js";
 import { appendAiInbox } from "../notify/ai-inbox.js";
@@ -928,7 +928,7 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     );
 
     const tradeConfig = loadTradeConfig();
-    if (tradeConfig.mode !== "off") {
+    if (tradingActive(tradeConfig)) {
       await processSignals(
         hits.map((h) => h.evaluation),
         { dryRun: options.dryRun, webhookUrl: options.webhookUrl },
@@ -1039,7 +1039,7 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     while (!stopped) {
       try {
         const tradeConfig = loadTradeConfig();
-        if (tradeConfig.mode !== "off") {
+        if (tradingActive(tradeConfig)) {
           await managePositions(
             { dryRun: options.dryRun, webhookUrl: options.webhookUrl },
             tradeConfig,
@@ -1063,7 +1063,7 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     );
     await discoveryTick();
     const tradeConfig = loadTradeConfig();
-    if (tradeConfig.mode !== "off") {
+    if (tradingActive(tradeConfig)) {
       await managePositions(
         { dryRun: options.dryRun, webhookUrl: options.webhookUrl },
         tradeConfig,
