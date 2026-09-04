@@ -150,8 +150,17 @@ export function classifyFlash(
   // "事后警报"就埋掉,交给 decider 判 —— 律动抓到的翻倍币别再漏)。没解析出 CA 的,
   // 下游 poll 会开"研究 thread"让 decider 去 news:search / dexscreener 找 CA 再决策。
   if (hasMomentum(title)) {
-    const reason = /[Mm]eme/.test(title) ? "meme-momentum" : "momentum";
-    return { action: "wake", negative: false, reasons: [reason] };
+    const isMeme = /[Mm]eme/.test(title);
+    // 非 meme 且标题里的大写 ticker 全是停用词大币(HYPE/BTC/ETH 突破新高这种)→ 大币行情,
+    // 不是我们的 meme 交易点,留痕不叫醒(2026-09-04: HYPE ATH 反复空跑 decider)。
+    // microduck(无大写 ticker)、INDEX(非停用词真 meme)不受影响,照常叫醒。
+    if (!isMeme) {
+      const upper = rawTitle.match(/[A-Z][A-Z0-9]{2,9}/g) ?? [];
+      if (upper.length > 0 && upper.every((s) => SYMBOL_STOPLIST.has(s.toUpperCase()))) {
+        return { action: "note", negative: false, reasons: ["momentum"] };
+      }
+    }
+    return { action: "wake", negative: false, reasons: [isMeme ? "meme-momentum" : "momentum"] };
   }
 
   // meme 负面但无动能(不持仓的陌生币崩盘)→ 留痕对照 coverage_miss,不是买点

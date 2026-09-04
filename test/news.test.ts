@@ -301,6 +301,17 @@ describe("extractSymbols", () => {
 });
 
 describe("classifyFlash momentum without meme keyword", () => {
+  it("notes (not wakes) big-cap ATHs whose only ticker is a stoplisted major", () => {
+    // 2026-09-04: HYPE/BTC/ETH 突破新高会经 momentum 反复空跑 decider;非 meme 且大写
+    // ticker 全是停用词大币 → 留痕不叫醒。真 meme(INDEX 非停用词、microduck 无大写)不受影响。
+    expect(
+      classifyFlash("HYPE今晨一度突破88美元再刷历史新高，30日涨超57%", []).action,
+    ).toBe("note");
+    expect(classifyFlash("INDEX 24小时涨超130%，市值现报5500万美元", []).action).toBe(
+      "wake",
+    );
+  });
+
   it("wakes on bare market-cap-breakout titles (decider resolves & decides)", () => {
     // 2026-09-02: 旧规则 drop 导致 microduck 漏报;曾降为 note;2026-09-04 用户策略再提升
     // 到 wake —— 市值突破式暴涨也交给 decider 深挖 CA 决定买不买。
