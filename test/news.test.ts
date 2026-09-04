@@ -202,6 +202,19 @@ describe("classifyFlash", () => {
     expect(c.negative).toBe(true);
   });
 
+  it("catches 暴涨/飙升 X% and 涨/翻 N 倍 pump phrasings", () => {
+    // 2026-09-04: hasMomentum 曾漏「暴涨200%」「涨3倍」这类措辞 → 新 meme 暴涨没 wake。
+    expect(classifyFlash("某链Meme币暴涨200%，创历史新高", []).action).toBe("wake");
+    expect(classifyFlash("Meme币XYZ单日涨5倍", []).action).toBe("wake");
+    expect(classifyFlash("某Meme币飙升80%", []).action).toBe("wake");
+    // 非价格的「翻倍」(无数字,如持有地址翻倍)不误触发
+    expect(
+      classifyFlash("全网代币化股票持有地址数自8月以来翻倍，达200万", []).action,
+    ).not.toBe("wake");
+    // 小涨(<50%)仍不算
+    expect(classifyFlash("某Meme币暴涨12%", []).reasons).not.toContain("meme-momentum");
+  });
+
   it("does not seed numbers, chain names, or majors as hot symbols", () => {
     // 2026-09-04: 暴涨→wake 放开后,extractSymbols 把「18932」数字、BSC 链名、HYPE 大币
     // 种进 hotSymbols → 后续误叫醒。纯数字/链名/大币都不该是 token。

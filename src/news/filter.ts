@@ -34,8 +34,13 @@ const SAVINGS_PROMO =
 
 function hasMomentum(text: string): boolean {
   if (CAP_BREAKOUT.test(text)) return true;
-  for (const m of text.matchAll(/(涨超|涨幅[达超]?)\s*(\d+(?:\.\d+)?)\s*%/g)) {
+  // “涨超/暴涨/飙升 X%” ≥50 才算 —— 小涨不算(ARB 涨 12% 这种主流币日常波动)。
+  for (const m of text.matchAll(/(涨超|暴涨|飙升|涨幅[达超]?)\s*(\d+(?:\.\d+)?)\s*%/g)) {
     if (Number(m[2]) >= 50) return true;
+  }
+  // “涨/翻 N 倍”(N≥2 = +100%+)也是强暴涨措辞;要求数字避免撞“持有地址翻倍”这类非价格用法。
+  for (const m of text.matchAll(/(涨|翻)\s*(\d+)\s*倍/g)) {
+    if (Number(m[2]) >= 2) return true;
   }
   return false;
 }
