@@ -237,9 +237,12 @@ describe("classifyFlash", () => {
     ).toBe("wake");
   });
 
-  it("notes non-RB meme momentum instead of waking", () => {
+  it("wakes on any-chain meme pump so decider resolves CA and decides", () => {
+    // 2026-09-04 用户策略: 暴涨新闻=可能的交易空间,提升到 wake 让 decider 深挖决策,
+    // 别只 note(否则律动抓到的翻倍新 meme 我们漏掉)。
     const c = classifyFlash("某Solana Meme币市值短时突破5000万美元", []);
-    expect(c.action).toBe("note");
+    expect(c.action).toBe("wake");
+    expect(c.reasons).toContain("meme-momentum");
   });
 
   it("notes crashes of unknown tokens (coverage-miss cross-check)", () => {
@@ -288,10 +291,11 @@ describe("extractSymbols", () => {
 });
 
 describe("classifyFlash momentum without meme keyword", () => {
-  it("notes bare market-cap-breakout titles instead of dropping", () => {
-    // 2026-09-02: 这条被旧规则 drop，导致 microduck 暴涨漏报
+  it("wakes on bare market-cap-breakout titles (decider resolves & decides)", () => {
+    // 2026-09-02: 旧规则 drop 导致 microduck 漏报;曾降为 note;2026-09-04 用户策略再提升
+    // 到 wake —— 市值突破式暴涨也交给 decider 深挖 CA 决定买不买。
     const c = classifyFlash("microduck市值突破3200万美元，现报0.0322美元", []);
-    expect(c.action).toBe("note");
+    expect(c.action).toBe("wake");
     expect(c.reasons).toContain("momentum");
   });
 

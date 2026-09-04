@@ -145,15 +145,18 @@ export function classifyFlash(
     return { action: "drop", negative: false, reasons: ["noise"] };
   }
 
-  // 其它链的 meme 动能 → 记到 filter-log 供复盘，不叫醒
-  if (/[Mm]eme/.test(title) && (hasMomentum(title) || negative)) {
-    return { action: "note", negative, reasons: ["meme-momentum"] };
+  // 暴涨新闻(meme 或"市值/价格突破式")→ 叫醒,让 decider 深挖是什么链什么币、拉实时
+  // 行情决定买不买(用户策略 2026-09-04:暴涨=可能的交易空间,filter 不自己 pre-judge
+  // "事后警报"就埋掉,交给 decider 判 —— 律动抓到的翻倍币别再漏)。没解析出 CA 的,
+  // 下游 poll 会开"研究 thread"让 decider 去 news:search / dexscreener 找 CA 再决策。
+  if (hasMomentum(title)) {
+    const reason = /[Mm]eme/.test(title) ? "meme-momentum" : "momentum";
+    return { action: "wake", negative: false, reasons: [reason] };
   }
 
-  // 动能措辞但标题没带 Meme/链名（如「microduck市值突破3200万美元」）——
-  // 2026-09-02 复盘教训: 这类标题正是漏扫币的第一信号，至少留痕
-  if (hasMomentum(title)) {
-    return { action: "note", negative: false, reasons: ["momentum"] };
+  // meme 负面但无动能(不持仓的陌生币崩盘)→ 留痕对照 coverage_miss,不是买点
+  if (/[Mm]eme/.test(title) && negative) {
+    return { action: "note", negative: true, reasons: ["meme-momentum"] };
   }
 
   // 崩盘 / 巨鲸建仓：不认识的币也留痕 — 复盘时对照 coverage_miss
