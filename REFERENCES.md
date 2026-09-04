@@ -202,7 +202,34 @@ Token: https://6551.io/mcp or https://app.newsliquid.com/mcp
 
 ---
 
-## 11. Market data (free / API)
+## 11. Hyperliquid 永续 + Binance OI/大户数据 ⭐ (perp venue — LIVE, paper)
+
+新闻/OI异动驱动的 Hyperliquid 永续做多做空(`src/venues/hyperliquid/`、`src/venues/binance/`、`src/signals/oi-anomaly.ts`)。仿的产品是 [NewsLiquid](https://newsliquid.com/)(见 §7)"OI 主力异动抓妖币"。
+
+### Hyperliquid 接入 / 执行
+| Repo | Lang | 用法 | What to borrow |
+|------|------|------|----------------|
+| [nktkas/hyperliquid](https://github.com/nktkas/hyperliquid) | TS | **已用**(live 签名,可选依赖) | 全 HyperCore API、类型安全、viem/ethers 账户签名、`order`/`updateLeverage`/`perpDexs` |
+| [hyperliquid-dex/hyperliquid-python-sdk](https://github.com/hyperliquid-dex/hyperliquid-python-sdk) | Python | 参考 | 官方 SDK,examples 里签名/nonce/下单范式 |
+| [hyperliquid-dex/hyperliquid-rust-sdk](https://github.com/hyperliquid-dex/hyperliquid-rust-sdk) | Rust | 参考 | 官方低延迟做市底座 |
+| [ccxt/ccxt](https://github.com/ccxt/ccxt) | 多语言 | 参考 | 统一接口(HL 原生支持),多所对冲时可换用 |
+| [hummingbot/hummingbot](https://github.com/hummingbot/hummingbot) | Python | 参考 | `hyperliquid_perpetual` connector 工程化封装 + HIP-3 隔离保证金 |
+
+HIP-3 美股 asset id 编码 `100000+perp_dex_index*10000+下标`(`perp_dex_index` 取自官方 `perpDexs` info 查询)。
+
+### Binance OI / 大户 / 聪明钱数据(OI 异动策略)
+| Repo | Lang | 用法 | What to borrow |
+|------|------|------|----------------|
+| [severin-richner/binance-futures-top-traders-bot](https://github.com/severin-richner/binance-futures-top-traders-bot) | — | **借鉴模型** | 基于 Top Trader Long/Short Ratio (Positions) 交易 —— 我们第 3 条"主力方向/占比"用的就是这路数据 |
+| [mefai-dev/superbsc](https://github.com/mefai-dev/superbsc-) | — | 借鉴维度 | 币安情报终端:OI spike / taker 比 / 资金费极端 / 大户多空比 异动 —— V2 软增强维度参考 |
+| [jesusgraterol/binance-futures-dataset-builder](https://github.com/jesusgraterol/binance-futures-dataset-builder) | Python | 参考 | 从币安 API 抽 OI + 多空比 数据集 |
+| [FishRoyal/futures-binance-bot](https://github.com/FishRoyal/futures-binance-bot) | — | 参考 | 爆仓信号→反向,做空镜像思路 |
+
+**用的公开端点(无需 key)**:`/futures/data/openInterestHist`(OI值/涨幅)、`topLongShortPositionRatio`(大户持仓比)、`globalLongShortAccountRatio`(散户比→背离)、`takerlongshortRatio`(taker买压)、`/fapi/v1/premiumIndex`(资金费)、`ticker/24hr`。主力盈利率用 **OI 加权反推成本 vs 现价**(NewsLiquid "平均开仓价" 的公开代理);逐账户真·盈利率是 V2,需追踪大户/Leaderboard(复用 §2 smart-money 基建)。
+
+---
+
+## 12. Market data (free / API)
 
 | Service | Cost | RB support | Use |
 |---------|------|------------|-----|
@@ -214,7 +241,7 @@ Token: https://6551.io/mcp or https://app.newsliquid.com/mcp
 
 ---
 
-## 12. foxhole-bot integration priority
+## 13. foxhole-bot integration priority
 
 | Phase | Module | Primary reference |
 |-------|--------|-------------------|
@@ -228,7 +255,7 @@ Token: https://6551.io/mcp or https://app.newsliquid.com/mcp
 
 ---
 
-## 13. What NOT to fork as base
+## 14. What NOT to fork as base
 
 | Repo | Why not as foxhole base |
 |------|-------------------------|

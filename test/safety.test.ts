@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluateGoPlusFlags } from "../src/trade/safety.js";
+import { evaluateGoPlusFlags, isLiveFreshPool } from "../src/trade/safety.js";
 import {
   classifyStockQuote,
   type StockRegistry,
@@ -114,5 +114,39 @@ describe("classifyStockQuote", () => {
     expect(classifyStockQuote("NVDA", "0xdeadbeef", "robinhood", undefined)).toBe(
       "unknown",
     );
+  });
+});
+
+describe("isLiveFreshPool", () => {
+  const NOW = 1_800_000_000_000;
+  const live = {
+    pairCreatedAt: NOW - 2 * 3_600_000,
+    liquidity: { usd: 107_000 },
+    txns: { h24: { buys: 1149, sells: 769 } },
+  };
+
+  it("exempts a young, liquid, actively-traded pool (GME case)", () => {
+    expect(isLiveFreshPool(live, NOW)).toBe(true);
+  });
+
+  it("keeps the veto for old pools with no candles (the real drained case)", () => {
+    expect(
+      isLiveFreshPool({ ...live, pairCreatedAt: NOW - 20 * 3_600_000 }, NOW),
+    ).toBe(false);
+  });
+
+  it("keeps the veto when liquidity is gone", () => {
+    expect(isLiveFreshPool({ ...live, liquidity: { usd: 900 } }, NOW)).toBe(false);
+  });
+
+  it("keeps the veto with zero trades", () => {
+    expect(
+      isLiveFreshPool({ ...live, txns: { h24: { buys: 0, sells: 0 } } }, NOW),
+    ).toBe(false);
+  });
+
+  it("keeps the veto when DexScreener has no pair / no creation time", () => {
+    expect(isLiveFreshPool(undefined, NOW)).toBe(false);
+    expect(isLiveFreshPool({ liquidity: { usd: 50_000 } }, NOW)).toBe(false);
   });
 });

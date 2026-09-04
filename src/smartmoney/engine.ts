@@ -5,13 +5,24 @@ import { ensureSignalThread } from "../notify/signal-threads.js";
 import { canonicalChain } from "../chains/robinhood/smart-money.js";
 import { appendSmLog } from "./log.js";
 import { resolveFilter, type SmartMoneyFilter } from "./config.js";
-import { fdvTag } from "../lib/format.js";
+import { fdvTag, tokenLinks } from "../lib/format.js";
 
 /** Best-liquidity market snapshot for a token (DexScreener), or undefined. */
 async function fetchTokenMarket(
   chain: string,
   token: string,
-): Promise<{ liquidityUsd: number; h1: number; h24: number; fdvUsd?: number } | undefined> {
+): Promise<
+  | {
+      liquidityUsd: number;
+      h1: number;
+      h24: number;
+      fdvUsd?: number;
+      priceUsd?: number;
+      pairAddress?: string;
+      symbol?: string;
+    }
+  | undefined
+> {
   try {
     const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${token}`, {
       headers: { "User-Agent": "foxhole-bot/0.3" },
@@ -20,6 +31,9 @@ async function fetchTokenMarket(
     const data = (await res.json()) as {
       pairs?: Array<{
         chainId?: string;
+        pairAddress?: string;
+        priceUsd?: string;
+        baseToken?: { symbol?: string };
         liquidity?: { usd?: number };
         priceChange?: { h1?: number; h24?: number };
         fdv?: number;
@@ -35,6 +49,9 @@ async function fetchTokenMarket(
       h1: Number(best.priceChange?.h1 ?? 0),
       h24: Number(best.priceChange?.h24 ?? 0),
       fdvUsd: Number(best.fdv) || undefined,
+      priceUsd: best.priceUsd ? Number(best.priceUsd) : undefined,
+      pairAddress: best.pairAddress,
+      symbol: best.baseToken?.symbol,
     };
   } catch {
     return undefined;
@@ -178,13 +195,12 @@ export class SmartMoneyEngine {
    * DexScreener call, only on escalation (rare), so latency is fine. Fail-open:
    * if market data is unavailable, don't block the signal.
    */
-  private async antiChaseSkip(
-    buy: SmartMoneyBuy,
+  private antiChaseSkip(
     filter: SmartMoneyFilter,
-  ): Promise<string | undefined> {
+    mkt: Awaited<ReturnType<typeof fetchTokenMarket>>,
+  ): string | undefined {
     if (filter.aiMinLiquidityUsd <= 0 && filter.aiMaxPump1hPct <= 0 && filter.aiMaxPump24hPct <= 0)
       return undefined;
-    const mkt = await fetchTokenMarket(buy.chain, buy.token);
     if (!mkt) return undefined; // fail-open
     if (filter.aiMinLiquidityUsd > 0 && mkt.liquidityUsd < filter.aiMinLiquidityUsd)
       return `liq $${Math.round(mkt.liquidityUsd).toLocaleString()} < $${filter.aiMinLiquidityUsd.toLocaleString()}`;
@@ -241,8 +257,11 @@ export class SmartMoneyEngine {
     const last = this.escalated.get(key) ?? 0;
     if (buy.ts - last < windowMin * 60_000) return; // one signal per token/window
 
+    // One market fetch, reused for both anti-chase and the card.
+    const mkt = await fetchTokenMarket(buy.chain, buy.token);
+
     // Anti-chase: don't wake AI on thin or already-blown-off tokens (事后).
-    const skip = await this.antiChaseSkip(buy, filter);
+    const skip = this.antiChaseSkip(filter, mkt);
     if (skip) {
       await appendSmLog({
         kind: "skipped",
@@ -262,17 +281,19 @@ export class SmartMoneyEngine {
     this.escalated.set(key, buy.ts);
 
     const style = chainStyle(buy.chain);
-    const link = this.tokenLink(buy.chain, buy.token);
     const usdStr = buy.usd ? ` (~$${Math.round(buy.usd).toLocaleString()})` : "";
-    const fdv = (await fetchTokenMarket(buy.chain, buy.token))?.fdvUsd;
+    const priceStr = mkt?.priceUsd ? `$${mkt.priceUsd.toPrecision(4)}` : "?";
+    const liqStr = `$${Math.round((mkt?.liquidityUsd ?? 0) / 1e3)}K`;
 
-    // 1) Trade signal → the chain's signal channel (a decision is requested).
+    // 1) Trade signal → the chain's signal channel — unified with the standard
+    //    signal card (same link row + price/liquidity/FDV line).
     const signal = [
-      `🎯 **交易信号 / TRADE SIGNAL** · ${style.emoji} ${style.name}`,
-      `聪明钱驱动:窗口内 **${distinct}** 个追踪钱包买入 **$${buy.symbol}**${usdStr}${fdvTag(fdv)}`,
+      `🎯 **交易信号 / TRADE SIGNAL** · ${style.emoji} ${style.name} — 🐳 聪明钱`,
+      `**$${buy.symbol}** — 窗口内 **${distinct}** 个追踪钱包买入${usdStr}`,
       `最近:\`${buy.walletLabel}\``,
       `CA: \`${buy.token}\``,
-      `🔗 <${link}>`,
+      tokenLinks(buy.chain, buy.token, mkt?.pairAddress),
+      `最新: ${priceStr} · 流动性 ${liqStr}${fdvTag(mkt?.fdvUsd)}`,
       `🤖 已唤醒 AI 决策 —— 待定买入/跳过`,
     ].join("\n");
     // Create/post the per-token thread so the AI decider's note has somewhere

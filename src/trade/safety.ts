@@ -70,6 +70,27 @@ export function safetyGateEnabled(): boolean {
   return process.env.TRADE_SAFETY_GATE !== "0";
 }
 
+/** Pools younger than this may legitimately have no OHLCV yet. */
+export const FRESH_POOL_MAX_AGE_MS = 12 * 3_600_000;
+
+/**
+ * A pool this young with visible liquidity and trades cannot be "drained" —
+ * the drained-pool heuristic (both candle sources empty) only holds for pools
+ * old enough that indexers must have seen them. Ladder/collapse checks have
+ * no data to run either way, and the other gates (GoPlus, denylist, stock
+ * registry, liquidity floors) still apply.
+ */
+export function isLiveFreshPool(
+  pair: DexPair | undefined,
+  now = Date.now(),
+): boolean {
+  if (!pair?.pairCreatedAt) return false;
+  if (now - pair.pairCreatedAt > FRESH_POOL_MAX_AGE_MS) return false;
+  if ((pair.liquidity?.usd ?? 0) < 10_000) return false;
+  const t = pair.txns?.h24;
+  return (t?.buys ?? 0) + (t?.sells ?? 0) > 0;
+}
+
 /**
  * Chart checks at two granularities: slow ladders show on 1h candles
  * (AVANT: 22h staircase), fast ladders only on 15m (Pumpcat: 3h staircase
@@ -94,7 +115,19 @@ async function checkChart(
   // Bonding-curve tokens pre-graduation have no AMM pool yet, so absent OHLCV
   // is expected, not a drained pool — GoPlus + curve state carry safety there.
   if (!hourly.length && !fine.length) {
-    return onBondingCurve ? undefined : "no_chart_history";
+    if (onBondingCurve) return undefined;
+    // Candle indexers take hours to pick up brand-new pools, so an empty
+    // chart on a young pool is lag, not a drained pool (GME 2026-09-04:
+    // 1.8h-old pool, $107k liq, $2.6M h1 volume — vetoed while actively
+    // trading). Confirm liveness from DexScreener before vetoing; if it is
+    // unreachable or the pool is old/inactive, keep the conservative veto.
+    try {
+      const res = await fetchDexJson<{ pair?: DexPair; pairs?: DexPair[] }>(
+        `/latest/dex/pairs/${chain}/${poolId}`,
+      );
+      if (isLiveFreshPool(res.pair ?? res.pairs?.[0])) return undefined;
+    } catch {}
+    return "no_chart_history";
   }
 
   for (const [candles, label] of [

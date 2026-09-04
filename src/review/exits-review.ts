@@ -51,6 +51,12 @@ export interface NeverBought {
   chain: string;
   address: string;
   priceChange24h: number;
+  /** Gain since OUR first alert — the honest miss metric; 24h% is a rolling
+   *  window unrelated to the decision point (it once showed "+9073%" for a
+   *  token that was ~3x since the actual skip). */
+  sinceAlertPct?: number;
+  alertPriceUsd?: number;
+  currentPriceUsd?: number;
   safetyFlags?: string[];
 }
 
@@ -111,6 +117,34 @@ async function loadState(): Promise<ExitReviewState> {
   }
 }
 
+/** First alert-time price per token address from the inbox archives, so
+ *  报了没买 anchors to our decision point instead of the rolling 24h change. */
+async function loadAlertPrices(): Promise<Map<string, number>> {
+  const prices = new Map<string, number>();
+  for (const name of ["ai-inbox-processed.jsonl", "ai-inbox.jsonl"]) {
+    try {
+      const raw = await readFile(
+        path.resolve(__dirname, "../../data", name),
+        "utf8",
+      );
+      for (const line of raw.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const it = JSON.parse(line) as { address?: string; priceUsd?: number };
+          if (!it.address || !it.priceUsd || it.priceUsd <= 0) continue;
+          const key = it.address.toLowerCase();
+          if (!prices.has(key)) prices.set(key, it.priceUsd);
+        } catch {
+          /* skip unparseable line */
+        }
+      }
+    } catch {
+      /* archive missing is fine */
+    }
+  }
+  return prices;
+}
+
 export interface OwnTradeReview {
   soldTooEarly: SoldTooEarly[];
   neverBought: NeverBought[];
@@ -163,6 +197,7 @@ export async function reviewOwnTrades(
 
   // 报了没买: alerted movers that pumped, where we never held a position.
   const held = new Set(file.positions.map((p) => p.token.toLowerCase()));
+  const alertPrices = await loadAlertPrices();
   const neverBought: NeverBought[] = [];
   for (const m of movers) {
     if (m.kind !== "alerted") continue;
@@ -171,11 +206,32 @@ export async function reviewOwnTrades(
     if (held.has(m.address.toLowerCase())) continue;
     const key = `${m.chain}:${m.address.toLowerCase()}`;
     if (state.flaggedTokens.includes(key)) continue;
+    const alertPrice = alertPrices.get(m.address.toLowerCase());
+    let sinceAlertPct: number | undefined;
+    let current: number | undefined;
+    if (alertPrice) {
+      try {
+        const pairs = await fetchTokenPairs(m.address, m.chain);
+        const primary = selectDeepestBasePair(pairs, m.address);
+        if (primary?.priceUsd) current = Number(primary.priceUsd);
+      } catch {
+        /* fall through to the 24h anchor */
+      }
+      if (current && current > 0) {
+        sinceAlertPct = (current / alertPrice - 1) * 100;
+        // Flat-or-down since our decision point = not actually a miss; leave
+        // it unflagged so a later real pump can still surface it.
+        if (sinceAlertPct < NEVER_BOUGHT_MIN_CHANGE) continue;
+      }
+    }
     neverBought.push({
       symbol: m.symbol,
       chain: m.chain,
       address: m.address,
       priceChange24h: m.priceChange24h,
+      sinceAlertPct,
+      alertPriceUsd: alertPrice,
+      currentPriceUsd: current,
       safetyFlags: m.safetyFlags,
     });
     state.flaggedTokens.push(key);
@@ -198,7 +254,10 @@ export async function reviewOwnTrades(
         kind: "never_bought",
         symbol: n.symbol,
         chain: n.chain,
-        detail: `警报后未开仓, +${n.priceChange24h.toFixed(0)}%${n.safetyFlags?.length ? ` (安全门: ${n.safetyFlags.join(",")})` : ""}`,
+        detail:
+          n.sinceAlertPct != null && n.alertPriceUsd != null
+            ? `警报后未开仓, 自警报价 $${n.alertPriceUsd.toPrecision(3)} 涨 +${n.sinceAlertPct.toFixed(0)}%${n.safetyFlags?.length ? ` (安全门: ${n.safetyFlags.join(",")})` : ""}`
+            : `警报后未开仓, 24h口径 +${n.priceChange24h.toFixed(0)}% (无警报价)${n.safetyFlags?.length ? ` (安全门: ${n.safetyFlags.join(",")})` : ""}`,
       });
     }
     state.lessons = lessons.slice(-LESSONS_KEPT);
@@ -220,7 +279,9 @@ export async function reviewOwnTrades(
   for (const n of neverBought) {
     lines.push(
       `  🚫 报了没买 ${n.symbol ?? n.address.slice(0, 10)} [${n.chain}] ` +
-        `+${n.priceChange24h.toFixed(0)}%` +
+        (n.sinceAlertPct != null && n.alertPriceUsd != null
+          ? `自警报价 $${n.alertPriceUsd.toPrecision(3)} 涨 +${n.sinceAlertPct.toFixed(0)}%`
+          : `24h口径 +${n.priceChange24h.toFixed(0)}%（无警报价）`) +
         (n.safetyFlags?.length ? `（安全门: ${n.safetyFlags.join(",")}）` : "（decider 跳过或未触发入场）"),
     );
   }
