@@ -3,6 +3,33 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-04 11:0x UTC 第 16 轮(ultrathink:收尾 GLM-listing 残留 + 主动碰撞审计)
+
+### ① 新闻(**修了 R15 挂账的 listing 残留**,commit 07f5050,已部署)
+- R15 留的挂账复发:智谱 GLM-5.3-Flash 快讯**标题 drop 正确,但正文含"…Alpha…上线"以 listing
+  误叫醒**。核实 24h 回放:listing-wake 里 3 条真上所(标题都含"X 上线 Y")+ 1 条 AI 模型伪 listing
+  (仅正文触发)。→ **LISTING 改为只匹配 rawTitle**(与 R2 watched-only-title 同款),真上所全留、
+  伪 listing 修掉。回归 +1(共 29)。
+- **主动碰撞审计(新角度,提前找下一个 GLM/BGBTC)**:全量 watched+hot 符号(≤6 长)逐个在
+  24h feed 里查是否撞"非wake标题"——仅 AI/OKX/BGBTC 命中,**且三者都已在停用词**。→ 当前符号集
+  **无潜伏碰撞**,反应式 R1/R15 修复已覆盖实际碰撞面。
+- GLM/BGBTC 仍在 hotSymbols(R15 前种下,时间戳冻结),但**停用词已让它们不命中不再种**,
+  ~09-06 随 TTL 清零。「交易赚币」同理(促销 veto + 停用词双保险),harmless。
+
+### ② 覆盖率(健康)
+- robinhood ≥100% 对照干净(10 mover 全在册,**1417 币**,稳步增长)。labeled 仍 15(设计如此)。
+
+### ③ 新闻侧安全(无新)
+- src/news/ 无泄漏。**OKX/执行层不审(归他人)。** P2 注入面挂账。
+
+### ④ 健康(绿)
+- tsc 干净、npm test **287 passed**、monitor 重启健康(pid 93509)、BN 未复现、0 uncaught。
+
+**下轮重点:** ① 「」junk + GLM/BGBTC 应在各自 TTL 后从 hotSymbols 清零,复查。② 继续每轮回放看
+新 noise-wake(listing 现已 title-only,盯有无别的正文误触发类)。③ labeled 够纯 meme 样本再做哑弹。④ 守 robinhood 覆盖。
+
+---
+
 ## 2026-09-04 09:0x UTC 第 15 轮(ultrathink 抓到并修了两类新噪音 + 新闻×覆盖交叉核对)
 
 ### ① 新闻(**修了 2 类新误叫醒**,commit f57ec26,已部署)
