@@ -16,3 +16,27 @@ export function fdvTag(fdvUsd?: number): string {
   const s = fmtUsdCompact(fdvUsd);
   return s ? ` · FDV ${s}` : "";
 }
+
+/** Internal chain name → gmgn.ai URL slug, for the chains gmgn indexes. */
+const GMGN_SLUG: Record<string, string> = {
+  solana: "sol",
+  bsc: "bsc",
+  base: "base",
+  ethereum: "eth",
+};
+
+/**
+ * Markdown chart link for a trade-log / signal line so every on-chain trade
+ * signal carries a one-click way to open the token. gmgn.ai for the chains it
+ * indexes (sol/bsc/base/eth); robinhood has no gmgn listing so it falls back to
+ * its blockscout explorer. Empty string when chain/address is missing or the
+ * chain is unknown, so callers can append it unconditionally (filter falsy).
+ */
+export function gmgnLink(chain?: string, address?: string): string {
+  if (!chain || !address) return "";
+  if (chain === "robinhood") {
+    return `[🔗 Explorer](https://robinhoodchain.blockscout.com/token/${address})`;
+  }
+  const slug = GMGN_SLUG[chain];
+  return slug ? `[🔍 GMGN](https://gmgn.ai/${slug}/token/${address})` : "";
+}
