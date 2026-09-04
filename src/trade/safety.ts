@@ -41,6 +41,7 @@ interface GoPlusTokenData {
   selfdestruct?: string;
   transfer_pausable?: string;
   is_open_source?: string;
+  holders?: Array<{ percent?: string; is_locked?: number }>;
 }
 
 /** Pure veto rules — exported for tests. */
@@ -60,6 +61,15 @@ export function evaluateGoPlusFlags(data: GoPlusTokenData): string[] {
   if (truthy(data.selfdestruct)) flags.push("selfdestruct");
   if (truthy(data.transfer_pausable)) flags.push("transfer_pausable");
   if (data.is_open_source === "0") flags.push("closed_source");
+  // Concentration: a single UNLOCKED wallet holding a supermajority can dump the
+  // whole pool. The EVM/GoPlus path historically skipped this — 肥嘟嘟(bsc)
+  // passed the gate with 92% unlocked in the top holder (+ 1.4M airdrop-spam
+  // holders faking legitimacy). Match the Solana path's ≥60% unlocked threshold.
+  const top = data.holders?.[0];
+  const topPct = Number(top?.percent ?? 0);
+  if (top && topPct >= 0.6 && top.is_locked !== 1) {
+    flags.push(`top_holder ${(topPct * 100).toFixed(0)}% unlocked`);
+  }
   return flags;
 }
 
