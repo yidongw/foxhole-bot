@@ -256,6 +256,18 @@ describe("checkPerpEntry — 其余守钱闸口", () => {
     ).toBe(true);
   });
 
+  it("usdPerTrade <= 0 不限单笔;paper 现金对保证金兜底", () => {
+    const free = { ...cfg, usdPerTrade: 0 };
+    // 名义 $2000 / 3x → 保证金 ~$667 < 起始现金 $1000: 放行(旧 $50 上限已拆)
+    expect(
+      checkPerpEntry(free, empty, { symbol: "BTC", side: "long", sizeUsd: 2000, leverage: 3 }).ok,
+    ).toBe(true);
+    // 名义 $5000 / 3x → 保证金 ~$1667 > 现金 $1000: 唯一保留的账本边界
+    const v = checkPerpEntry(free, empty, { symbol: "BTC", side: "long", sizeUsd: 5000, leverage: 3 });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toContain("现金");
+  });
+
   it("HL_MODE=off 拒绝", () => {
     const v = checkPerpEntry({ ...cfg, mode: "off" }, empty, { symbol: "BTC", side: "long", sizeUsd: 50, leverage: 3 });
     expect(v.ok).toBe(false);

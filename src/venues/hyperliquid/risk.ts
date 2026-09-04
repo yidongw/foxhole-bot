@@ -8,6 +8,7 @@ import {
   findOpenPerp,
   notionalSince,
   openPerps,
+  paperCashUsd,
   type PerpPositionsFile,
   type PerpSide,
 } from "./positions.js";
@@ -41,11 +42,24 @@ export function checkPerpEntry(
   if (!(candidate.sizeUsd > 0)) {
     return { ok: false, reason: "名义敞口必须 > 0" };
   }
-  if (candidate.sizeUsd > config.usdPerTrade) {
+  // <=0 不限单笔(2026-09-04 默认:仓位大小由 AI 判断,预算类限制全拆)。
+  if (config.usdPerTrade > 0 && candidate.sizeUsd > config.usdPerTrade) {
     return {
       ok: false,
       reason: `名义敞口 $${Math.round(candidate.sizeUsd)} > 单笔上限 $${config.usdPerTrade}`,
     };
+  }
+  // 唯一保留的边界:paper 账本现金——保证金不许透支(记账完整性,非策略限制;
+  // live 由交易所保证金检查天然约束)。
+  if (config.mode === "paper") {
+    const cash = paperCashUsd(file, config.paperStartUsd);
+    const margin = candidate.sizeUsd / Math.max(candidate.leverage, 1);
+    if (margin > cash) {
+      return {
+        ok: false,
+        reason: `保证金 $${margin.toFixed(2)} 超过可用现金 $${cash.toFixed(2)}`,
+      };
+    }
   }
   if (!(candidate.leverage > 0)) {
     return { ok: false, reason: "杠杆必须 > 0" };

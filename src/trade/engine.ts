@@ -155,9 +155,6 @@ export async function aiBuy(
   if (config.mode === "off") return "交易未开启 (TRADE_MODE=off)";
   if (tradingPaused()) return "交易已暂停 (/resume 恢复)";
 
-  // Momentum entries are capped at a smaller size — higher noise, more misses.
-  const maxUsd = opts?.momentum ? config.momentumMaxUsdPerTrade : config.usdPerTrade;
-  const clamped = Math.min(usd, maxUsd);
   const analysis = await getAdapter(chain).analyze(address);
   const triggers = ["ai_decision"];
   if (opts?.smartMoney) triggers.push("smart_money");
@@ -172,6 +169,13 @@ export async function aiBuy(
   };
 
   const file = await loadPositions();
+  // 2026-09-04 用户拆除预算类限制:单笔 $50/$25 夹子取消,买多少由 AI 判断。
+  // 唯一保留的是账本现金(paper 不许透支;live 由链上余额天然约束)——这是
+  // 记账完整性,不是策略限制。止损/安全门(防骗子合约)不属于预算,原样保留。
+  const cash =
+    config.mode === "paper" ? paperCashUsd(file, config.paperStartUsd) : Infinity;
+  const clamped = Math.min(usd, cash);
+  if (!(clamped > 0)) return `风控拒绝: 可用现金不足 ($${cash.toFixed(2)})`;
   const verdict = checkEntry({ ...config, usdPerTrade: clamped }, file, candidate);
   if (!verdict.ok) return `风控拒绝: ${verdict.reason}`;
 
