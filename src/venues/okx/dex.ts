@@ -4,11 +4,12 @@
  */
 import { okxRequest } from "./client.js";
 
-const AGG = "/api/v5/dex/aggregator";
+const AGG = "/api/v6/dex/aggregator";
 
 export interface OkxSupportedChain {
-  chainIndex: string;
-  chainId: string;
+  // OKX returns these as JSON numbers; coerce with String() before comparing.
+  chainIndex: number | string;
+  chainId: number | string;
   chainName: string;
   dexTokenApproveAddress: string;
 }

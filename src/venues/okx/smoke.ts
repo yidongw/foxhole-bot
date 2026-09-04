@@ -10,10 +10,13 @@
  */
 import { MAINNET_ADDRESSES, parseUsdg } from "hoodchain";
 
+import { loadEnv } from "../../lib/env.js";
 import { okxConfigured, OKX_RB_CHAIN_INDEX } from "./config.js";
 import { getQuote, getSupportedChains } from "./dex.js";
 
 async function main() {
+  loadEnv();
+
   if (!okxConfigured()) {
     console.error(
       "✗ OKX 凭证未配置。请在 .env 设置 OKX_API_KEY / OKX_API_SECRET / " +
@@ -24,7 +27,7 @@ async function main() {
 
   console.log("→ 查询 OKX 聚合器支持的链…");
   const chains = await getSupportedChains();
-  const rb = chains.find((c) => c.chainIndex === OKX_RB_CHAIN_INDEX);
+  const rb = chains.find((c) => String(c.chainIndex) === OKX_RB_CHAIN_INDEX);
   if (!rb) {
     console.error(
       `✗ OKX 聚合器未列出 Robinhood Chain(chainIndex ${OKX_RB_CHAIN_INDEX})。` +
