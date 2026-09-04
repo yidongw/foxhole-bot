@@ -138,8 +138,16 @@ async function main() {
       const momentum = moIdx !== -1;
       if (momentum) rest.splice(moIdx, 1);
       const { strategy, rest: reasonArgs } = extractStrategyFlags(rest);
+      // 理由是决策留痕的核心（复盘只认决策时点证据），缺了就拒单，
+      // 别默默记成"无"——2026-09-04 GME 补单就把论点全塞进了 --note。
+      if (!reasonArgs.join(" ").trim()) {
+        console.error(
+          "缺少买入理由：<reason...> 是必填的位置参数（论点写这里，--note 写这仓的计划）",
+        );
+        process.exit(1);
+      }
       console.log(
-        await aiBuy(chain, address, Number(usd), reasonArgs.join(" ") || "无", {
+        await aiBuy(chain, address, Number(usd), reasonArgs.join(" "), {
           smartMoney,
           momentum,
           strategy,
