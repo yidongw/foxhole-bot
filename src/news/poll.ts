@@ -172,11 +172,16 @@ export async function newsTick(options: {
           .split("+") ?? []),
         ...extractSymbols(flash.title),
       ];
-      // 值得开 thread 的信号：关注币 / 负面 / 上所 / 市值突破级动能
+      // 值得开 thread 的信号：关注币 / 负面 / 上所 / 市值突破级动能 / meme 暴涨
+      // (meme-momentum 也要开研究 thread 让 decider 深挖 CA 决策 — 2026-09-04 用户策略)
       const worthyThread =
         cls.negative ||
         cls.reasons.some(
-          (r) => r.startsWith("watched:") || r === "listing" || r === "momentum",
+          (r) =>
+            r.startsWith("watched:") ||
+            r === "listing" ||
+            r === "momentum" ||
+            r === "meme-momentum",
         );
 
       if (!options.dryRun) {
