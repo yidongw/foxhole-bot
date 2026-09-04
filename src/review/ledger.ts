@@ -4,9 +4,31 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { fetchPoolOhlcv, type OhlcvCandle } from "../dex/dexpaprika.js";
+import { fetchDexJson } from "../dex/dexscreener.js";
+import { TRUSTED_QUOTE } from "../chains/generic-analysis.js";
+import { sleep } from "../lib/utils.js";
 import type { AlertLevel, SignalEvaluation } from "../signals/types.js";
 import { LEVEL_RANK } from "../signals/types.js";
-import type { TokenAnalysis } from "../types.js";
+import type { DexPair, TokenAnalysis } from "../types.js";
+
+/**
+ * True when the alert's pool is quoted against a JUNK token (not a trusted
+ * asset). Such an alert recorded a FAKE price (memestock/GMEB: alertPx $1.15
+ * vs real $0.0077), so grading it manufactures a fake win — void it instead.
+ * Conservative: fetch failure / missing quote → not junk (still grade).
+ */
+export async function isJunkQuoteAlert(record: AlertRecord): Promise<boolean> {
+  if (!record.poolId) return false;
+  try {
+    const pair = await fetchDexJson<{ pairs?: DexPair[] }>(
+      `/latest/dex/pairs/${record.chain}/${record.poolId}`,
+    );
+    const q = (pair.pairs?.[0]?.quoteToken?.symbol ?? "").toUpperCase();
+    return q.length > 0 && !TRUSTED_QUOTE.has(q);
+  } catch {
+    return false;
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTCOMES_DIR = path.resolve(__dirname, "../../data/outcomes");
@@ -163,6 +185,12 @@ export async function gradePendingOutcomes(
     // Skip caller-excluded records (stocks / malformed) and anything already
     // labeled — prevents the duplicate rows we saw in labeled.json.
     if (options.drop?.(record) || labeledIds.has(record.id)) continue;
+    // Pace the per-record DexScreener/DexPaprika calls so a burst of due records
+    // doesn't rate-limit the junk-quote check into a fail-open (grading fakes).
+    await sleep(200);
+    // Void alerts recorded on a junk-quote pool: their alertPx is fake, so
+    // grading would manufacture a fake win (memestock/GMEB → +1843%).
+    if (await isJunkQuoteAlert(record)) continue;
     labeledIds.add(record.id);
     let candles: OhlcvCandle[] = [];
     if (record.poolId) {
