@@ -3,7 +3,33 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
-## 2026-09-04 19:0x UTC 第 20 轮(ultrathink:验证决策质量 + 大币 ATH 护栏)
+## 2026-09-04 21:0x UTC 第 21 轮(ultrathink:策略产出验证=盈利 + 吞吐/健康,无代码改动)
+
+本轮无新代码改动;重点验证放开策略的**净效果**,结论:策略在赚钱、无新噪音、guards 全稳。
+
+### ② 覆盖率 + 哑弹(**策略产出验证=抓到翻倍币并盈利** — 本轮头号)
+- **暴涨→wake 策略产出真金**:decider log 显示在管一整个组合,其中 **FATCOIN +70%、SHROOM +88%
+  (h24 +629%!)** 是策略捞到的新 meme 且在盈利奔跑——正是用户要的"别漏翻倍币"。MarsCoin +7.9% 持有。
+  → 放开策略**净正**,不是空转。
+- **哑弹刷新**:labeled 22(较 R18 只 +1,聚合慢),11W/5F/6L=50% 胜率,clean 10W/1F/4L,与 R18 持平——
+  **激进策略没拉低胜率**(新激进 wake 还没成熟成 label,下轮继续盯)。volume_spike_strong 仍高方差,
+  不 tune(会过拟合+丢 SOLCAT 类怪兽)。
+- robinhood ≥100% 对照干净(7 mover 全在册,**1710 币**)。
+
+### ① 新闻(无新噪音)
+- 回放 61 wake:R20 大币 ATH 护栏生效(HYPE 不再 wake、不在 hotSymbols);唯一"可疑"是
+  「18932」——真 robinhood meme,靠 rb-chain+momentum 正确 wake(非噪音)。junk(18932/BSC 冻结、
+  GLM/BGBTC/交易赚币)随各自 TTL 清零中。无新大币/链名/数字漏进。
+
+### ③ 安全(仅新闻侧,无新)/ ④ 健康(绿)
+- src/news 无私钥/webhook 泄漏。tsc 干净、npm test **308 passed**、monitor 存活(pid 70359)、
+  BN 未复现、0 uncaught。AI inbox 不积压(329B,decider 跟得上,lock 空闲)。
+- **观察(归交易/复查循环,非我修)**:~16% news-decider 与 ~11% signal-decider `exited 1`(错误),
+  但 inbox 每次 spawn 重读、不丢信号(成功的 decider 把活干了,还产出 FATCOIN/SHROOM 盈利),
+  故弹性 OK;若 exit-1 率升高影响处理再让交易循环查 claude -p 报错根因。
+
+**下轮重点:** ① 继续盯新激进 wake 成熟后的 labeled 胜率(会不会被泛暴涨拉低)。② 新大币/链名漏进补停用词。
+③ junk TTL 清零复查。④ 守 robinhood 覆盖。
 
 ### ① 新闻(**决策质量验证 OK + 修大币空跑**,commit 7a88822,已部署)
 - **暴涨→wake 后 decider 决策质量验证=好** ✅:生产日志显示 decider/信号在**智能筛选**——
