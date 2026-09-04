@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { writeJsonAtomic } from "../lib/atomic-json.js";
+import { withFileLock } from "../lib/file-lock.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -87,6 +88,25 @@ export async function savePositions(file: PositionsFile): Promise<void> {
   await writeJsonAtomic(POSITIONS_PATH, file);
 }
 
+/**
+ * The ONLY safe way to write the ledger from concurrent processes: take the
+ * cross-process lock, load FRESH state, apply the mutation, save, release.
+ * Do all slow work (price fetches, chain calls) BEFORE calling this — the
+ * mutator must be fast. Direct load→mutate→save with a stale snapshot is what
+ * ate a buy, resurrected a sold honeypot and rolled back the denylist on
+ * 2026-09-04.
+ */
+export async function mutatePositions<T>(
+  mutator: (file: PositionsFile) => T | Promise<T>,
+): Promise<{ file: PositionsFile; result: T }> {
+  return withFileLock(POSITIONS_PATH + ".lock", async () => {
+    const file = await loadPositions();
+    const result = await mutator(file);
+    await savePositions(file);
+    return { file, result };
+  });
+}
+
 export function openPositions(file: PositionsFile): Position[] {
   return file.positions.filter((p) => p.status === "open");
 }
@@ -123,6 +143,28 @@ export function paperCashUsd(file: PositionsFile, startUsd: number): number {
     cash += realizedUsd(p);
   }
   return cash;
+}
+
+/**
+ * Merge an exit computed against a SNAPSHOT into the FRESH position under the
+ * ledger lock. If another writer already sold part (or all) of the position in
+ * between, clamp the fraction to what actually remains and scale proceeds
+ * proportionally; a fully-exited position absorbs nothing. Returns the exit
+ * as applied, or undefined when nothing remained.
+ */
+export function mergeExitIntoFresh(
+  fp: Position,
+  exit: PositionExit,
+): PositionExit | undefined {
+  const remaining = remainingFraction(fp);
+  if (remaining <= 1e-9 || exit.fraction <= 0) return undefined;
+  const f = Math.min(exit.fraction, remaining);
+  const scaled =
+    f === exit.fraction
+      ? exit
+      : { ...exit, fraction: f, proceedsUsd: exit.proceedsUsd * (f / exit.fraction) };
+  recordExit(fp, scaled);
+  return scaled;
 }
 
 export function remainingFraction(p: Position): number {

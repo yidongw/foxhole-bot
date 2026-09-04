@@ -23,7 +23,8 @@ import {
   paperCashUsd,
   recordExit,
   remainingFraction,
-  savePositions,
+  mutatePositions,
+  mergeExitIntoFresh,
   totalPnlUsd,
   realizedUsd,
   mergeStrategy,
@@ -160,19 +161,33 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
   const sellFraction = Math.min(Math.max(fraction, 0), 1) * remainingFraction(position);
   const config = { ...loadTradeConfig(), mode: position.mode };
   try {
+    // Slow work (chain sell in live mode) stays outside the ledger lock; the
+    // exit is then merged into FRESH state so a concurrent engine tick can't
+    // resurrect the position with a stale save (pussy 2026-09-04).
     const fill = await executeSell(chain, config, position, sellFraction, price);
-    recordExit(position, {
+    const exit = {
       at: new Date().toISOString(),
       priceUsd: fill.priceUsd,
       fraction: sellFraction,
       proceedsUsd: fill.proceedsUsd ?? 0,
       reason: "manual exit",
       txHash: fill.txHash,
+    };
+    const { file: freshFile, result: freshPos } = await mutatePositions((f) => {
+      const fp = f.positions.find((p) => p.id === position.id);
+      if (!fp || fp.status !== "open") return undefined;
+      mergeExitIntoFresh(fp, exit);
+      fp.highWaterUsd = Math.max(fp.highWaterUsd, price);
+      return fp;
     });
-    position.highWaterUsd = Math.max(position.highWaterUsd, price);
-    await savePositions(file);
-    await writePositionsJson(file, { [position.token.toLowerCase()]: price });
-    const pnl = totalPnlUsd(position, price);
+    if (!freshPos) {
+      return `Exit skipped for ${position.symbol}: position already closed by another writer.`;
+    }
+    const positionFresh = freshPos;
+    await writePositionsJson(freshFile, { [position.token.toLowerCase()]: price });
+    position.status = positionFresh.status;
+    position.exits = positionFresh.exits;
+    const pnl = totalPnlUsd(positionFresh, price);
     await appendTradeJournal(
       `📤 手动平仓 ${position.symbol} [${chain}/${position.mode}] 卖出 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} | 策略: ${formatStrategy(position.strategy)}`,
     );
@@ -256,9 +271,18 @@ export async function aiBuy(
   };
   // Per-position exit plan set at entry (falls back to config where unset).
   if (opts?.strategy) mergeStrategy(position, opts.strategy);
-  file.positions.push(position);
-  await savePositions(file);
-  await writePositionsJson(file);
+  // Push under the ledger lock with a FRESH cash re-check — the advisory check
+  // above ran on a snapshot that may be minutes stale (MarsCoin's $60 buy was
+  // eaten by exactly this race on 2026-09-04).
+  const { file: freshFile, result: ok } = await mutatePositions((f) => {
+    const freshCash =
+      config.mode === "paper" ? paperCashUsd(f, config.paperStartUsd) : Infinity;
+    if (freshCash < clamped) return false;
+    f.positions.push(position);
+    return true;
+  });
+  if (!ok) return `风控拒绝: 可用现金不足（并发核算后）`;
+  await writePositionsJson(freshFile);
   const strat = formatStrategy(position.strategy);
   await appendTradeJournal(
     `📥 AI开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 理由: ${reason} | 策略: ${strat}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
@@ -286,11 +310,12 @@ export async function setStrategy(
   query: string,
   patch: PositionStrategy,
 ): Promise<string> {
-  const file = await loadPositions();
-  const position = openPositions(file).find((p) => matchesPosition(p, query));
+  const { file, result: position } = await mutatePositions((f) => {
+    const fp = openPositions(f).find((p) => matchesPosition(p, query));
+    if (fp) mergeStrategy(fp, patch);
+    return fp;
+  });
   if (!position) return `No open position matching "${query}".`;
-  mergeStrategy(position, patch);
-  await savePositions(file);
   await writePositionsJson(file);
   const chain = positionChain(position.chain);
   const summary = formatStrategy(position.strategy);
@@ -522,8 +547,15 @@ export async function processSignals(
     }
   }
 
-  await savePositions(file);
-  if (opened.length) await writePositionsJson(file);
+  if (opened.length) {
+    // New entries merge into FRESH ledger state under the lock — a plain save
+    // of our snapshot would erase any exits recorded by other writers while
+    // this (slow, price-fetching) scan ran.
+    const { file: freshFile } = await mutatePositions((f) => {
+      f.positions.push(...opened);
+    });
+    await writePositionsJson(freshFile);
+  }
   return opened;
 }
 
@@ -535,6 +567,11 @@ export async function managePositions(
   if (config.mode === "off") return;
   const file = await loadPositions();
   const open = openPositions(file);
+  // Snapshot each position's exit count so only THIS tick's exits are replayed
+  // onto fresh ledger state at the end — the tick is slow (per-position price
+  // fetches, minutes under 429 storms) and a whole-file save of this stale
+  // snapshot kept clobbering concurrent CLI trades (2026-09-04 ×3).
+  const exitCountBefore = new Map(open.map((p) => [p.id, p.exits.length]));
   if (!open.length) return;
   const marks: Record<string, number> = {};
 
@@ -678,14 +715,33 @@ export async function managePositions(
     await sleep(250);
   }
 
+  // Replay this tick's deltas (high-water, advisor timestamps, new exits)
+  // onto FRESH ledger state under the lock. Exits computed against our
+  // snapshot are clamped to what actually remains — if a CLI sell landed
+  // mid-tick, we neither resurrect the position nor double-sell it.
   const dayMs = 24 * 60 * 60 * 1000;
-  const dueDailyReport =
-    file.positions.length > 0 &&
-    (!file.lastReportAt || Date.now() - new Date(file.lastReportAt).getTime() > dayMs);
-  if (dueDailyReport) file.lastReportAt = new Date().toISOString();
-
-  await savePositions(file);
-  await writePositionsJson(file, marks);
+  const { file: freshFile, result: dueDailyReport } = await mutatePositions(
+    (fresh) => {
+      for (const position of open) {
+        const fp = fresh.positions.find((p) => p.id === position.id);
+        if (!fp) continue;
+        fp.highWaterUsd = Math.max(fp.highWaterUsd, position.highWaterUsd);
+        if (position.lastAdvisorAt) fp.lastAdvisorAt = position.lastAdvisorAt;
+        const newExits = position.exits.slice(exitCountBefore.get(position.id) ?? 0);
+        for (const e of newExits) {
+          if (fp.status !== "open") break;
+          mergeExitIntoFresh(fp, e);
+        }
+      }
+      const due =
+        fresh.positions.length > 0 &&
+        (!fresh.lastReportAt ||
+          Date.now() - new Date(fresh.lastReportAt).getTime() > dayMs);
+      if (due) fresh.lastReportAt = new Date().toISOString();
+      return due;
+    },
+  );
+  await writePositionsJson(freshFile, marks);
 
   if (dueDailyReport) {
     await notify(`📊 **现货 Daily P&L**\n${await formatPortfolioReport()}`, options);
