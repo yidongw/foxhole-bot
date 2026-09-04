@@ -17,7 +17,8 @@ export function fdvTag(fdvUsd?: number): string {
   return s ? ` · FDV ${s}` : "";
 }
 
-const GMGN_CHAIN: Record<string, string> = {
+/** Internal chain name → gmgn.ai URL slug, for the chains gmgn indexes. */
+const GMGN_SLUG: Record<string, string> = {
   solana: "sol",
   sol: "sol",
   bsc: "bsc",
@@ -26,15 +27,33 @@ const GMGN_CHAIN: Record<string, string> = {
   eth: "eth",
 };
 
-/** Shared token link row (DexScreener/GMGN/GT/Explorer/Long) — matches the
- *  standard signal card so smart-money signals look the same as the rest. */
+/**
+ * Markdown chart link for a trade-log / signal line so every on-chain trade
+ * signal carries a one-click way to open the token. gmgn.ai for the chains it
+ * indexes (sol/bsc/base/eth); robinhood has no gmgn listing so it falls back to
+ * its blockscout explorer. Empty string when chain/address is missing or the
+ * chain is unknown, so callers can append it unconditionally (filter falsy).
+ */
+export function gmgnLink(chain?: string, address?: string): string {
+  if (!chain || !address) return "";
+  if (chain === "robinhood") {
+    return `[🔗 Explorer](https://robinhoodchain.blockscout.com/token/${address})`;
+  }
+  const slug = GMGN_SLUG[chain];
+  return slug ? `[🔍 GMGN](https://gmgn.ai/${slug}/token/${address})` : "";
+}
+
+/**
+ * Shared token link row (DexScreener/GMGN/GT/Explorer/Long) — matches the
+ * standard signal card so smart-money signals look the same as the rest.
+ */
 export function tokenLinks(chain: string, token: string, pairAddress?: string): string {
   const c = chain.toLowerCase();
   const links = [
     `[📈 DexScreener](https://dexscreener.com/${c}/${pairAddress ?? token})`,
   ];
-  const g = GMGN_CHAIN[c];
-  if (g) links.push(`[🔍 GMGN](https://gmgn.ai/${g}/token/${token})`);
+  const slug = GMGN_SLUG[c];
+  if (slug) links.push(`[🔍 GMGN](https://gmgn.ai/${slug}/token/${token})`);
   if (pairAddress)
     links.push(
       `[🦎 GT](https://www.geckoterminal.com/${c === "ethereum" ? "eth" : c}/pools/${pairAddress})`,

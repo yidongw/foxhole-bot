@@ -14,7 +14,7 @@ import { appendTradeJournal } from "./trade-journal.js";
 import { resolveWebhook } from "../notify/routes.js";
 import { postToSignalThread } from "../notify/signal-threads.js";
 import { sleep } from "../lib/utils.js";
-import { fdvTag } from "../lib/format.js";
+import { fdvTag, gmgnLink } from "../lib/format.js";
 import type { SignalEvaluation } from "../signals/types.js";
 import { loadTradeConfig, type TradeConfig } from "./config.js";
 import {
@@ -225,10 +225,11 @@ export async function aiBuy(
   await appendTradeJournal(
     `📥 AI开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 理由: ${reason} | 策略: ${strat}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
   );
+  const link = gmgnLink(chain, position.token);
   await notify(
     `🤖 ${modeTag(config)} 🟢 买入 **${position.symbol}** [${chain}]${fdvTag(analysis.fdvUsd)}\n` +
       `$${clamped.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)\n` +
-      `理由: ${reason}\n策略: ${strat}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
+      `理由: ${reason}\n策略: ${strat}${link ? `\n${link}` : ""}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
     {},
     chain,
     position.token,
@@ -399,7 +400,8 @@ export async function processSignals(
           `🛑 否决入场 ${ev.input.symbol} [${chain}] — ${safety.flags.join(", ")} (triggers: ${ev.triggers.join(",")})`,
         );
         await notify(
-          `🛑 ${modeTag(config)} entry VETOED [${chain}] ${candidate.symbol}: ${safety.flags.join(", ")}`,
+          `🛑 ${modeTag(config)} entry VETOED [${chain}] ${candidate.symbol}: ${safety.flags.join(", ")}` +
+            (gmgnLink(chain, candidate.token) ? `\n${gmgnLink(chain, candidate.token)}` : ""),
           options,
           chain,
           candidate.token,
@@ -443,6 +445,7 @@ export async function processSignals(
           `$${config.usdPerTrade.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
           `触发: ${position.trigger}`,
           `策略: ${formatStrategy(position.strategy)}`,
+          gmgnLink(chain, position.token),
           fill.txHash ? `Tx: ${fill.txHash}` : "",
         ]
           .filter(Boolean)
@@ -454,9 +457,11 @@ export async function processSignals(
     } catch (err) {
       console.error(`entry failed ${candidate.symbol}:`, (err as Error).message);
       await notify(
-        `⚠️ ${modeTag(config)} entry FAILED for ${candidate.symbol}: ${(err as Error).message}`,
+        `⚠️ ${modeTag(config)} entry FAILED for ${candidate.symbol}: ${(err as Error).message}` +
+          (gmgnLink(chain, candidate.token) ? `\n${gmgnLink(chain, candidate.token)}` : ""),
         options,
         chain,
+        candidate.token,
       );
     }
   }
@@ -586,6 +591,7 @@ export async function managePositions(
             `平 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}`,
             `仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status})`,
             `策略: ${formatStrategy(position.strategy)}`,
+            gmgnLink(chain, position.token),
             fill.txHash ? `Tx: ${fill.txHash}` : "",
           ]
             .filter(Boolean)

@@ -116,6 +116,26 @@ export async function runDailyReview(options: {
     console.error("filter journal failed:", (err as Error).message),
   );
 
+  // Real-fdv guard: DexPaprika volume-sort can hand us a JUNK-quote pool (e.g.
+  // memestock/utility vs GMEB) whose inflated fdv ($178M) defeats the mcap gate
+  // while the real trusted-quote pool says $1.5M. Re-resolve fdv from the token's
+  // trusted-quote pool for every mover that could still become a candidate.
+  try {
+    const { fetchTokenPairs } = await import("../dex/dexscreener.js");
+    const { selectDeepestBasePair } = await import("../chains/generic-analysis.js");
+    for (const m of movers) {
+      if (m.kind === "alerted" || m.ladder || m.noData || m.safetyFlags?.length) continue;
+      if (isStock(m) || isMalformed(m)) continue;
+      try {
+        const real = selectDeepestBasePair(await fetchTokenPairs(m.address, m.chain), m.address);
+        const rf = Number(real?.fdv ?? 0);
+        if (rf > 0) m.fdvUsd = rf;
+      } catch {}
+    }
+  } catch (err) {
+    console.error("real-fdv guard failed (continuing):", (err as Error).message);
+  }
+
   // Candidates = misses that survived ALL automatic filters (incl. 市值≥$10M)
   const candidates = movers.filter(
     (m) =>
