@@ -153,13 +153,16 @@ export function gradeFromCandles(
     // no data 24h later usually means the pool died — that's a loss
     return { outcome: "loss", candleCount: after.length };
   }
-  const maxHigh = Math.max(...after.map((c) => c.high));
-  const minLow = Math.min(...after.map((c) => c.low));
-  const maxReturn = maxHigh / price - 1;
-  const minReturn = minLow / price - 1;
-  // Dirty-OHLCV guard: an absurd high is a broken candle spike, not a real
-  // pump — never let it manufacture a win (grade flat, keep the numbers for
-  // audit but out of win/loss stats).
+  // Grade on CLOSES, not wicks: a single-candle high spike (dirty OHLCV, or a
+  // 1-block wick you couldn't have sold into) must not manufacture a WIN. 牛妈
+  // showed a ~$127 wick on a $5.56 alert = fake +2186% while it actually closed
+  // down 97%. A real pump-and-fade still closes above +40% at some bar.
+  const maxClose = Math.max(...after.map((c) => c.close));
+  const minClose = Math.min(...after.map((c) => c.close));
+  const maxReturn = maxClose / price - 1;
+  const minReturn = minClose / price - 1;
+  // Dirty-OHLCV guard: an absurd move is still broken data — grade flat, out of
+  // win/loss stats.
   if (maxReturn > MAX_SANE_RETURN) {
     return { outcome: "flat", maxReturn, minReturn, candleCount: after.length };
   }
