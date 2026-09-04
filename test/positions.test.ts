@@ -56,3 +56,39 @@ describe("withFileLock mutual exclusion", () => {
     expect(Number(await rf(data, "utf8"))).toBe(5);
   });
 });
+
+describe("decideExtremePrice (two-independent-source glitch guard)", () => {
+  const HW = 0.0204;
+
+  it("corrects a crash read when any source is in-band (OPTIMUS 12:27)", async () => {
+    const { decideExtremePrice } = await import("../src/trade/engine.js");
+    expect(decideExtremePrice(HW, 0.002828, 0.0206, undefined)).toBe(0.0206);
+    expect(decideExtremePrice(HW, 0.002828, 0.002828, 0.0206)).toBe(0.0206);
+  });
+
+  it("lets a true rug through when both sources independently agree", async () => {
+    const { decideExtremePrice } = await import("../src/trade/engine.js");
+    expect(decideExtremePrice(HW, 0.001, 0.0011, 0.0009)).toBe(0.001);
+  });
+
+  it("skips when sources are missing or only one confirms the extreme", async () => {
+    const { decideExtremePrice } = await import("../src/trade/engine.js");
+    expect(decideExtremePrice(HW, 0.002828, undefined, undefined)).toBeUndefined();
+    expect(decideExtremePrice(HW, 0.002828, 0.0029, undefined)).toBeUndefined();
+  });
+
+  it("skips when sources are extreme on the OPPOSITE side (contradiction)", async () => {
+    const { decideExtremePrice } = await import("../src/trade/engine.js");
+    expect(decideExtremePrice(HW, 0.002828, 0.15, 0.16)).toBeUndefined();
+  });
+
+  it("corrects a fake pump when a source is in-band (MarsCoin $149)", async () => {
+    const { decideExtremePrice } = await import("../src/trade/engine.js");
+    expect(decideExtremePrice(0.1379, 149.29, 0.1224, undefined)).toBe(0.1224);
+  });
+
+  it("accepts a real 6x pump both sources confirm", async () => {
+    const { decideExtremePrice } = await import("../src/trade/engine.js");
+    expect(decideExtremePrice(0.1, 0.62, 0.6, 0.65)).toBe(0.62);
+  });
+});

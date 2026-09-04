@@ -114,23 +114,46 @@ async function corroboratePrice(
   price: number,
 ): Promise<number | undefined> {
   if (price > position.highWaterUsd * 0.35 && price < position.highWaterUsd * 5) return price;
-  let confirm: number | undefined;
-  try {
-    const p2 = selectDeepestBasePair(
-      await fetchTokenPairs(position.token, chain),
-      position.token,
-    );
-    if (p2?.priceUsd) confirm = Number(p2.priceUsd);
-  } catch {}
-  if (confirm == null || confirm <= 0) {
-    try {
-      confirm = await fetchPaprikaTokenPriceUsd(chain, position.token);
-    } catch {}
+  // The old confirm re-read DexScreener FIRST and only fell back to DexPaprika
+  // when it errored — a degraded DexScreener response confirms its own garbage
+  // (OPTIMUS 2026-09-04 12:27: bought $0.0204, "hard stopped" 11s later at
+  // $0.0028 ≈ real ÷7.3 while the token never fell at all; both reads hit the
+  // same bad TSLA-quoted conversion). Extreme moves now need BOTH independent
+  // sources to agree; any in-band source corrects the read instead.
+  const [dexRead, paprikaRead] = await Promise.all([
+    fetchTokenPairs(position.token, chain)
+      .then((ps) => Number(selectDeepestBasePair(ps, position.token)?.priceUsd) || undefined)
+      .catch(() => undefined),
+    fetchPaprikaTokenPriceUsd(chain, position.token).catch(() => undefined),
+  ]);
+  return decideExtremePrice(position.highWaterUsd, price, dexRead, paprikaRead);
+}
+
+/**
+ * Pure decision for an out-of-band price read (exported for tests).
+ * - Any source back inside the sane band [hw×0.35, hw×5] wins: the original
+ *   read was a glitch; trade on the in-band price.
+ * - Both sources out-of-band on the SAME side as the read (within 3x of it):
+ *   the move is real (true rug or true 5x) — keep the original read.
+ * - Otherwise (sources missing or contradictory): undefined — skip this tick;
+ *   a real rug exits on the next tick once sources agree.
+ */
+export function decideExtremePrice(
+  hw: number,
+  price: number,
+  ...sources: Array<number | undefined>
+): number | undefined {
+  const inBand = (v: number) => v > hw * 0.35 && v < hw * 5;
+  const live = sources.filter((v): v is number => v != null && v > 0);
+  const sane = live.find(inBand);
+  if (sane != null) return sane;
+  if (
+    live.length >= 2 &&
+    live.every((v) => !inBand(v) && v / price < 3 && price / v < 3 && v < hw === price < hw)
+  ) {
+    return price;
   }
-  if (confirm == null || confirm <= 0) return undefined;
-  // A second source that agrees within the same band vindicates the read; one
-  // that disagrees means the adapter tick was garbage — trust the second read.
-  return confirm;
+  return undefined;
 }
 
 /**
@@ -610,43 +633,29 @@ export async function managePositions(
     // on ONE garbage tick while the real price never left ~$1. Corroborate with
     // a fresh read; a genuine rug still exits one tick (~15s) later once the low
     // price is confirmed, but a transient glitch no longer liquidates the book.
-    if (price < position.highWaterUsd * 0.35) {
-      let confirm: number | undefined;
-      try {
-        const p2 = selectDeepestBasePair(
-          await fetchTokenPairs(position.token, chain),
-          position.token,
-        );
-        if (p2?.priceUsd) confirm = Number(p2.priceUsd);
-      } catch {}
-      if (confirm == null || confirm <= 0) {
-        try {
-          confirm = await fetchPaprikaTokenPriceUsd(chain, position.token);
-        } catch {}
-      }
-      if (confirm != null && confirm > position.highWaterUsd * 0.35) {
+    // Both directions route through the SAME two-independent-source check
+    // (decideExtremePrice): the old inline downside confirm re-read DexScreener
+    // first and trusted whatever it said — a degraded response confirmed its
+    // own garbage and OPTIMUS was "hard stopped" at real÷7.3 eleven seconds
+    // after entry (2026-09-04 12:27) while the token never fell. Now an
+    // extreme read trades only when DexScreener-consensus AND DexPaprika both
+    // independently agree it is real; an in-band source corrects the read; no
+    // agreement = skip the tick (a true rug exits next tick).
+    {
+      const decided = await corroboratePrice(position, chain, price);
+      if (decided == null) {
         console.error(
-          `glitch guard: ${position.symbol} bad tick $${price} vs confirm $${confirm} ` +
-            `(hw $${position.highWaterUsd}) — skipping exit this tick`,
+          `glitch guard: ${position.symbol} unconfirmed extreme tick $${price} ` +
+            `(hw $${position.highWaterUsd}) — skipping this tick`,
         );
-        marks[position.token.toLowerCase()] = confirm;
         continue;
       }
-      if (confirm != null && confirm > 0) price = confirm; // corroborated read
-    }
-
-    // Same guard, upside: a >5x single-tick jump above the high-water mark is a
-    // bad read too, and it is worse than a bad low one because Math.max below
-    // burns it into highWaterUsd permanently — every trail stop from then on is
-    // measured off a price the token never traded at.
-    if (price > position.highWaterUsd * 5) {
-      const confirm = await corroboratePrice(position, chain, price);
-      if (confirm != null && confirm > 0 && confirm <= position.highWaterUsd * 5) {
+      if (decided !== price) {
         console.error(
-          `glitch guard: ${position.symbol} bad high tick $${price} vs confirm $${confirm} ` +
-            `(hw $${position.highWaterUsd}) — using confirmed price`,
+          `glitch guard: ${position.symbol} bad tick $${price} → corrected $${decided} ` +
+            `(hw $${position.highWaterUsd})`,
         );
-        price = confirm;
+        price = decided;
       }
     }
 
