@@ -147,22 +147,27 @@ export async function aiBuy(
   address: string,
   usd: number,
   reason: string,
-  opts?: { smartMoney?: boolean },
+  opts?: { smartMoney?: boolean; momentum?: boolean },
 ): Promise<string> {
   const chain = positionChain(chainId);
   const config = loadTradeConfig();
   if (config.mode === "off") return "交易未开启 (TRADE_MODE=off)";
   if (tradingPaused()) return "交易已暂停 (/resume 恢复)";
 
-  const clamped = Math.min(usd, config.usdPerTrade);
+  // Momentum entries are capped at a smaller size — higher noise, more misses.
+  const maxUsd = opts?.momentum ? config.momentumMaxUsdPerTrade : config.usdPerTrade;
+  const clamped = Math.min(usd, maxUsd);
   const analysis = await getAdapter(chain).analyze(address);
+  const triggers = ["ai_decision"];
+  if (opts?.smartMoney) triggers.push("smart_money");
+  if (opts?.momentum) triggers.push("momentum_strong");
   const candidate = {
     token: analysis.address,
     chain,
     symbol: analysis.symbol,
     priceUsd: analysis.priceUsd,
     liquidityUsd: analysis.liquidityUsd ?? 0,
-    triggers: opts?.smartMoney ? ["ai_decision", "smart_money"] : ["ai_decision"],
+    triggers,
   };
 
   const file = await loadPositions();

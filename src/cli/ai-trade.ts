@@ -86,7 +86,10 @@ async function main() {
       const smIdx = rest.indexOf("--smart-money");
       const smartMoney = smIdx !== -1;
       if (smartMoney) rest.splice(smIdx, 1);
-      console.log(await aiBuy(chain, address, Number(usd), rest.join(" ") || "无", { smartMoney }));
+      const moIdx = rest.indexOf("--momentum");
+      const momentum = moIdx !== -1;
+      if (momentum) rest.splice(moIdx, 1);
+      console.log(await aiBuy(chain, address, Number(usd), rest.join(" ") || "无", { smartMoney, momentum }));
       break;
     }
     case "sell": {
