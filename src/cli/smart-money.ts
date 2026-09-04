@@ -299,7 +299,8 @@ async function main() {
           console.log(`  [${chain}] ${w.address} — 无数据(跳过,不踢)`);
         } else if (v.pass) {
           const m = v.metrics;
-          console.log(`  ✅ [${chain}] ${w.address} ${v.tier} ROI${m.roi.toFixed(1)}x 胜率${(m.winrate * 100).toFixed(0)}% ${m.tokenNum}币`);
+          const idle = m.lastActiveDays >= 7 ? ` 💤idle${m.lastActiveDays.toFixed(0)}d` : "";
+          console.log(`  ✅ [${chain}] ${w.address} ${v.tier} ROI${m.roi.toFixed(1)}x 胜率${(m.winrate * 100).toFixed(0)}% ${m.tokenNum}币${idle}`);
         } else {
           console.log(`  ❌ [${chain}] ${w.address} — ${v.reasons.join(" | ")}`);
           fails.push({ address: w.address, chain, reasons: v.reasons });
