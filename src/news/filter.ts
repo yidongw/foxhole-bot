@@ -130,9 +130,10 @@ export function classifyFlash(
     return { action: "note", negative: false, reasons };
   }
 
-  // “闪赚/理财/奖池”类是交易所储蓄·活动促销,不是可交易标的的现货/Alpha 上线
-  // (OKX闪赚上线CP「交易赚币」曾以 listing 误叫醒 — 2026-09-03)
-  if (LISTING.test(title) && !SAVINGS_PROMO.test(title)) {
+  // 上所催化只看标题:真上所快讯标题必写"X 交易所上线 Y";AI 行业/模型快讯正文里
+  // 偶带"…Alpha…上线"会误触发(2026-09-04: 智谱 GLM-5.3-Flash 正文含 Alpha 上线)。
+  // “闪赚/理财/奖池”类是交易所储蓄·活动促销,不是可交易标的的上所(2026-09-03)。
+  if (LISTING.test(rawTitle) && !SAVINGS_PROMO.test(title)) {
     reasons.push("listing");
     return { action: "wake", negative: false, reasons };
   }

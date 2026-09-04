@@ -169,6 +169,18 @@ describe("classifyFlash", () => {
     expect(c.reasons).toContain("momentum");
   });
 
+  it("only fires listing on the title, not a listing phrase buried in the body", () => {
+    // 2026-09-04: AI 模型快讯正文含"…Alpha…上线"会误以 listing 叫醒;上所只看标题。
+    const c = classifyFlash(
+      "智谱再发匿名模型：GLM-5.3-Flash刚转正，Omen Alpha又来了",
+      [],
+      "GLM-5.3-Flash 已在内测平台 Alpha 上线，面向开发者开放。",
+    );
+    expect(c.action).toBe("drop");
+    // 标题真写了上所 → 照常叫醒
+    expect(classifyFlash("Binance将上线MarsCoin(MARSCOIN)").action).toBe("wake");
+  });
+
   it("does not seed exchange/index tickers as hot symbols", () => {
     // extractSymbols 曾把 OKX/SPY/QQQ 抓成 hotSymbols → 后续误叫醒
     for (const junk of ["OKX", "SPY", "QQQ", "BITGET", "UPBIT"]) {
