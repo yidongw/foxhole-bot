@@ -3,7 +3,29 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
-## 2026-09-04 17:0x UTC 第 19 轮(ultrathink:验证暴涨→wake 策略生效 + 种子卫生收尾)
+## 2026-09-04 19:0x UTC 第 20 轮(ultrathink:验证决策质量 + 大币 ATH 护栏)
+
+### ① 新闻(**决策质量验证 OK + 修大币空跑**,commit 7a88822,已部署)
+- **暴涨→wake 后 decider 决策质量验证=好** ✅:生产日志显示 decider/信号在**智能筛选**——
+  买早期 RB(FOXHOLE STRONG BUY×2)、跳过 chasing($MEME 1h+1567%、$Howeycoins 1h+423%)、
+  post-hoc($CRIME 24h+509%)、低流动性($CONDOM liq<$20k)、派发(BONER falling-knife)。
+  策略按预期工作:filter 捞暴涨、decider 智能决定。**一个现实局限**:新闻常在币已大涨后才到,
+  很多 pump 到手已是 chasing 被正确跳过——早的(仍有空间的)才买得进,这是新闻延迟的固有限制,非 bug。
+- **修:大币 ATH 空跑**。HYPE 突破新高每次经 momentum 叫醒 → decider 必跳(30亿美元大币非标的)。
+  加护栏:非 meme 且标题大写 ticker 全是停用词大币(HYPE/BTC/ETH)→ note 不 wake。
+  microduck(无大写 ticker)、INDEX(非停用词真 meme)不受影响。回放 wake 62→61。+1 回归(共 33)。
+- **纠一个 R19 认知**:「18932」其实是真 robinhood 币股 meme(不是纯垃圾数字),但它靠 rb-chain+
+  momentum 路径照常 wake,不依赖纯数字 seeding;纯数字 symbol 碰撞风险大(撞价格/计数),R19 不 seed
+  它是对的。种子卫生(18932/BSC 冻结未再种,HYPE 从未种)持续生效。
+
+### ② 覆盖率(健康)
+- robinhood ≥100% 对照干净(8 mover 全在册,**1645 币**)。
+
+### ③ 安全(仅新闻侧,无新)/ ④ 健康(绿)
+- src/news 无泄漏。tsc 干净、npm test **308 passed**、monitor 重启健康(pid 68499)、BN 未复现、0 uncaught。
+
+**下轮重点:** ① 继续盯放开后 wake 质量 + 有无新大币/链名/数字漏进(护栏只挡"大写全大币",
+中文大币名如"比特币价格突破"仍会 wake→decider 跳,量小暂不动)。② junk 随 TTL 清零复查。③ 守 robinhood 覆盖。
 
 ### ① 新闻(**验证了策略 + 修了放开后的种子污染**,commit f095b54,已部署)
 - **暴涨→wake 策略(上轮 f9726a4/49f2b2d)生产验证生效** ✅:日志实证新 meme 现在真 wake 了——
