@@ -147,6 +147,7 @@ export async function aiBuy(
   address: string,
   usd: number,
   reason: string,
+  opts?: { smartMoney?: boolean },
 ): Promise<string> {
   const chain = positionChain(chainId);
   const config = loadTradeConfig();
@@ -161,7 +162,7 @@ export async function aiBuy(
     symbol: analysis.symbol,
     priceUsd: analysis.priceUsd,
     liquidityUsd: analysis.liquidityUsd ?? 0,
-    triggers: ["ai_decision"],
+    triggers: opts?.smartMoney ? ["ai_decision", "smart_money"] : ["ai_decision"],
   };
 
   const file = await loadPositions();
