@@ -298,6 +298,7 @@ export async function aiBuy(
     trigger: `ai_decision: ${reason}`.slice(0, 200),
     openedAt: new Date().toISOString(),
     entryPriceUsd: fill.priceUsd,
+    entryFdvUsd: analysis.fdvUsd,
     amountTokens: fill.amountTokens,
     costUsd: clamped,
     highWaterUsd: fill.priceUsd,
@@ -378,6 +379,7 @@ async function writePositionsJson(
   file: PositionsFile,
   marks: Record<string, number> = {},
 ): Promise<void> {
+  const cfgSnapshot = loadTradeConfig();
   const rows = file.positions.slice(-50).map((p) => {
     const mark = marks[p.token.toLowerCase()];
     return {
@@ -390,6 +392,7 @@ async function writePositionsJson(
       opened_at: p.openedAt,
       closed_at: p.closedAt,
       entry_price_usd: p.entryPriceUsd,
+      entry_fdv_usd: p.entryFdvUsd,
       current_price_usd: mark,
       remaining_fraction: remainingFraction(p),
       cost_usd: p.costUsd,
@@ -413,7 +416,14 @@ async function writePositionsJson(
       meta: {
         updated_at: new Date().toISOString(),
         count: rows.length,
-        start_usd: loadTradeConfig().paperStartUsd,
+        start_usd: cfgSnapshot.paperStartUsd,
+        // Per-chain trade mode so the dashboard can show a real/paper banner.
+        trade: {
+          default_mode: cfgSnapshot.mode,
+          chains: cfgSnapshot.chainModes,
+          router: cfgSnapshot.router,
+          usd_per_trade: cfgSnapshot.usdPerTrade,
+        },
       },
       positions: rows,
     },
@@ -548,6 +558,7 @@ export async function processSignals(
         trigger: ev.triggers.join(","),
         openedAt: new Date().toISOString(),
         entryPriceUsd: fill.priceUsd,
+        entryFdvUsd: ev.input.fdvUsd,
         amountTokens: fill.amountTokens,
         costUsd: cfg.usdPerTrade,
         highWaterUsd: fill.priceUsd,

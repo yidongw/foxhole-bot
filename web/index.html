@@ -98,6 +98,20 @@
     }
     .mode-paper { background: rgba(138,160,184,.16); color: #9fb3c8; border: 1px solid rgba(138,160,184,.35); }
     .mode-live  { background: rgba(255,107,107,.15); color: #ff7b7b; border: 1px solid rgba(255,107,107,.45); }
+    .mode-off   { background: rgba(120,120,120,.14); color: #7d8794; border: 1px solid rgba(120,120,120,.3); }
+    .mode-banner {
+      margin: 14px 0 4px; padding: 10px 14px; border-radius: 10px; font-size: 13px;
+      background: rgba(138,160,184,.10); border: 1px solid rgba(138,160,184,.25); color: #c6d3e0;
+    }
+    .mode-banner.banner-live { background: rgba(255,107,107,.10); border-color: rgba(255,107,107,.45); }
+    .mode-banner code { background: rgba(0,0,0,.25); padding: 1px 5px; border-radius: 4px; }
+    .live-warn { color: #ff7b7b; }
+    .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .mini-btn {
+      padding: 4px 12px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer;
+      background: rgba(91,140,255,.14); color: #b9cbff; border: 1px solid rgba(91,140,255,.35);
+    }
+    .mini-btn:hover { background: rgba(91,140,255,.24); }
     .sig { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; }
     .sig-watch { background: rgba(255, 176, 32, 0.14); color: var(--warn); }
     .sig-alert { background: rgba(255, 130, 32, 0.16); color: #ff9d4d; }
@@ -158,11 +172,17 @@
       <button class="tab" data-tab="launches">🚀 Launches</button>
     </div>
 
+    <div id="modeBanner" class="mode-banner" hidden></div>
+
     <!-- 当前持仓 -->
     <div class="panel active" id="panel-open">
+      <div class="toolbar">
+        <button id="mcToggle" class="mini-btn">显示：现价</button>
+        <span class="hint">入场/现在两列默认显示 FDV(市值);点按钮切换为价格</span>
+      </div>
       <table id="openTable">
         <thead><tr>
-          <th>代币</th><th>链</th><th>入场价</th><th>现价</th><th>浮动</th><th>剩余</th><th>市值</th><th>盈亏</th><th>策略档</th>
+          <th>代币</th><th>链</th><th id="colEntry">入场 FDV</th><th id="colNow">现 FDV</th><th>浮动</th><th>剩余</th><th>持仓值</th><th>盈亏</th><th>策略档</th>
         </tr></thead>
         <tbody id="openBody"></tbody>
         <tfoot id="openFoot"></tfoot>
@@ -270,6 +290,24 @@
       return `<span class="${cls}">${n > 0 ? '+' : ''}${Number(n).toFixed(2)}%</span>`;
     };
     const fmtPrice = (n) => n == null ? '—' : '$' + Number(n).toPrecision(4);
+    const fmtFdv = (n) => {
+      if (n == null || !(n > 0)) return '—';
+      if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+      if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+      if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+      return '$' + n.toFixed(0);
+    };
+    let showMC = true; /* MC/FDV by default; toggle to price */
+    /* live MC ≈ entry FDV × current/entry price (token supply ~constant) */
+    const curFdv = (p) => (p.entry_fdv_usd && p.entry_price_usd)
+      ? p.entry_fdv_usd * ((p.current_price_usd ?? p.entry_price_usd) / p.entry_price_usd)
+      : null;
+    const entryCell = (p) => showMC
+      ? (p.entry_fdv_usd != null ? fmtFdv(p.entry_fdv_usd) : fmtPrice(p.entry_price_usd))
+      : fmtPrice(p.entry_price_usd);
+    const nowCell = (p) => showMC
+      ? (curFdv(p) != null ? fmtFdv(curFdv(p)) : fmtPrice(p.current_price_usd))
+      : fmtPrice(p.current_price_usd);
     const fmtDate = (iso, ms) => {
       const d = iso ? new Date(iso) : (ms ? new Date(ms) : null);
       if (!d || Number.isNaN(d.getTime())) return '—';
@@ -313,6 +351,25 @@
     }
     const proceedsOf = (p) => (p.exits || []).reduce((s, e) => s + (e.proceeds_usd ?? 0), 0);
 
+    function modeChip(m) {
+      const live = m === 'live', off = m === 'off';
+      return `<span class="mode-badge ${live ? 'mode-live' : off ? 'mode-off' : 'mode-paper'}">${live ? '💸 LIVE' : off ? '⛔ OFF' : '📝 PAPER'}</span>`;
+    }
+    function renderModeBanner() {
+      const el = document.getElementById('modeBanner');
+      const t = posData?.meta?.trade;
+      if (!t) { el.hidden = true; return; }
+      const chains = t.chains || {};
+      const parts = Object.entries(chains).map(([c, m]) => `${esc(c)} ${modeChip(m)}`);
+      const anyLive = t.default_mode === 'live' || Object.values(chains).includes('live');
+      el.hidden = false;
+      el.className = 'mode-banner' + (anyLive ? ' banner-live' : '');
+      el.innerHTML = `<strong>交易模式</strong> · 默认 ${modeChip(t.default_mode)}` +
+        (parts.length ? ' · ' + parts.join(' · ') : '') +
+        ` · 路由 <code>${esc(t.router || '?')}</code> · 单笔上限 $${t.usd_per_trade ?? '?'}` +
+        (anyLive ? ' · <b class="live-warn">⚠️ 真金交易进行中</b>' : '');
+    }
+
     function renderAccount() {
       const rows = posData.positions || [];
       const start = posData.meta?.start_usd ?? 1000;
@@ -350,8 +407,8 @@
         return `<tr>
           <td><div class="token"><strong>${esc(p.symbol || '?')}</strong> ${modeBadge(p)}<span>${esc((p.token || '').slice(0, 14))}…</span></div></td>
           <td><span class="pair">${esc(p.chain)}</span></td>
-          <td>${fmtPrice(p.entry_price_usd)}</td>
-          <td>${fmtPrice(p.current_price_usd)}</td>
+          <td>${entryCell(p)}</td>
+          <td>${nowCell(p)}</td>
           <td>${fmtPct(flo)}</td>
           <td>${((p.remaining_fraction ?? 0) * 100).toFixed(0)}%</td>
           <td>${fmtUsd(mv)}</td>
@@ -527,7 +584,7 @@
         const res = await fetch('./data/positions.json?_=' + Date.now());
         if (!res.ok) return;
         posData = await res.json();
-        renderAccount(); renderOpen(); renderClosed(); renderEquity();
+        renderModeBanner(); renderAccount(); renderOpen(); renderClosed(); renderEquity();
         document.getElementById('posMeta').textContent = '账本更新于 ' + fmtDate(posData.meta?.updated_at) +
           '（价格随引擎 tick 刷新；memestock 等历史脏价误伤已按出场时点真实价修正）';
       } catch {}
@@ -712,6 +769,13 @@
         document.getElementById('status').textContent = err.message;
       });
     }
+    document.getElementById('mcToggle').addEventListener('click', () => {
+      showMC = !showMC;
+      document.getElementById('mcToggle').textContent = showMC ? '显示：现价' : '显示：FDV';
+      document.getElementById('colEntry').textContent = showMC ? '入场 FDV' : '入场价';
+      document.getElementById('colNow').textContent = showMC ? '现 FDV' : '现价';
+      if (posData) renderOpen();
+    });
     document.getElementById('refreshBtn').addEventListener('click', refreshAll);
     document.getElementById('search').addEventListener('input', renderTable);
     document.getElementById('quoteFilter').addEventListener('change', renderTable);

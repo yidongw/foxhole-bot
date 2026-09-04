@@ -54,6 +54,9 @@ export interface Position {
   trigger: string;
   openedAt: string;
   entryPriceUsd: number;
+  /** FDV/市值 at entry (USD); lets the dashboard show MC, and derive live MC
+   *  as entryFdvUsd × currentPrice/entryPrice (supply ~constant). */
+  entryFdvUsd?: number;
   /** Token amount bought (human units). */
   amountTokens: number;
   costUsd: number;
