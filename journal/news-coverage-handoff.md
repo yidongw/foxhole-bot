@@ -3,6 +3,39 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-04 09:0x UTC 第 15 轮(ultrathink 抓到并修了两类新噪音 + 新闻×覆盖交叉核对)
+
+### ① 新闻(**修了 2 类新误叫醒**,commit f57ec26,已部署)
+- 24h 回放抓到两类新 noise-wake,均为非 meme 符号漏进 hotSymbols 后 watched 误命中:
+  - **GLM**(智谱 GLM-5.3-Flash 大模型)在 AI 行业新闻里误叫醒;
+  - **BGBTC**(Bitget 包装 BTC)在「Bitget PoolX 锁仓 BGBTC 解锁 UNI」质押促销里误叫醒。
+  - 两道修:① SYMBOL_STOPLIST += GLM/BGBTC/GPT/QWEN/KIMI/GROK/LLAMA/GEMINI(AI 模型名+
+    交易所包装币,永不当 meme,也不再被 extractSymbols 种进 hotSymbols);② SAVINGS_PROMO
+    扩含质押促销(PoolX/锁仓…解锁/质押挖矿),关注币在纯促销新闻里被点名(无动能/负面)
+    降级 note —— **顺带止住残留的「交易赚币」误叫醒**(不用再等 TTL)。回放:噪音 55→53,+2 回归(共 28)。
+  - **小挂账**:GLM 模型快讯标题 drop 正确,但其正文含"Alpha…上线"字样会以 listing 叫醒
+    (title-only 判定为 drop)。无害(decider 查无地址即跳过)。若复发再考虑 LISTING 也改 title-only。
+- **新闻×覆盖交叉核对(filter 里 crash/whale/momentum note 的设计用途,首次做)**:
+  把 note/drop 里点名了 pump/crash 的 token 名对照 watched+alerted(206 符号)——4 个未覆盖的
+  全是**正确出圈**(ZEC/HYPE 主流大币、MINIMAX 港股 AI、BTC 巨鲸叙事短语)。**无新闻暴露的覆盖漏。**
+
+### ② 覆盖率(健康)
+- robinhood ≥100% 对照干净(9 mover 全在册,**1363 币**)。
+- labeled 仍 15(R14 已定性:24h 成熟窗+代币化股票正确排除)。review 循环本轮改"按收盘评分不按插针"
+  (63473cd)——修了我 R6 提的 wick 数据质量问题。
+
+### ③ 新闻侧安全(无新高危)
+- src/news/ 新代码无私钥/webhook 泄漏。P2 注入面挂账。**OKX/执行层不审(归他人)。**
+
+### ④ 健康(绿)
+- tsc 干净、npm test **282 passed**、monitor 重启健康(pid 63413)、BN 未复现、0 uncaught。
+
+**下轮重点:** ① 「」junk(借壳收割 靠 rb-chain/negative 合法叫醒非 junk 驱动;交易赚币 已被促销 veto)
+应随 09-05 02:47Z TTL 从 hotSymbols 清零,复查。② 若 GLM-listing 经正文复发,评估 LISTING title-only。
+③ labeled 够纯 meme 样本再做哑弹。④ 守 robinhood 覆盖。
+
+---
+
 ## 2026-09-04 07:0x UTC 第 14 轮(专注新闻本行;OKX/执行层归他人不审)
 
 **分工纠偏(用户指示):OKX、下单执行是别人的活,本循环别越界审,专注新闻/覆盖率/新闻侧安全。**
