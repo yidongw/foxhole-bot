@@ -204,6 +204,51 @@
       "realizedUsd": 19189.697998035157,
       "addedAt": "2026-09-04T15:21:58.366Z",
       "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x63A7f9FFD356e3c0e531E659752896F37353c0Ee",
+      "label": "S v2 胜率45% $92k MEME",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 91648,
+      "addedAt": "2026-09-04T18:46:39.925Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0xC7589906046220546F1764E50B3c79dA2794A5F5",
+      "label": "S v2 胜率54% $195k MEME(A组代表)",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 194767,
+      "addedAt": "2026-09-04T18:46:39.926Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x31cFF03E2074834834dD64f803CE566545db1dA4",
+      "label": "S v2 胜率58% $75k MEME(B组代表)",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 75031,
+      "addedAt": "2026-09-04T18:46:39.927Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0xa115cCD1a606F7c42b4f2C672D221B6dC969F4D6",
+      "label": "S v2 胜率32% $186k MEME 低入场mc$44k",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 186179,
+      "addedAt": "2026-09-04T18:46:39.927Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x7FfaB0DF30641230302CaEA971212C028E608E3d",
+      "label": "A v2 胜率52% $122k MEME",
+      "chain": "robinhood",
+      "tier": "A",
+      "realizedUsd": 122329,
+      "addedAt": "2026-09-04T18:46:39.927Z",
+      "addedBy": "winner-finder-v2"
     }
   ]
 }
