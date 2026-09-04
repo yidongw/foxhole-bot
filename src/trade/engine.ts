@@ -516,6 +516,20 @@ async function writePositionsJson(
   marks: Record<string, number> = {},
 ): Promise<void> {
   const cfgSnapshot = loadTradeConfig();
+  // Split account capital by mode: paper start (per-chain sum, paper chains only)
+  // and live cash (real on-chain base-currency balance per live chain).
+  let paperStartTotal = 0;
+  const liveCash: Record<string, number> = {};
+  for (const c of tradeEnabledChains()) {
+    if (resolveTradeMode(cfgSnapshot, c) === "live") {
+      const bal = await availableCapitalUsd(c, "live", cfgSnapshot, file).catch(
+        () => 0,
+      );
+      if (Number.isFinite(bal)) liveCash[c] = bal;
+    } else {
+      paperStartTotal += paperStartFor(cfgSnapshot, c);
+    }
+  }
   const rows = file.positions.slice(-50).map((p) => {
     const mark = marks[p.token.toLowerCase()];
     return {
@@ -561,6 +575,8 @@ async function writePositionsJson(
           usd_per_trade: cfgSnapshot.usdPerTrade,
           size_pct: cfgSnapshot.sizePct,
           paper_starts: cfgSnapshot.paperStarts,
+          paper_start_total: paperStartTotal,
+          live_cash: liveCash,
         },
       },
       positions: rows,

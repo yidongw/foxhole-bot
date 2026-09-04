@@ -49,6 +49,11 @@
     .btn.primary { background: linear-gradient(135deg, #0f7a18, var(--accent)); border-color: transparent; color: #041006; font-weight: 700; }
 
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0 20px; }
+    .acct-group { margin-bottom: 6px; }
+    .acct-group .stats { margin: 6px 0 16px; }
+    .acct-title { font-size: 13px; font-weight: 700; margin: 16px 0 2px; display: inline-flex; align-items: center; gap: 8px; padding: 3px 10px; border-radius: 8px; }
+    .acct-title.mode-live { background: rgba(255,107,107,.12); color: #ff8b8b; }
+    .acct-title.mode-paper { background: rgba(138,160,184,.12); color: #a9bccf; }
     .card {
       background: linear-gradient(180deg, var(--panel-2), var(--panel));
       border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; box-shadow: var(--shadow);
@@ -161,7 +166,7 @@
       </div>
     </div>
 
-    <div class="stats" id="acctStats"></div>
+    <div id="acctStats"></div>
 
     <div class="tabs" id="tabs">
       <button class="tab active" data-tab="open">📊 当前持仓</button>
@@ -379,23 +384,50 @@
 
     function renderAccount() {
       const rows = posData.positions || [];
-      const start = posData.meta?.start_usd ?? 1000;
-      const totalCost = rows.reduce((s, p) => s + (p.cost_usd ?? 0), 0);
-      const totalProceeds = rows.reduce((s, p) => s + proceedsOf(p), 0);
-      const cash = start - totalCost + totalProceeds;
-      const openValue = rows.reduce((s, p) => s + positionMarketValue(p), 0);
-      const equity = cash + openValue;
-      const realized = rows.filter(p => p.status === 'closed').reduce((s, p) => s + proceedsOf(p) - (p.cost_usd ?? 0), 0);
-      const openPnl = rows.filter(p => p.status === 'open').reduce((s, p) => s + (p.pnl_usd ?? 0), 0);
-      const ret = ((equity - start) / start) * 100;
+      const t = posData.meta?.trade || {};
       const cls = (n) => n >= 0 ? 'chg-pos' : 'chg-neg';
-      document.getElementById('acctStats').innerHTML = [
-        ['总权益', `<span class="${cls(equity - start)}">${fmtUsd(equity)}</span>`, `起始 ${fmtUsd(start, 0)} · <span class="${cls(ret)}">${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%</span>`],
-        ['可用现金', fmtUsd(cash), '未占用资金'],
-        ['持仓市值', fmtUsd(openValue), `${rows.filter(p => p.status === 'open').length} 个持仓`],
-        ['已实现盈亏', `<span class="${cls(realized)}">${fmtSigned(realized)}</span>`, `${rows.filter(p => p.status === 'closed').length} 笔已平`],
-        ['持仓浮动盈亏', `<span class="${cls(openPnl)}">${fmtSigned(openPnl)}</span>`, '含已部分兑现'],
-      ].map(([l, v, h]) => `<div class="card"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h}</div></div>`).join('');
+      const tile = (l, v, h) => `<div class="card"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h}</div></div>`;
+      const sections = [];
+
+      // 💸 真实账户 — 链上真金:可用本币 = 钱包本币余额,不是 start−cost 记账
+      const liveCashMap = t.live_cash || {};
+      const liveRows = rows.filter(p => p.mode === 'live');
+      if (Object.keys(liveCashMap).length || liveRows.length) {
+        const liveCash = Object.values(liveCashMap).reduce((s, v) => s + (v || 0), 0);
+        const openValue = liveRows.filter(p => p.status === 'open').reduce((s, p) => s + positionMarketValue(p), 0);
+        const equity = liveCash + openValue;
+        const realized = liveRows.filter(p => p.status === 'closed').reduce((s, p) => s + proceedsOf(p) - (p.cost_usd ?? 0), 0);
+        const openPnl = liveRows.filter(p => p.status === 'open').reduce((s, p) => s + (p.pnl_usd ?? 0), 0);
+        const chainsStr = Object.entries(liveCashMap).map(([c, v]) => `${esc(c)} ${fmtUsd(v)}`).join(' · ') || '—';
+        sections.push(`<div class="acct-group"><div class="acct-title mode-live">💸 真实账户（链上真金）</div><div class="stats">` + [
+          tile('总权益', fmtUsd(equity), '钱包本币 + 持仓市值'),
+          tile('可用本币', fmtUsd(liveCash), chainsStr),
+          tile('持仓市值', fmtUsd(openValue), `${liveRows.filter(p => p.status === 'open').length} 个持仓`),
+          tile('已实现盈亏', `<span class="${cls(realized)}">${fmtSigned(realized)}</span>`, `${liveRows.filter(p => p.status === 'closed').length} 笔已平`),
+          tile('持仓浮动盈亏', `<span class="${cls(openPnl)}">${fmtSigned(openPnl)}</span>`, '含已部分兑现'),
+        ].join('') + `</div></div>`);
+      }
+
+      // 📝 纸上账户 — 模拟记账
+      const pr = rows.filter(p => p.mode !== 'live');
+      const start = t.paper_start_total ?? posData.meta?.start_usd ?? 1000;
+      if (pr.length || start > 0) {
+        const cash = start - pr.reduce((s, p) => s + (p.cost_usd ?? 0), 0) + pr.reduce((s, p) => s + proceedsOf(p), 0);
+        const openValue = pr.filter(p => p.status === 'open').reduce((s, p) => s + positionMarketValue(p), 0);
+        const equity = cash + openValue;
+        const realized = pr.filter(p => p.status === 'closed').reduce((s, p) => s + proceedsOf(p) - (p.cost_usd ?? 0), 0);
+        const openPnl = pr.filter(p => p.status === 'open').reduce((s, p) => s + (p.pnl_usd ?? 0), 0);
+        const ret = start > 0 ? ((equity - start) / start) * 100 : 0;
+        sections.push(`<div class="acct-group"><div class="acct-title mode-paper">📝 纸上账户（模拟）</div><div class="stats">` + [
+          tile('总权益', `<span class="${cls(equity - start)}">${fmtUsd(equity)}</span>`, `起始 ${fmtUsd(start, 0)} · <span class="${cls(ret)}">${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%</span>`),
+          tile('可用现金', fmtUsd(cash), '未占用资金'),
+          tile('持仓市值', fmtUsd(openValue), `${pr.filter(p => p.status === 'open').length} 个持仓`),
+          tile('已实现盈亏', `<span class="${cls(realized)}">${fmtSigned(realized)}</span>`, `${pr.filter(p => p.status === 'closed').length} 笔已平`),
+          tile('持仓浮动盈亏', `<span class="${cls(openPnl)}">${fmtSigned(openPnl)}</span>`, '含已部分兑现'),
+        ].join('') + `</div></div>`);
+      }
+
+      document.getElementById('acctStats').innerHTML = sections.join('');
     }
 
     function modeBadge(p) {
