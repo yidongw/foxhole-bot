@@ -27,8 +27,10 @@ const LISTING =
 // “涨超X%”必须 ≥50 — ARB 涨 12% 这种主流币日常波动不算（2026-09-03 教训）
 const CAP_BREAKOUT = /(市值|价格)[^，。]{0,10}(突破|速通|创历史新高)|短时暴涨/;
 
-// 交易所储蓄/活动促销措辞 — 会撞 LISTING 的“上线”，但非可交易标的上所
-const SAVINGS_PROMO = /闪赚|活期理财|理财|Simple\s*Earn|余币宝|赚币|奖池|空投活动|返利/i;
+// 交易所储蓄/理财/质押促销措辞 — 非可交易标的的现货/Alpha 上线,也非 meme 暴涨。
+// 含 Bitget PoolX「锁仓 X 解锁 Y」这类质押挖矿促销(2026-09-04: BGBTC 曾以 watched 误叫醒)。
+const SAVINGS_PROMO =
+  /闪赚|活期理财|理财|Simple\s*Earn|余币宝|赚币|奖池|空投活动|返利|PoolX|锁仓[^，。]{0,12}解锁|质押挖矿/i;
 
 function hasMomentum(text: string): boolean {
   if (CAP_BREAKOUT.test(text)) return true;
@@ -107,6 +109,11 @@ export function classifyFlash(
   if (hitSymbols.length) {
     if (negative) reasons.push("negative");
     else if (hasMomentum(title)) reasons.push("momentum");
+    // 纯促销/质押活动里"点名"某关注币(如「锁仓 BGBTC 解锁 UNI」「OKX闪赚上线 CP 交易赚币」)
+    // 不是可交易事件 —— 无动能/无负面时降级留痕,别叫醒(2026-09-04)。
+    else if (SAVINGS_PROMO.test(title)) {
+      return { action: "note", negative: false, reasons };
+    }
     return { action: "wake", negative, reasons };
   }
 
@@ -168,6 +175,9 @@ const SYMBOL_STOPLIST = new Set([
   // 会被 extractSymbols 当 token 抓进 hotSymbols → 后续误叫醒(2026-09-03)
   "OKX", "BINANCE", "COINBASE", "UPBIT", "BITHUMB", "BITGET", "BYBIT", "KRAKEN",
   "SPY", "QQQ", "DIA", "IWM", "VIX", "NDX",
+  // AI 大模型名 / 交易所包装币 — 撞 token 代码,出现在行业/质押新闻里(2026-09-04):
+  // GLM=智谱模型(GLM-5.3-Flash),BGBTC=Bitget 包装 BTC(PoolX 质押)
+  "GLM", "BGBTC", "GPT", "QWEN", "KIMI", "GROK", "LLAMA", "GEMINI",
   // 主流币 — 不是我们交易的 meme，点名它们不构成“具体标的”
   "ARB", "OP", "SUI", "APT", "TON", "TRX", "XRP", "ADA", "AVAX", "DOT",
   "LINK", "UNI", "AAVE", "LDO", "CRV",
