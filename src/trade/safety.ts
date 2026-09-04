@@ -34,10 +34,16 @@ export interface SafetyVerdict {
     | "unsupported";
 }
 
-/** RPC endpoints for EVM chains GoPlus does not cover. */
-const EVM_RPC: Record<string, string> = {
-  robinhood:
-    process.env.ROBINHOOD_RPC ?? "https://rpc.mainnet.chain.robinhood.com",
+/** RPC endpoints (primary → fallback) for EVM chains GoPlus does not cover.
+ *  A metered primary key running out of quota must not disable the gate. */
+const PUBLIC_RB_RPC = "https://rpc.mainnet.chain.robinhood.com";
+const EVM_RPC: Record<string, string[]> = {
+  robinhood: [
+    ...(process.env.ROBINHOOD_RPC && process.env.ROBINHOOD_RPC !== PUBLIC_RB_RPC
+      ? [process.env.ROBINHOOD_RPC]
+      : []),
+    PUBLIC_RB_RPC,
+  ],
 };
 
 /** ERC-1967 implementation slot (keccak("eip1967.proxy.implementation")-1). */
@@ -86,18 +92,27 @@ export function evaluateContractProfile(p: ContractProfile): string[] {
 }
 
 async function rpcCall(
-  rpc: string,
+  rpcs: string[],
   method: string,
   params: unknown[],
 ): Promise<string | undefined> {
-  const res = await fetch(rpc, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal: AbortSignal.timeout(8000),
-  });
-  const j = (await res.json()) as { result?: string };
-  return j.result;
+  let lastErr: unknown;
+  for (const rpc of rpcs) {
+    try {
+      const res = await fetch(rpc, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = (await res.json()) as { result?: string };
+      return j.result;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("all RPCs failed");
 }
 
 /** Blockscout explorer hosts for GoPlus-unsupported chains — free, no key;
