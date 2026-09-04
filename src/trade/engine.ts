@@ -26,7 +26,10 @@ import {
   savePositions,
   totalPnlUsd,
   realizedUsd,
+  mergeStrategy,
+  formatStrategy,
   type Position,
+  type PositionStrategy,
   type PositionsFile,
 } from "./positions.js";
 import { checkEntry } from "./risk.js";
@@ -108,6 +111,13 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
   const chain = positionChain(position.chain);
   const price = await getAdapter(chain).priceUsd(position.token);
   if (!price || price <= 0) return `No price available for ${position.symbol} — try again.`;
+  let fdvUsd: number | undefined;
+  try {
+    fdvUsd = selectDeepestBasePair(
+      await fetchTokenPairs(position.token, chain),
+      position.token,
+    )?.fdv;
+  } catch {}
 
   const sellFraction = Math.min(Math.max(fraction, 0), 1) * remainingFraction(position);
   const config = { ...loadTradeConfig(), mode: position.mode };
@@ -126,11 +136,11 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
     await writePositionsJson(file, { [position.token.toLowerCase()]: price });
     const pnl = totalPnlUsd(position, price);
     await appendTradeJournal(
-      `📤 手动平仓 ${position.symbol} [${chain}/${position.mode}] 卖出 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
+      `📤 手动平仓 ${position.symbol} [${chain}/${position.mode}] 卖出 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} | 策略: ${formatStrategy(position.strategy)}`,
     );
     return (
       `Sold ${(sellFraction * 100).toFixed(0)}% of ${position.symbol} [${chain}/${position.mode}] ` +
-      `@ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}. ` +
+      `@ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}. ` +
       `Position P&L ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status}).`
     );
   } catch (err) {
@@ -148,16 +158,13 @@ export async function aiBuy(
   address: string,
   usd: number,
   reason: string,
-  opts?: { smartMoney?: boolean; momentum?: boolean },
+  opts?: { smartMoney?: boolean; momentum?: boolean; strategy?: PositionStrategy },
 ): Promise<string> {
   const chain = positionChain(chainId);
   const config = loadTradeConfig();
   if (config.mode === "off") return "交易未开启 (TRADE_MODE=off)";
   if (tradingPaused()) return "交易已暂停 (/resume 恢复)";
 
-  // Momentum entries are capped at a smaller size — higher noise, more misses.
-  const maxUsd = opts?.momentum ? config.momentumMaxUsdPerTrade : config.usdPerTrade;
-  const clamped = Math.min(usd, maxUsd);
   const analysis = await getAdapter(chain).analyze(address);
   const triggers = ["ai_decision"];
   if (opts?.smartMoney) triggers.push("smart_money");
@@ -172,6 +179,13 @@ export async function aiBuy(
   };
 
   const file = await loadPositions();
+  // 2026-09-04 用户拆除预算类限制:单笔 $50/$25 夹子取消,买多少由 AI 判断。
+  // 唯一保留的是账本现金(paper 不许透支;live 由链上余额天然约束)——这是
+  // 记账完整性,不是策略限制。止损/安全门(防骗子合约)不属于预算,原样保留。
+  const cash =
+    config.mode === "paper" ? paperCashUsd(file, config.paperStartUsd) : Infinity;
+  const clamped = Math.min(usd, cash);
+  if (!(clamped > 0)) return `风控拒绝: 可用现金不足 ($${cash.toFixed(2)})`;
   const verdict = checkEntry({ ...config, usdPerTrade: clamped }, file, candidate);
   if (!verdict.ok) return `风控拒绝: ${verdict.reason}`;
 
@@ -202,21 +216,50 @@ export async function aiBuy(
     status: "open",
     txHash: fill.txHash,
   };
+  // Per-position exit plan set at entry (falls back to config where unset).
+  if (opts?.strategy) mergeStrategy(position, opts.strategy);
   file.positions.push(position);
   await savePositions(file);
   await writePositionsJson(file);
+  const strat = formatStrategy(position.strategy);
   await appendTradeJournal(
-    `📥 AI开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 理由: ${reason}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
+    `📥 AI开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 理由: ${reason} | 策略: ${strat}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
   );
   await notify(
     `🤖 ${modeTag(config)} 🟢 买入 **${position.symbol}** [${chain}]${fdvTag(analysis.fdvUsd)}\n` +
       `$${clamped.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)\n` +
-      `理由: ${reason}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
+      `理由: ${reason}\n策略: ${strat}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
     {},
     chain,
     position.token,
   );
-  return `✅ 已开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚)`;
+  return `✅ 已开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) | 策略: ${strat}`;
+}
+
+/**
+ * Set or adjust an open position's exit strategy (per-position rails). The AI
+ * calls this at buy time via a fresh plan and later to re-tune as the position
+ * develops — a de-risked runner can widen its trail, a broken thesis can
+ * tighten its stop. Fields left out keep their current value; only supplied
+ * fields change. Returns a human summary for the control surface / thread.
+ */
+export async function setStrategy(
+  query: string,
+  patch: PositionStrategy,
+): Promise<string> {
+  const file = await loadPositions();
+  const position = openPositions(file).find((p) => matchesPosition(p, query));
+  if (!position) return `No open position matching "${query}".`;
+  mergeStrategy(position, patch);
+  await savePositions(file);
+  await writePositionsJson(file);
+  const chain = positionChain(position.chain);
+  const summary = formatStrategy(position.strategy);
+  await appendTradeJournal(
+    `🎯 调整策略 ${position.symbol} [${chain}/${position.mode}] — ${summary}`,
+  );
+  await postToSignalThread(chain, position.token, `🎯 策略更新: ${summary}`).catch(() => {});
+  return `Strategy for ${position.symbol} [${chain}/${position.mode}]: ${summary}`;
 }
 
 export async function exitAllPositions(): Promise<string> {
@@ -251,6 +294,7 @@ async function writePositionsJson(
       remaining_fraction: remainingFraction(p),
       cost_usd: p.costUsd,
       pnl_usd: totalPnlUsd(p, mark),
+      strategy: p.strategy ? formatStrategy(p.strategy) : undefined,
     };
   });
   const payload = JSON.stringify(
@@ -391,13 +435,14 @@ export async function processSignals(
       file.positions.push(position);
       opened.push(position);
       await appendTradeJournal(
-        `📥 开仓 ${position.symbol} [${chain}/${config.mode}] $${config.usdPerTrade} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 触发: ${position.trigger}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
+        `📥 开仓 ${position.symbol} [${chain}/${config.mode}] $${config.usdPerTrade} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 触发: ${position.trigger} | 策略: ${formatStrategy(position.strategy)}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
       );
       await notify(
         [
           `${modeTag(config)} 🟢 买入 **${position.symbol ?? position.token}** [${chain}]${fdvTag(ev.input.fdvUsd)}`,
           `$${config.usdPerTrade.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
           `触发: ${position.trigger}`,
+          `策略: ${formatStrategy(position.strategy)}`,
           fill.txHash ? `Tx: ${fill.txHash}` : "",
         ]
           .filter(Boolean)
@@ -456,6 +501,42 @@ export async function managePositions(
       } catch {}
     }
     if (price == null || price <= 0) continue;
+
+    // Glitch guard: a >65% single-tick collapse below the high-water mark is
+    // almost always a bad read (a degraded DexScreener response drops the deep
+    // pair's liquidity to null→0, so a thin wrong-pair with a garbage price
+    // ranks first), not real action on a token that had real liquidity. No
+    // configured stop is that deep, so this can only be noise or a true rug —
+    // and both deserve a second look before we market-sell the whole position.
+    // memestock was hard-stopped at $0.0077 (140x below its $1.08 entry, −$139)
+    // on ONE garbage tick while the real price never left ~$1. Corroborate with
+    // a fresh read; a genuine rug still exits one tick (~15s) later once the low
+    // price is confirmed, but a transient glitch no longer liquidates the book.
+    if (price < position.highWaterUsd * 0.35) {
+      let confirm: number | undefined;
+      try {
+        const p2 = selectDeepestBasePair(
+          await fetchTokenPairs(position.token, chain),
+          position.token,
+        );
+        if (p2?.priceUsd) confirm = Number(p2.priceUsd);
+      } catch {}
+      if (confirm == null || confirm <= 0) {
+        try {
+          confirm = await fetchPaprikaTokenPriceUsd(chain, position.token);
+        } catch {}
+      }
+      if (confirm != null && confirm > position.highWaterUsd * 0.35) {
+        console.error(
+          `glitch guard: ${position.symbol} bad tick $${price} vs confirm $${confirm} ` +
+            `(hw $${position.highWaterUsd}) — skipping exit this tick`,
+        );
+        marks[position.token.toLowerCase()] = confirm;
+        continue;
+      }
+      if (confirm != null && confirm > 0) price = confirm; // corroborated read
+    }
+
     marks[position.token.toLowerCase()] = price;
 
     position.highWaterUsd = Math.max(position.highWaterUsd, price);
@@ -497,13 +578,14 @@ export async function managePositions(
         });
         const pnl = totalPnlUsd(position, price);
         await appendTradeJournal(
-          `📤 平仓 ${position.symbol} [${chain}/${config.mode}] 卖出 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)} — 原因: ${action.reason} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status})`,
+          `📤 平仓 ${position.symbol} [${chain}/${config.mode}] 卖出 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)} — 原因: ${action.reason} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status}) | 策略: ${formatStrategy(position.strategy)}`,
         );
         await notify(
           [
             `${modeTag(config)} 📤 **${position.symbol ?? position.token}** [${chain}] — ${action.reason}`,
             `平 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}`,
             `仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status})`,
+            `策略: ${formatStrategy(position.strategy)}`,
             fill.txHash ? `Tx: ${fill.txHash}` : "",
           ]
             .filter(Boolean)
@@ -565,7 +647,8 @@ export async function formatPortfolioReport(): Promise<string> {
       lines.push(
         `• 🟢 ${p.symbol ?? p.token} [${chain}/${p.mode}] ${(rem * 100).toFixed(0)}% 剩, ` +
           `开 $${p.entryPriceUsd.toPrecision(6)}${price ? ` 现 $${price.toPrecision(6)}` : ""}${fdvTag(fdvUsd)}, ` +
-          `盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
+          `盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}` +
+          (p.strategy ? `\n    ↳ 策略: ${formatStrategy(p.strategy)}` : ""),
       );
       await sleep(200);
     }

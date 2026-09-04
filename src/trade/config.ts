@@ -39,11 +39,6 @@ export interface TradeConfig {
    * can fire well into a pump; $100k filters out thin pools mid-pump.
    */
   minEntryLiquidityMomentumUsd: number;
-  /**
-   * Max position size for pure momentum entries. Smaller than the standard
-   * usdPerTrade because momentum-only signals have higher skip rate post-pump.
-   */
-  momentumMaxUsdPerTrade: number;
   slippageBps: number;
   /** Exit remaining position when price falls this fraction from its high-water mark. */
   trailStopPct: number;
@@ -76,14 +71,17 @@ export function loadTradeConfig(): TradeConfig {
   return {
     mode: ["off", "paper", "live"].includes(mode) ? mode : "off",
     usdPerTrade: num("TRADE_USD_PER_TRADE", 50),
-    maxDailySpendUsd: num("TRADE_MAX_DAILY_USD", 200),
+    // <=0 disables (default since 2026-09-04: AI sizes/paces buys itself;
+    // paper cash is the only remaining bound).
+    maxDailySpendUsd: num("TRADE_MAX_DAILY_USD", 0),
     paperStartUsd: num("TRADE_PAPER_START_USD", 1000),
     autoEntry: process.env.TRADE_AUTO_ENTRY === "1",
-    maxOpenPositions: num("TRADE_MAX_OPEN_POSITIONS", 3),
+    // <=0 = unlimited. Default unlimited (2026-09-04): slots kept blocking
+    // entries at 3/3 while risk is already bounded by the 24h capital cap.
+    maxOpenPositions: num("TRADE_MAX_OPEN_POSITIONS", 0),
     minEntryLiquidityUsd: num("TRADE_MIN_LIQUIDITY_USD", 50_000),
     minEntryLiquiditySmartMoneyUsd: num("TRADE_MIN_LIQUIDITY_SMART_MONEY_USD", 15_000),
     minEntryLiquidityMomentumUsd: num("TRADE_MIN_LIQUIDITY_MOMENTUM_USD", 100_000),
-    momentumMaxUsdPerTrade: num("TRADE_MOMENTUM_MAX_USD", 25),
     slippageBps: num("TRADE_SLIPPAGE_BPS", 100),
     trailStopPct: num("TRADE_TRAIL_STOP_PCT", 0.25),
     trailArmMultiple: num("TRADE_TRAIL_ARM_MULT", 1.5),

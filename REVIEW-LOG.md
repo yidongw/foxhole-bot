@@ -373,3 +373,19 @@ replayTokenHistory(实拉 DexPaprika OHLCV)判定 passed=pump,firstAlert 06-14 �
   kilo 前缀剥掉(kPEPE→PEPE)后全链搜 DexScreener 取最深池 fdv;HIP-3 股票
   (XYZ-CL)无现货搜不到 → 省略;纯展示,失败吞掉不影响下单风控。
 - 实测: PONS $486M / kPEPE→PEPE $1.5B / XYZ-CL 省略。251/251,typecheck 绿。
+
+## 2026-09-04 — 取消持仓数量上限(用户指示"不要有任何仓位数")
+NUDES/BONER/PONS 占满 3 槽后新信号全被 `max open positions (3)` 挡掉。
+现货 TRADE_MAX_OPEN_POSITIONS 与永续 HL_MAX_OPEN_PERPS 均改为 <=0=不限,
+默认 0。风险边界不变:现货仍有 24h $200 资金占用上限+账户现金,永续仍有
+24h $600 名义敞口上限,单笔 $50/$25 clamp、止损、安全门全保留——限的是钱,
+不再限槽位。251/251,typecheck 绿。
+
+## 2026-09-04 — 拆除全部预算类买入限制,AI 自主定仓(用户指示)
+继槽位上限后,资金类限制也全拆:现货单笔 $50/momentum $25 夹子删除,
+TRADE_MAX_DAILY_USD 默认 0;永续 HL_USD_PER_TRADE、HL_MAX_DAILY_NOTIONAL_USD
+默认 0(<=0=不限)。decider prompt 同步:金额/数量由 AI 按信心与流动性判断,
+"最多买1-2个"改为自主决定。唯一保留的边界是**账本现金**(paper 不许透支:
+现货买入夹到可用现金,永续保证金>现金拒绝)——记账完整性,非策略限制。
+止损/移动止盈/安全门/杠杆硬顶/momentum 流动性门原样(是质量与出场,不是预算)。
+usdPerTrade 保留为机械 autoEntry 的固定仓位。252/252,typecheck 绿。

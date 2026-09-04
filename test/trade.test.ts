@@ -10,7 +10,12 @@ import {
 } from "../src/trade/positions.js";
 import { processSignals } from "../src/trade/engine.js";
 import { checkEntry } from "../src/trade/risk.js";
-import { evaluateExits } from "../src/trade/exits.js";
+import { evaluateExits, effectiveExitParams } from "../src/trade/exits.js";
+import {
+  mergeStrategy,
+  sanitizeStrategy,
+  formatStrategy,
+} from "../src/trade/positions.js";
 
 const CONFIG: TradeConfig = {
   mode: "paper",
@@ -100,6 +105,9 @@ describe("checkEntry", () => {
       makePosition({ id: "c", token: "0x3000000000000000000000000000000000000000" }),
     ]);
     expect(checkEntry(CONFIG, full, CANDIDATE).reason).toMatch(/max open/);
+
+    // maxOpenPositions <= 0 = unlimited (user opt-out of the slot cap).
+    expect(checkEntry({ ...CONFIG, maxOpenPositions: 0 }, full, CANDIDATE).ok).toBe(true);
   });
 
   it("enforces the daily spend cap", () => {
@@ -172,6 +180,94 @@ describe("evaluateExits", () => {
     });
     const actions = evaluateExits(p, 1.0, CONFIG);
     expect(actions[0].reason).toMatch(/stale/);
+  });
+});
+
+describe("per-position strategy", () => {
+  it("falls back to config where the position has no strategy", () => {
+    const rails = effectiveExitParams(makePosition(), CONFIG);
+    expect(rails.hardStopPct).toBe(CONFIG.hardStopPct);
+    expect(rails.takeProfits).toEqual(CONFIG.takeProfits);
+    expect(rails.maxHoldHours).toBe(CONFIG.maxHoldHours);
+  });
+
+  it("overrides only the fields the strategy sets", () => {
+    const p = makePosition({ strategy: { hardStopPct: 0.5, trailStopPct: 0.15 } });
+    const rails = effectiveExitParams(p, CONFIG);
+    expect(rails.hardStopPct).toBe(0.5); // overridden
+    expect(rails.trailStopPct).toBe(0.15); // overridden
+    expect(rails.trailArmMultiple).toBe(CONFIG.trailArmMultiple); // default
+    expect(rails.maxHoldHours).toBe(CONFIG.maxHoldHours); // default
+  });
+
+  it("evaluateExits honors a wider per-position hard stop", () => {
+    // -36% would hard-stop under the default 35%, but this position's plan
+    // gives it room to -50% — a smart-money early launch that expects chop.
+    const p = makePosition({ strategy: { hardStopPct: 0.5 } });
+    expect(evaluateExits(p, 0.64, CONFIG)).toHaveLength(0);
+    expect(evaluateExits(p, 0.49, CONFIG)[0].reason).toMatch(/hard stop: 50%/);
+  });
+
+  it("evaluateExits honors a tighter per-position hard stop", () => {
+    // A noisy pure-momentum chase wants out fast: stop at -15%.
+    const p = makePosition({ strategy: { hardStopPct: 0.15 } });
+    expect(evaluateExits(p, 0.84, CONFIG)[0].reason).toMatch(/hard stop: 15%/);
+  });
+
+  it("evaluateExits honors a per-position take-profit ladder", () => {
+    const p = makePosition({ strategy: { takeProfits: [{ atMultiple: 3, sellFraction: 0.6 }] } });
+    // Default x2 tier is gone — nothing at 2.1x.
+    expect(evaluateExits(p, 2.1, CONFIG)).toHaveLength(0);
+    const at3 = evaluateExits(p, 3.1, CONFIG);
+    expect(at3[0].fraction).toBe(0.6);
+    expect(at3[0].reason).toMatch(/x3/);
+  });
+
+  it("evaluateExits honors a per-position max hold", () => {
+    const p = makePosition({
+      strategy: { maxHoldHours: 6 },
+      openedAt: new Date(Date.now() - 8 * 3_600_000).toISOString(),
+    });
+    expect(evaluateExits(p, 1.0, CONFIG)[0].reason).toMatch(/stale/);
+  });
+
+  it("sanitizeStrategy drops out-of-range and junk fields", () => {
+    const s = sanitizeStrategy({
+      hardStopPct: 2, // >0.95 → dropped
+      trailStopPct: 0.2, // ok
+      trailArmMultiple: 0.5, // <1 → dropped
+      maxHoldHours: -3, // ≤0 → dropped
+      takeProfits: [
+        { atMultiple: 0.5, sellFraction: 0.5 }, // multiple ≤1 → dropped
+        { atMultiple: 4, sellFraction: 0.3 }, // ok
+      ],
+    });
+    expect(s.hardStopPct).toBeUndefined();
+    expect(s.trailStopPct).toBe(0.2);
+    expect(s.trailArmMultiple).toBeUndefined();
+    expect(s.maxHoldHours).toBeUndefined();
+    expect(s.takeProfits).toEqual([{ atMultiple: 4, sellFraction: 0.3 }]);
+  });
+
+  it("mergeStrategy is field-wise and stamps updatedAt", () => {
+    const p = makePosition();
+    mergeStrategy(p, { hardStopPct: 0.4, note: "smart-money 早期,给空间" });
+    expect(p.strategy?.hardStopPct).toBe(0.4);
+    mergeStrategy(p, { trailStopPct: 0.3 });
+    // first field survives the second merge
+    expect(p.strategy?.hardStopPct).toBe(0.4);
+    expect(p.strategy?.trailStopPct).toBe(0.3);
+    expect(p.strategy?.note).toBe("smart-money 早期,给空间");
+    expect(p.strategy?.updatedAt).toBeTruthy();
+  });
+
+  it("formatStrategy renders a readable summary and defaults", () => {
+    expect(formatStrategy(undefined)).toBe("默认策略");
+    const p = makePosition();
+    mergeStrategy(p, { hardStopPct: 0.5, takeProfits: [{ atMultiple: 3, sellFraction: 0.5 }] });
+    const line = formatStrategy(p.strategy);
+    expect(line).toMatch(/硬止损 -50%/);
+    expect(line).toMatch(/3x→50%/);
   });
 });
 

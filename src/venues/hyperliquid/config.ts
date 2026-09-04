@@ -84,12 +84,15 @@ export function loadHlConfig(): HlConfig {
     mode: ["off", "paper", "live"].includes(mode) ? mode : "off",
     testnet: bool("HL_TESTNET", true),
     dex: process.env.HL_DEX?.trim() ?? "",
-    usdPerTrade: num("HL_USD_PER_TRADE", 50),
+    // <=0 = 不限单笔(默认;仓位大小由 AI 判断,paper 现金/交易所保证金兜底)。
+    usdPerTrade: num("HL_USD_PER_TRADE", 0),
     defaultLeverage: num("HL_DEFAULT_LEVERAGE", 3),
     maxLeverage: num("HL_MAX_LEVERAGE", 5),
     marginMode: marginMode === "cross" ? "cross" : "isolated",
-    maxOpenPerps: num("HL_MAX_OPEN_PERPS", 3),
-    maxDailyNotionalUsd: num("HL_MAX_DAILY_NOTIONAL_USD", 600),
+    // <=0 = 不限(与现货 TRADE_MAX_OPEN_POSITIONS 同约定,默认不限)。
+    maxOpenPerps: num("HL_MAX_OPEN_PERPS", 0),
+    // <=0 关闭(默认;预算节奏交给 AI)。
+    maxDailyNotionalUsd: num("HL_MAX_DAILY_NOTIONAL_USD", 0),
     hardStopPct: num("HL_HARD_STOP_PCT", 0.15),
     trailStopPct: num("HL_TRAIL_STOP_PCT", 0.1),
     takeProfits: parseTakeProfits(process.env.HL_TAKE_PROFITS),

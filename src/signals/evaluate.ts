@@ -2,6 +2,7 @@ import { SIGNAL_CONFIG, type SignalConfig } from "./config.js";
 import type { AlertLevel, SignalEvaluation, SignalInput } from "./types.js";
 import { LEVEL_RANK } from "./types.js";
 import type { TokenAnalysis } from "../types.js";
+import { fdvTag } from "../lib/format.js";
 
 function maxLevel(a: AlertLevel, b: AlertLevel): AlertLevel {
   return LEVEL_RANK[a] >= LEVEL_RANK[b] ? a : b;
@@ -300,7 +301,7 @@ export function formatSignalAlert(ev: SignalEvaluation): string {
   const lines = [
     `${emoji} **FOXHOLE ${ev.level.toUpperCase()} [${tag}]** — ${i.symbol ?? "?"} (${i.primaryPair ?? "?"})`,
     `Score: ${ev.score} | ${ev.reasons.join(" · ")}`,
-    `Vol 24h: $${((i.volume24hUsd ?? 0) / 1e6).toFixed(2)}M | Liq: $${((i.liquidityUsd ?? 0) / 1e3).toFixed(0)}K` +
+    `Vol 24h: $${((i.volume24hUsd ?? 0) / 1e6).toFixed(2)}M | Liq: $${((i.liquidityUsd ?? 0) / 1e3).toFixed(0)}K${fdvTag(i.fdvUsd)}` +
       (i.quoteLockRatio != null
         ? ` | Lock: ${(i.quoteLockRatio * 100).toFixed(0)}%`
         : ""),
