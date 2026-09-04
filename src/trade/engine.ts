@@ -269,7 +269,11 @@ export async function aiBuy(
   // 记账完整性,不是策略限制。止损/安全门(防骗子合约)不属于预算,原样保留。
   const cash =
     config.mode === "paper" ? paperCashUsd(file, config.paperStartUsd) : Infinity;
-  const clamped = Math.min(usd, cash);
+  // LIVE per-trade hard cap = TRADE_USD_PER_TRADE (real money — the AI can size
+  // below it but never above). Paper stays fully AI-sized (bounded by paper cash).
+  const liveCap =
+    config.mode === "live" && config.usdPerTrade > 0 ? config.usdPerTrade : Infinity;
+  const clamped = Math.min(usd, cash, liveCap);
   if (!(clamped > 0)) return `风控拒绝: 可用现金不足 ($${cash.toFixed(2)})`;
   const verdict = checkEntry({ ...config, usdPerTrade: clamped }, file, candidate);
   if (!verdict.ok) return `风控拒绝: ${verdict.reason}`;

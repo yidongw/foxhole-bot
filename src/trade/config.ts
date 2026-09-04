@@ -92,8 +92,16 @@ function num(name: string, fallback: number): number {
 export function loadTradeConfig(): TradeConfig {
   const mode = (process.env.TRADE_MODE ?? "off") as TradeMode;
   const router = (process.env.TRADE_ROUTER ?? "hoodchain") as TradeRouter;
-  // Per-chain overrides: TRADE_MODE_<CHAIN>=off|paper|live (e.g. TRADE_MODE_ROBINHOOD=live).
+  // Per-chain overrides. Primary compact form is a single var:
+  //   TRADE_MODES=robinhood:live,solana:paper
+  // Back-compat: individual TRADE_MODE_<CHAIN>=... still work and win over it.
   const chainModes: Record<string, TradeMode> = {};
+  for (const pair of (process.env.TRADE_MODES ?? "").split(",")) {
+    const [chain, m] = pair.split(":").map((s) => s.trim());
+    if (chain && ["off", "paper", "live"].includes(m)) {
+      chainModes[chain.toLowerCase()] = m as TradeMode;
+    }
+  }
   for (const [k, v] of Object.entries(process.env)) {
     const m = k.match(/^TRADE_MODE_([A-Z0-9]+)$/);
     if (m && v && ["off", "paper", "live"].includes(v)) {

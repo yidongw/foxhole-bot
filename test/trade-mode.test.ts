@@ -7,7 +7,7 @@ import {
 } from "../src/trade/config.js";
 
 // Isolate the trade-mode env vars around each case.
-const KEYS = ["TRADE_MODE", "TRADE_MODE_ROBINHOOD", "TRADE_MODE_SOLANA"];
+const KEYS = ["TRADE_MODE", "TRADE_MODES", "TRADE_MODE_ROBINHOOD", "TRADE_MODE_SOLANA"];
 let saved: Record<string, string | undefined>;
 beforeEach(() => {
   saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
@@ -41,6 +41,15 @@ describe("per-chain trade mode", () => {
     const c = loadTradeConfig();
     expect(resolveTradeMode(c, "robinhood")).toBe("live");
     expect(resolveTradeMode(c, "solana")).toBe("paper");
+  });
+
+  it("TRADE_MODES compact form parses chain:mode pairs", () => {
+    process.env.TRADE_MODE = "paper";
+    process.env.TRADE_MODES = "robinhood:live, solana:off";
+    const c = loadTradeConfig();
+    expect(resolveTradeMode(c, "robinhood")).toBe("live");
+    expect(resolveTradeMode(c, "solana")).toBe("off");
+    expect(resolveTradeMode(c, "bsc")).toBe("paper"); // falls to global default
   });
 
   it("global off + one chain live: only that chain trades", () => {
