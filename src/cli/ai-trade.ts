@@ -78,12 +78,18 @@ async function main() {
       console.log("inbox archived");
       break;
     case "buy": {
-      const [chain, address, usd, ...reason] = args;
+      const [chain, address, usd, ...rest] = args;
       if (!chain || !address || !usd) {
-        console.error("用法: ai-trade buy <chain> <address> <usd> <reason...>");
+        console.error("用法: ai-trade buy <chain> <address> <usd> [--smart-money] <reason...>");
         process.exit(1);
       }
-      console.log(await aiBuy(chain, address, Number(usd), reason.join(" ") || "无"));
+      const smIdx = rest.indexOf("--smart-money");
+      const smartMoney = smIdx !== -1;
+      if (smartMoney) rest.splice(smIdx, 1);
+      const moIdx = rest.indexOf("--momentum");
+      const momentum = moIdx !== -1;
+      if (momentum) rest.splice(moIdx, 1);
+      console.log(await aiBuy(chain, address, Number(usd), rest.join(" ") || "无", { smartMoney, momentum }));
       break;
     }
     case "sell": {

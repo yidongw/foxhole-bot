@@ -52,10 +52,23 @@ export function checkEntry(
   if (candidate.priceUsd == null || candidate.priceUsd <= 0) {
     return { ok: false, reason: "no usable price" };
   }
-  if (candidate.liquidityUsd < config.minEntryLiquidityUsd) {
+  const isSmartMoney = candidate.triggers.includes("smart_money");
+  // Pure momentum: has momentum_strong but none of the conviction-grade triggers.
+  const convictionTriggers = ["lock_strong", "lock_rising_strong", "boner_composite", "curve_near_grad_strong"];
+  const isPureMomentum =
+    candidate.triggers.includes("momentum_strong") &&
+    !candidate.triggers.some((t) => convictionTriggers.includes(t)) &&
+    !isSmartMoney;
+  const minLiquidity = isSmartMoney
+    ? config.minEntryLiquiditySmartMoneyUsd
+    : isPureMomentum
+      ? config.minEntryLiquidityMomentumUsd
+      : config.minEntryLiquidityUsd;
+  if (candidate.liquidityUsd < minLiquidity) {
+    const tag = isSmartMoney ? " (smart_money)" : isPureMomentum ? " (momentum)" : "";
     return {
       ok: false,
-      reason: `liquidity $${Math.round(candidate.liquidityUsd)} < min $${config.minEntryLiquidityUsd}`,
+      reason: `liquidity $${Math.round(candidate.liquidityUsd)} < min $${minLiquidity}${tag}`,
     };
   }
   if (findOpen(file, candidate.token)) {

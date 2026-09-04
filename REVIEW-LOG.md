@@ -361,3 +361,15 @@ replayTokenHistory(实拉 DexPaprika OHLCV)判定 passed=pump,firstAlert 06-14 �
   exits-review 把发现持久化进 state(lessons 滚动 30 条),`ai-trade status`
   尾部自动带"🪞 近期教训(7d)",巡检第一步跑 status 即自动看到,无需改任何
   定时任务 prompt。189/189 绿。
+
+## 2026-09-04 — trade-log 加 FDV + 现货/永续消息格式拉齐(用户要求)
+现货 trade-log 还是英文老格式(AI ENTRY/EXIT/Open positions),永续是中文新格式,
+且两边都不带市值——看警报没法直观判断盘子大小。统一:
+- 新增 src/lib/format.ts fdvTag(): " · FDV $7.8M" 紧凑标签,两引擎共用。
+- 现货: 开仓(AI/机械)、平仓、Daily P&L 全部中文化对齐永续措辞(买入/平/剩/开/现/
+  盈亏/已平/现货账户),并带当前 FDV(开仓用 analysis/signal 自带,出场复用
+  managePositions 已拉的 primary pair,报表与价格同一次 fetchTokenPairs)。
+- 永续: 开仓/手动平仓/自动止盈止损/Daily P&L 持仓行带 FDV。新 fetchPerpFdvUsd:
+  kilo 前缀剥掉(kPEPE→PEPE)后全链搜 DexScreener 取最深池 fdv;HIP-3 股票
+  (XYZ-CL)无现货搜不到 → 省略;纯展示,失败吞掉不影响下单风控。
+- 实测: PONS $486M / kPEPE→PEPE $1.5B / XYZ-CL 省略。251/251,typecheck 绿。

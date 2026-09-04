@@ -9,6 +9,9 @@ import { appendTradeJournal } from "../../trade/trade-journal.js";
 import { resolveWebhook } from "../../notify/routes.js";
 import { sendDiscordMessage } from "../../notify/discord.js";
 import { sleep } from "../../lib/utils.js";
+import { fdvTag } from "../../lib/format.js";
+import { fetchDexJson } from "../../dex/dexscreener.js";
+import type { DexPair } from "../../types.js";
 
 import { loadHlConfig, type HlConfig } from "./config.js";
 import { fetchAllFundingRates, fetchAssetInfo, fetchMidPrice } from "./info.js";
@@ -128,6 +131,27 @@ export function evaluatePerpExits(
 }
 
 /**
+ * 永续标的对应现货的 FDV(trade-log 展示用,与现货消息对齐)。HL 的 kilo 前缀
+ * (kPEPE/kBONK)剥掉后全链搜 DexScreener,取匹配符号里最深池的 fdv。
+ * HIP-3 股票等无 DEX 现货的标的搜不到 → 返回 undefined,消息里省略。
+ * 纯展示用途:任何失败都吞掉,绝不影响下单/平仓/风控。
+ */
+async function fetchPerpFdvUsd(symbol: string): Promise<number | undefined> {
+  const spot = symbol.replace(/^k(?=[A-Z0-9]{2,})/, "");
+  try {
+    const data = await fetchDexJson<{ pairs?: DexPair[] }>(
+      `/latest/dex/search?q=${encodeURIComponent(spot)}`,
+    );
+    const best = (data.pairs ?? [])
+      .filter((p) => p.baseToken?.symbol?.toUpperCase() === spot.toUpperCase())
+      .sort((a, b) => Number(b.liquidity?.usd ?? 0) - Number(a.liquidity?.usd ?? 0))[0];
+    return best?.fdv || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * 开永续仓。side=long/short,sizeUsd=名义敞口(<= HL_USD_PER_TRADE)。
  * 走全套风控 + 可交易性校验;paper 用 mid 价模拟,live 走签名下单。
  */
@@ -221,7 +245,7 @@ export async function openPerp(
 
   const arrow = side === "long" ? "🟢 开多" : "🔴 开空";
   await notify(
-    `${modeTag(config)} ${arrow} **${symbol}** ${leverage}x\n` +
+    `${modeTag(config)} ${arrow} **${symbol}** ${leverage}x${fdvTag(await fetchPerpFdvUsd(symbol))}\n` +
       `名义 $${actualSizeUsd.toFixed(2)} (保证金 $${position.marginUsd.toFixed(2)}) @ $${entryPriceUsd.toPrecision(6)}\n` +
       `估算强平 $${position.liquidationPriceUsd?.toPrecision(6)} · 理由: ${reason}`,
   );
@@ -259,7 +283,7 @@ export async function closePerp(
 
   const pnl = totalPnlUsd(p, mark);
   await notify(
-    `${modeTag(config)} 📤 手动平仓 **${symbol}** ${(sellFraction * 100).toFixed(0)}% @ $${result.exit.markPriceUsd.toPrecision(6)}\n` +
+    `${modeTag(config)} 📤 手动平仓 **${symbol}** ${(sellFraction * 100).toFixed(0)}% @ $${result.exit.markPriceUsd.toPrecision(6)}${fdvTag(await fetchPerpFdvUsd(symbol))}\n` +
       `本次已实现 ${result.exit.realizedPnlUsd >= 0 ? "+" : ""}$${result.exit.realizedPnlUsd.toFixed(2)} · 仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${p.status})`,
   );
   return (
@@ -385,7 +409,7 @@ export async function managePerpPositions(
         await notify(
           `${modeTag(config)} 📤 **${p.symbol}** ${p.side} — ${action.reason}\n` +
             `平 ${(action.fraction * 100).toFixed(0)}% @ $${result.exit.markPriceUsd.toPrecision(6)} → ` +
-            `本次 ${result.exit.realizedPnlUsd >= 0 ? "+" : ""}$${result.exit.realizedPnlUsd.toFixed(2)} · 仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${p.status})`,
+            `本次 ${result.exit.realizedPnlUsd >= 0 ? "+" : ""}$${result.exit.realizedPnlUsd.toFixed(2)}${fdvTag(await fetchPerpFdvUsd(p.symbol))} · 仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${p.status})`,
         );
       } catch (err) {
         console.error(`perp exit failed ${p.symbol}:`, (err as Error).message);
@@ -423,7 +447,7 @@ export async function formatPerpReport(
       const arrow = p.side === "long" ? "🟢多" : "🔴空";
       lines.push(
         `• ${arrow} ${p.symbol} ${p.leverage}x [${p.mode}] ${(rem * 100).toFixed(0)}% 剩, ` +
-          `开 $${p.entryPriceUsd.toPrecision(6)}${mark ? ` 现 $${mark.toPrecision(6)}` : ""}, ` +
+          `开 $${p.entryPriceUsd.toPrecision(6)}${mark ? ` 现 $${mark.toPrecision(6)}` : ""}${fdvTag(await fetchPerpFdvUsd(p.symbol))}, ` +
           `盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
       );
       await sleep(150);

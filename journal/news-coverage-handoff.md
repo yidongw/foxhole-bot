@@ -3,6 +3,95 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-04 01:0x UTC 第 11 轮(安静轮:全绿,无新改动)
+
+- ① 新闻:BlockBeats 37 wake 全 legit(新增 Uniswap Labs 购入 PONS 等,均真信号);
+  drop 侧无 RB-meme 真漏(Notional 被盗/Tesla Cybercab/Ansem Robinhood股价 均正确丢弃)。
+- ② 覆盖率:robinhood ≥100% 对照干净(6 mover 全在册,**1105 币**,稳步增长)。
+  哑弹仍无解(labeled 15,grader 未产新标签)。
+- ③ 安全:review/smart-money 新 commit「smart_money 流动性下限降至 $15k」——属对方
+  风控口径调整(更宽松→放行更低流动性币),归其域不撞车;无私钥/webhook 泄漏。
+  smart-money P2 注入面、Solana audit 6 high 仍挂账。
+- ④ 健康:tsc 干净、npm test **251 passed**、monitor 存活(pid 90498,随 5f88ff9 部署重启)、
+  BN 未复现、0 uncaught。now=01:06Z=lastRunAt 无停摆。
+- 「」junk:仍冻结(02:47Z/02:50Z),距 09-05 02:47Z TTL 约 25.7h。
+
+**下轮重点:** ① 「」junk 09-05 02:47Z 后复查消失。② grader 产新标签后做哑弹分析。
+③ smart_money liq 降到 $15k 后留意其信号是否带进更多低流动性哑弹(和 labeled 一起看)。
+
+---
+
+## 2026-09-03 23:0x UTC 第 10 轮(安静轮:全绿;OpenNews 复活)
+
+四项全稳,无新问题需修;一个正向变化:OpenNews 恢复产出。
+
+- ① 新闻:BlockBeats 35 wake 全 legit,无新噪音/漏。**OpenNews/6551 复活**——日志
+  `opennews tick: 30 scored, 2~6 posted`,累计降级仅 13(R7 时是 12,几乎不再降级)→
+  说明 OPENNEWS_TOKEN 额度恢复,AI 打分定向搜索重新上线,每 tick 向 #news-radar 发
+  2~6 条。它是 informational-only(不唤醒 decider、不自动买),即便略多也无交易风险,
+  暂不动;若 #news-radar 觉得吵可在 opennews-poll 收紧 CAP/score 阈值。
+- ② 覆盖率:robinhood ≥100% 对照干净(7 mover 全在册,**1047 币**)。哑弹仍无解
+  (labeled 15/clean 9,grader 未产新标签)。
+- ③ 安全:无新代码可扫;smart-money P2、Solana audit 6 high 仍挂账。
+- ④ 健康:tsc 干净、npm test **251 passed**、monitor 稳定运行 ~4h+ 未重启(pid 82431)、
+  BN 未复现、0 uncaught。**(复核:一度疑 news lastRunAt 停摆 7h,实为真实 UTC now
+  =23:06Z、lastRunAt=23:04Z 仅 2min 前——又是时区错觉,已用 date -u + feed 最新
+  flash 时间交叉验证确认无停摆。)**
+- 「」junk:交易赚币 02:47Z / 借壳收割 02:50Z 仍冻结,距 09-05 02:47Z TTL 到期约 27h。
+
+**下轮重点:** ① 「」junk 09-05 02:47Z 后复查是否消失。② grader 产新标签后做哑弹分析。
+③ OpenNews 复活后如 #news-radar 偏吵,评估 opennews-poll 的 score/CAP 收紧。
+
+---
+
+## 2026-09-04 04:0x UTC 第 9 轮(安静轮:全绿,无新改动)
+
+BlockBeats 隔夜出稿少,feed 与 R8 高度重合;四项全稳。
+- ① 新闻:35 wake 全 legit,无新噪音/漏。「」junk(交易赚币 02:47Z/借壳收割 02:50Z)
+  仍冻结未刷新,距 09-05 02:47Z TTL 到期约剩 <23h,下轮应见其消失。
+- ② 覆盖率:robinhood ≥100% 对照干净(8 mover 全在册,**1003 币**破千,持续增长)。
+  哑弹仍无解:labeled 仍 15(clean-data 仅 9),pending 已 187(56 strong)等评分——
+  grader 未产新标签,样本不足不做 tuning。
+- ③ 安全:无新代码改动可扫;smart-money P2、Solana audit 6 high 仍挂账。
+- ④ 健康:tsc 干净、npm test **251 passed**、monitor 稳定运行 2h+ 未重启(pid 82431)、
+  BN 未复现、0 uncaught。
+
+**下轮重点:** ① **复查「」junk 09-05 02:47Z 后是否消失**(R3 闭环验证)。
+② grader 产新标签后做哑弹分析(现 n=9 clean 太小)。③ OpenNews 若充值复查产出。
+
+---
+
+## 2026-09-04 02:0x UTC 第 8 轮(安静轮:全绿,前修均持,无新改动)
+
+四项全部健康,prior fixes 全在生效,无新问题需修。
+
+### ④ 健康(绿)— R7 测试修复已持
+- npx tsc 干净;npm test **251 passed**(review 循环加了很多测试)。R7 修的
+  routes.test 未复红。monitor 存活(pid 82431),BN 未复现(计 1),日志无
+  uncaught/unhandled/fatal。
+
+### ② 覆盖率(健康)
+- robinhood ≥100% 对照干净:5 mover 全在册(958 币,持续增长)。
+- **哑弹分析无进展**:labeled.json 仍 15 条(无新评分产出),n 太小不做二次分析。
+  下轮样本增长再看。(review 循环 Phase2 已在追 GRASS missed pump,非 robinhood,不撞车。)
+
+### ① 新闻(BlockBeats 稳定)
+- 回放(200 条)35 wake 全 legit;drop 侧的"含关键词"项全是宏观正确丢弃
+  (BTC破8万/ETH破2500/黄金/原油/加密概念股/特斯拉 Cybercab/HYPE)——无 RB-meme 真漏。
+  「加密概念股…Robinhood 涨超10%」是股票新闻,已被 R2 标题匹配+宏观过滤正确 drop。
+- **R3「」junk 继续冻结**:交易赚币(02:47Z)、借壳收割(02:50Z)未再刷新,
+  距 09-05 02:47Z TTL 到期约剩 <1 天,下轮应见其消失。
+
+### ③ 安全(无新高危)
+- R7-R8 间新代码(smart-money revet disable/enable、review Phase2 GRASS case)无
+  私钥/webhook 泄漏。smart-money P2 注入面、npm audit Solana 6 high 仍挂账留观。
+
+**下轮重点:** ① **复查「」junk 是否已从 hotSymbols 消失**(应在 09-05 02:47Z 后)——
+若仍在则说明有再种入,需查。② labeled 变多再做哑弹分析。③ OpenNews 若充值复查产出。
+④ 继续 robinhood 实时对照。
+
+---
+
 ## 2026-09-04 00:3x UTC 第 7 轮(修了 main 上的红测试;SHRUB 真相澄清)
 
 ### ④ 健康(**修了 main 上一个常红测试** — 本轮重点)

@@ -26,6 +26,24 @@ export interface TradeConfig {
   maxOpenPositions: number;
   /** Don't enter tokens thinner than this. */
   minEntryLiquidityUsd: number;
+  /**
+   * Relaxed liquidity floor for smart-money-triggered signals on early launches.
+   * RB-chain new pools typically open at $15k–$25k liquidity and grow fast;
+   * the standard $50k floor systematically blocks these before they move.
+   * Only applies when the signal has a `smart_money` trigger.
+   */
+  minEntryLiquiditySmartMoneyUsd: number;
+  /**
+   * Stricter liquidity floor for pure momentum signals (momentum_strong without
+   * lock/boner/curve confirmation). Momentum-only signals are higher noise and
+   * can fire well into a pump; $100k filters out thin pools mid-pump.
+   */
+  minEntryLiquidityMomentumUsd: number;
+  /**
+   * Max position size for pure momentum entries. Smaller than the standard
+   * usdPerTrade because momentum-only signals have higher skip rate post-pump.
+   */
+  momentumMaxUsdPerTrade: number;
   slippageBps: number;
   /** Exit remaining position when price falls this fraction from its high-water mark. */
   trailStopPct: number;
@@ -63,6 +81,9 @@ export function loadTradeConfig(): TradeConfig {
     autoEntry: process.env.TRADE_AUTO_ENTRY === "1",
     maxOpenPositions: num("TRADE_MAX_OPEN_POSITIONS", 3),
     minEntryLiquidityUsd: num("TRADE_MIN_LIQUIDITY_USD", 50_000),
+    minEntryLiquiditySmartMoneyUsd: num("TRADE_MIN_LIQUIDITY_SMART_MONEY_USD", 15_000),
+    minEntryLiquidityMomentumUsd: num("TRADE_MIN_LIQUIDITY_MOMENTUM_USD", 100_000),
+    momentumMaxUsdPerTrade: num("TRADE_MOMENTUM_MAX_USD", 25),
     slippageBps: num("TRADE_SLIPPAGE_BPS", 100),
     trailStopPct: num("TRADE_TRAIL_STOP_PCT", 0.25),
     trailArmMultiple: num("TRADE_TRAIL_ARM_MULT", 1.5),
@@ -78,7 +99,7 @@ export function loadTradeConfig(): TradeConfig {
     ],
     maxHoldHours: num("TRADE_MAX_HOLD_HOURS", 96),
     entryTriggers: (process.env.TRADE_ENTRY_TRIGGERS ??
-      "lock_strong,lock_rising_strong,boner_composite,curve_near_grad_strong,ai_decision")
+      "lock_strong,lock_rising_strong,boner_composite,curve_near_grad_strong,ai_decision,momentum_strong")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
