@@ -6,7 +6,7 @@ import type { ChainId } from "./adapter.js";
  *  against a JUNK token (e.g. memestock/GMEB with $40M fake liquidity) reports a
  *  fabricated USD price — 100x+ off the real WBNB/USDT-quoted pools, which fed a
  *  bogus "118x 卖飞" and can corrupt entry FDV / exit management. */
-const TRUSTED_QUOTE = new Set([
+export const TRUSTED_QUOTE = new Set([
   "WBNB", "BNB", "USDT", "USDC", "USD1", "BUSD", "USDB", "DAI",
   "WETH", "ETH", "SOL", "WSOL", "USDG", "WBTC", "BTCB",
 ]);
@@ -29,7 +29,33 @@ export function selectDeepestBasePair(
   const trusted = own.filter((p) =>
     TRUSTED_QUOTE.has((p.quoteToken?.symbol ?? "").toUpperCase()),
   );
-  return [...(trusted.length ? trusted : own)].sort(byLiq)[0];
+  const cands = [...(trusted.length ? trusted : own)].sort(byLiq);
+  if (cands.length <= 1) return cands[0];
+
+  // Price consensus: a junk pool can fake liquidity AND a trusted quote
+  // SYMBOL (symbols are free strings — a fake "USDT" passes TRUSTED_QUOTE),
+  // but it can't move every other pool's price. MarsCoin 2026-09-04: a pool
+  // claiming $1.8M liq priced the token at $149-153 vs $0.12 on the real
+  // pancake pools — it won the deepest-liquidity sort, booked $25k of phantom
+  // exit proceeds and poisoned the high-water mark. Reject candidates whose
+  // price is >3x off the median of priced candidates, then take the deepest
+  // survivor. Median uses the lower-middle on even counts, biasing against
+  // fake-HIGH pools (the profitable-looking direction for phantom exits);
+  // fake-LOW reads are still caught by the engine's downside glitch guard.
+  const prices = cands
+    .map((p) => Number(p.priceUsd))
+    .filter((x) => x > 0)
+    .sort((a, b) => a - b);
+  if (prices.length >= 2) {
+    const median = prices[Math.floor((prices.length - 1) / 2)];
+    const sane = cands.filter((p) => {
+      const px = Number(p.priceUsd);
+      if (!(px > 0)) return true; // unpriced pools keep old behavior
+      return px <= median * 3 && px >= median / 3;
+    });
+    if (sane.length) return sane[0];
+  }
+  return cands[0];
 }
 
 /**
