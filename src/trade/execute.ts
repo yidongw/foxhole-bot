@@ -2,7 +2,9 @@ import { formatUnits, parseUnits, type Address } from "viem";
 import { executeSwap, MAINNET_ADDRESSES, parseUsdg } from "hoodchain";
 
 import { getTradingClient } from "../chain/client.js";
-import { okxSwap, OkxRouteError } from "../venues/okx/swap.js";
+import { RouteError } from "../venues/route-error.js";
+import { okxSwap } from "../venues/okx/swap.js";
+import { lifiSwap } from "../venues/lifi/swap.js";
 import type { TradeConfig, TradeRouter } from "./config.js";
 import type { Position } from "./positions.js";
 
@@ -21,45 +23,61 @@ export interface TradeFill {
 /**
  * Run a live fill through the configured router, with optional fallback.
  *
- * - `hoodchain` / `okx`: single router, no fallback.
- * - `okx_hood`: try OKX first; fall back to hoodchain **only** on
- *   `OkxRouteError` (OKX failed before broadcasting the swap — no fill
- *   happened, so retrying elsewhere is safe). Any error thrown after the swap
- *   is broadcast propagates unchanged, so we never risk a double fill.
+ * - `hoodchain`: hoodchain only (primary ignored).
+ * - `okx` / `lifi`: that aggregator only, no fallback.
+ * - `okx_hood` / `lifi_hood` (any `_hood` suffix): try the primary aggregator;
+ *   fall back to hoodchain **only** on a `RouteError` (the primary failed
+ *   before broadcasting the swap — no fill happened, so retrying elsewhere is
+ *   safe). Errors thrown after the swap is broadcast propagate unchanged, so
+ *   we never risk a double fill.
  *
  * Exported for unit testing the routing/fallback decision without live swaps.
  */
 export async function runWithFallback<T>(
   router: TradeRouter,
-  okxFn: () => Promise<T>,
+  primaryFn: () => Promise<T>,
   hoodFn: () => Promise<T>,
 ): Promise<T> {
   if (router === "hoodchain") return hoodFn();
-  if (router === "okx") return okxFn();
-  // okx_hood
+  if (!router.endsWith("_hood")) return primaryFn();
   try {
-    return await okxFn();
+    return await primaryFn();
   } catch (err) {
-    if (err instanceof OkxRouteError) {
-      console.warn(`[trade] OKX 路由不可用,回退 hoodchain:${err.message}`);
+    if (err instanceof RouteError) {
+      console.warn(`[trade] 主路由不可用(${router}),回退 hoodchain:${err.message}`);
       return hoodFn();
     }
     throw err;
   }
 }
 
-async function buyViaOkx(
+/** Pick the aggregator swap fn for a router; hoodchain routers never reach here. */
+function primarySwap(
+  router: TradeRouter,
+  aggAmountIn: bigint,
+  fromToken: Address,
+  toToken: Address,
+  slippageBps: number,
+) {
+  const okx = () => okxSwap(fromToken, toToken, aggAmountIn, slippageBps);
+  const lifi = () => lifiSwap(fromToken, toToken, aggAmountIn, slippageBps);
+  return router.startsWith("lifi") ? lifi : okx;
+}
+
+async function buyViaAgg(
   config: TradeConfig,
   token: Address,
   priceUsd: number,
   usd: number,
 ): Promise<TradeFill> {
-  const { amountOutBase, toDecimals, txHash } = await okxSwap(
+  const swap = primarySwap(
+    config.router,
+    parseUnits(usd.toFixed(USDG_DECIMALS), USDG_DECIMALS),
     MAINNET_ADDRESSES.usdg as Address,
     token,
-    parseUnits(usd.toFixed(USDG_DECIMALS), USDG_DECIMALS),
     config.slippageBps,
   );
+  const { amountOutBase, toDecimals, txHash } = await swap();
   const amountTokens = Number(formatUnits(amountOutBase, toDecimals));
   return {
     priceUsd: amountTokens > 0 ? usd / amountTokens : priceUsd,
@@ -113,23 +131,25 @@ export async function buy(
   }
   return runWithFallback(
     config.router,
-    () => buyViaOkx(config, token, priceUsd, usd),
+    () => buyViaAgg(config, token, priceUsd, usd),
     () => buyViaHood(config, token, priceUsd, usd),
   );
 }
 
-async function sellViaOkx(
+async function sellViaAgg(
   config: TradeConfig,
   position: Position,
   amountTokens: number,
   currentPriceUsd: number,
 ): Promise<TradeFill> {
-  const { amountOutBase, toDecimals, txHash } = await okxSwap(
+  const swap = primarySwap(
+    config.router,
+    parseUnits(amountTokens.toFixed(TOKEN_DECIMALS), TOKEN_DECIMALS),
     position.token as Address,
     MAINNET_ADDRESSES.usdg as Address,
-    parseUnits(amountTokens.toFixed(TOKEN_DECIMALS), TOKEN_DECIMALS),
     config.slippageBps,
   );
+  const { amountOutBase, toDecimals, txHash } = await swap();
   const proceedsUsd = Number(formatUnits(amountOutBase, toDecimals));
   return {
     priceUsd: amountTokens > 0 ? proceedsUsd / amountTokens : currentPriceUsd,
@@ -182,7 +202,7 @@ export async function sell(
   }
   return runWithFallback(
     config.router,
-    () => sellViaOkx(config, position, amountTokens, currentPriceUsd),
+    () => sellViaAgg(config, position, amountTokens, currentPriceUsd),
     () => sellViaHood(config, position, amountTokens, currentPriceUsd),
   );
 }

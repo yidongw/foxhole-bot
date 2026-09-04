@@ -28,6 +28,7 @@
     "hl": "tsx src/cli/hl.ts",
     "oi-scan": "tsx src/cli/oi-scan.ts",
     "okx": "tsx src/venues/okx/smoke.ts",
+    "lifi": "tsx src/venues/lifi/smoke.ts",
     "deploy": "bash scripts/deploy-local.sh",
     "serve": "python3 -m http.server 8787 --directory web",
     "dev": "npm run fetch:long && npm run serve",

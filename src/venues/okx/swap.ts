@@ -14,11 +14,12 @@
 import { erc20Abi, type Address } from "viem";
 
 import { getTradingClient } from "../../chain/client.js";
+import { RouteError } from "../route-error.js";
 import { OKX_RB_CHAIN_INDEX } from "./config.js";
 import { getApproveTransaction, getSwap } from "./dex.js";
 
 /** 路由/构建阶段(swap 广播前)的失败——可安全回退到其它路由。 */
-export class OkxRouteError extends Error {
+export class OkxRouteError extends RouteError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = "OkxRouteError";
