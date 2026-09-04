@@ -249,6 +249,24 @@
       "realizedUsd": 122329,
       "addedAt": "2026-09-04T18:46:39.927Z",
       "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x1228803A9F6F6e283F6Fea68C417a3B2C34B664B",
+      "label": "S v2 胜率33% $5k",
+      "chain": "bsc",
+      "tier": "S",
+      "realizedUsd": 5424.536479154335,
+      "addedAt": "2026-09-04T19:05:57.521Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0xB0F82754752d3A117c04bf5A055FdEFbF98Ec0F4",
+      "label": "A v2 胜率85% $18k",
+      "chain": "bsc",
+      "tier": "A",
+      "realizedUsd": 18267.47956689264,
+      "addedAt": "2026-09-04T19:05:57.523Z",
+      "addedBy": "winner-finder-v2"
     }
   ]
 }

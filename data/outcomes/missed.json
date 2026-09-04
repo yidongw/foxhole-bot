@@ -54,5 +54,17 @@
     "fdvUsd": 17188357,
     "kind": "threshold_miss",
     "detectedAt": "2026-09-04T15:18:26.092Z"
+  },
+  {
+    "chain": "bsc",
+    "poolId": "0xdFeAB54f1AAbea0d3E1aF8a778a76E648275D113",
+    "address": "0xc9d825E83AadA475bD4d38C8ca984eD746277777",
+    "symbol": "Stonks",
+    "priceChange24h": 389,
+    "volume24hUsd": 3396210,
+    "liquidityUsd": 329000,
+    "fdvUsd": 13931568,
+    "kind": "threshold_miss",
+    "detectedAt": "2026-09-04T19:02:32.147Z"
   }
 ]
