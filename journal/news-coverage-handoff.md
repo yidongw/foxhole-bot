@@ -3,6 +3,34 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-04 07:0x UTC 第 14 轮(专注新闻本行;OKX/执行层归他人不审)
+
+**分工纠偏(用户指示):OKX、下单执行是别人的活,本循环别越界审,专注新闻/覆盖率/新闻侧安全。**
+
+### ① 新闻(BlockBeats 稳定,无新噪音/漏)
+- 51 wake 全 legit;**新捕获 AMC 代币化股票法律战**(AMC CEO 要 Robinhood 停止 AMC 股票代币
+  交易、AMC 夜盘 +20% —— 真催化,filter 正确叫醒)+ USELESS/PONS/CASHCAT/MARSCOIN 群。
+- drop 侧无 RB-meme 真漏;NOTE 桶(R13 审过)无藏漏。
+- 「」junk 仍冻结(交易赚币 02:47Z/借壳收割 02:50Z,距 09-05 02:47Z TTL ~19.7h,应随之清零)。
+
+### ② 覆盖率 + 哑弹
+- robinhood ≥100% 对照干净(8 mover 全在册,**1285 币**)。
+- **labeled 仍 15(自 R6 卡住)根因**:非 bug,是设计——GRADE_AFTER_MS=24h 且 pending 全<24h
+  未到期;到期后 grader 的 drop 回调正确排除代币化股票(GME/AMC/STONKEX 占近期告警大头,锚定
+  真股价不适合 meme tuning)。纯 meme labeled 增长慢是正常,dud 分析继续等样本。(grader 归 review 循环。)
+
+### ③ 新闻侧安全(无新高危)
+- 私钥/webhook 无泄漏(日志/git 净)。新闻→decider 注入面 P2(cap 拆除后爆炸半径放大、
+  paper 钱包仍受 mode-gating 保护)仍挂账。**执行层/OKX 安全归交易循环,不再跟进。**
+
+### ④ 健康(绿)
+- tsc 干净、npm test **269 passed**、monitor 存活、BN 未复现、0 uncaught。
+
+**下轮重点:** ① 「」junk 09-05 02:47Z 后复查消失(R3 闭环)。② labeled 纯 meme 样本够再做哑弹分析。
+③ 继续 robinhood 实时对照守覆盖。**④ 不碰 OKX/执行层。**
+
+---
+
 ## 2026-09-04 05:0x UTC 第 13 轮(ultrathink:纠正判定层认知 + 覆盖假阳性核查,无代码改动)
 
 本轮两个深挖都收敛到"按设计工作",但纠正了我自己 6 轮的错误认知。
