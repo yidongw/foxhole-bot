@@ -26,7 +26,10 @@ import {
   savePositions,
   totalPnlUsd,
   realizedUsd,
+  mergeStrategy,
+  formatStrategy,
   type Position,
+  type PositionStrategy,
   type PositionsFile,
 } from "./positions.js";
 import { checkEntry } from "./risk.js";
@@ -155,7 +158,7 @@ export async function aiBuy(
   address: string,
   usd: number,
   reason: string,
-  opts?: { smartMoney?: boolean; momentum?: boolean },
+  opts?: { smartMoney?: boolean; momentum?: boolean; strategy?: PositionStrategy },
 ): Promise<string> {
   const chain = positionChain(chainId);
   const config = loadTradeConfig();
@@ -213,21 +216,50 @@ export async function aiBuy(
     status: "open",
     txHash: fill.txHash,
   };
+  // Per-position exit plan set at entry (falls back to config where unset).
+  if (opts?.strategy) mergeStrategy(position, opts.strategy);
   file.positions.push(position);
   await savePositions(file);
   await writePositionsJson(file);
+  const stratLine = opts?.strategy ? `\n策略: ${formatStrategy(position.strategy)}` : "";
   await appendTradeJournal(
-    `📥 AI开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 理由: ${reason}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
+    `📥 AI开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 理由: ${reason}${opts?.strategy ? ` | 策略: ${formatStrategy(position.strategy)}` : ""}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
   );
   await notify(
     `🤖 ${modeTag(config)} 🟢 买入 **${position.symbol}** [${chain}]${fdvTag(analysis.fdvUsd)}\n` +
       `$${clamped.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)\n` +
-      `理由: ${reason}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
+      `理由: ${reason}${stratLine}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
     {},
     chain,
     position.token,
   );
-  return `✅ 已开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚)`;
+  return `✅ 已开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚)${opts?.strategy ? ` | 策略: ${formatStrategy(position.strategy)}` : ""}`;
+}
+
+/**
+ * Set or adjust an open position's exit strategy (per-position rails). The AI
+ * calls this at buy time via a fresh plan and later to re-tune as the position
+ * develops — a de-risked runner can widen its trail, a broken thesis can
+ * tighten its stop. Fields left out keep their current value; only supplied
+ * fields change. Returns a human summary for the control surface / thread.
+ */
+export async function setStrategy(
+  query: string,
+  patch: PositionStrategy,
+): Promise<string> {
+  const file = await loadPositions();
+  const position = openPositions(file).find((p) => matchesPosition(p, query));
+  if (!position) return `No open position matching "${query}".`;
+  mergeStrategy(position, patch);
+  await savePositions(file);
+  await writePositionsJson(file);
+  const chain = positionChain(position.chain);
+  const summary = formatStrategy(position.strategy);
+  await appendTradeJournal(
+    `🎯 调整策略 ${position.symbol} [${chain}/${position.mode}] — ${summary}`,
+  );
+  await postToSignalThread(chain, position.token, `🎯 策略更新: ${summary}`).catch(() => {});
+  return `Strategy for ${position.symbol} [${chain}/${position.mode}]: ${summary}`;
 }
 
 export async function exitAllPositions(): Promise<string> {
@@ -262,6 +294,7 @@ async function writePositionsJson(
       remaining_fraction: remainingFraction(p),
       cost_usd: p.costUsd,
       pnl_usd: totalPnlUsd(p, mark),
+      strategy: p.strategy ? formatStrategy(p.strategy) : undefined,
     };
   });
   const payload = JSON.stringify(
@@ -576,7 +609,8 @@ export async function formatPortfolioReport(): Promise<string> {
       lines.push(
         `• 🟢 ${p.symbol ?? p.token} [${chain}/${p.mode}] ${(rem * 100).toFixed(0)}% 剩, ` +
           `开 $${p.entryPriceUsd.toPrecision(6)}${price ? ` 现 $${price.toPrecision(6)}` : ""}${fdvTag(fdvUsd)}, ` +
-          `盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
+          `盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}` +
+          (p.strategy ? `\n    ↳ 策略: ${formatStrategy(p.strategy)}` : ""),
       );
       await sleep(200);
     }

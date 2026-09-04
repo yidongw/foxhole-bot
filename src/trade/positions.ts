@@ -3,7 +3,7 @@ import { writeJsonAtomic } from "../lib/atomic-json.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { TradeMode } from "./config.js";
+import type { TradeMode, TakeProfitTier } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const POSITIONS_PATH = path.resolve(__dirname, "../../data/positions.json");
@@ -16,6 +16,31 @@ export interface PositionExit {
   proceedsUsd: number;
   reason: string;
   txHash?: string;
+}
+
+/**
+ * Per-position exit plan. Every field is an OPTIONAL override of the global
+ * TradeConfig default for THIS position — a smart-money early launch, a pure
+ * momentum chase and a news-driven hold each deserve different rails, so the
+ * AI sets the plan at buy time and can re-tune it as the position develops
+ * (a runner that has clearly de-risked can widen its trail; a thesis that
+ * broke can tighten its stop). Anything left undefined falls back to config.
+ */
+export interface PositionStrategy {
+  /** Exit-everything stop, fraction below entry (e.g. 0.35 = -35%). */
+  hardStopPct?: number;
+  /** Trail: give-back off the high-water mark that closes the rest. */
+  trailStopPct?: number;
+  /** Trail arms only once high-water ≥ entry × this multiple. */
+  trailArmMultiple?: number;
+  /** Tiered take-profit ladder (multiple of entry → fraction to sell). */
+  takeProfits?: TakeProfitTier[];
+  /** Force-close after this many hours regardless of P&L. */
+  maxHoldHours?: number;
+  /** Free-text thesis / plan so the next AI pass reasons against intent. */
+  note?: string;
+  /** Last time the plan was set or adjusted. */
+  updatedAt?: string;
 }
 
 export interface Position {
@@ -38,6 +63,8 @@ export interface Position {
   txHash?: string;
   /** Last LLM advisor consultation (throttling). */
   lastAdvisorAt?: string;
+  /** Per-position exit plan; overrides global config where set. */
+  strategy?: PositionStrategy;
 }
 
 export interface PositionsFile {
@@ -113,6 +140,80 @@ export function totalPnlUsd(p: Position, currentPriceUsd?: number): number {
       ? remainingFraction(p) * p.amountTokens * currentPriceUsd
       : 0;
   return realizedUsd(p) + unrealized - p.costUsd;
+}
+
+/**
+ * Clamp a strategy patch to sane ranges before it touches a position. The AI
+ * (or a manual command) supplies these, so guard against fat-finger values
+ * that would disable a rail: stops must stay in (0,0.95], the trail arm ≥1,
+ * TP multiples >1 with fractions in (0,1], hold hours positive. Undefined
+ * fields are left untouched (they fall back to config).
+ */
+export function sanitizeStrategy(patch: PositionStrategy): PositionStrategy {
+  const out: PositionStrategy = {};
+  const pct = (v: unknown): number | undefined => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 && n <= 0.95 ? n : undefined;
+  };
+  if (patch.hardStopPct !== undefined) out.hardStopPct = pct(patch.hardStopPct);
+  if (patch.trailStopPct !== undefined) out.trailStopPct = pct(patch.trailStopPct);
+  if (patch.trailArmMultiple !== undefined) {
+    const n = Number(patch.trailArmMultiple);
+    if (Number.isFinite(n) && n >= 1) out.trailArmMultiple = n;
+  }
+  if (patch.maxHoldHours !== undefined) {
+    const n = Number(patch.maxHoldHours);
+    if (Number.isFinite(n) && n > 0) out.maxHoldHours = n;
+  }
+  if (patch.takeProfits !== undefined) {
+    const tiers = (patch.takeProfits ?? [])
+      .map((t) => ({ atMultiple: Number(t.atMultiple), sellFraction: Number(t.sellFraction) }))
+      .filter(
+        (t) =>
+          Number.isFinite(t.atMultiple) &&
+          t.atMultiple > 1 &&
+          Number.isFinite(t.sellFraction) &&
+          t.sellFraction > 0 &&
+          t.sellFraction <= 1,
+      )
+      .sort((a, b) => a.atMultiple - b.atMultiple);
+    out.takeProfits = tiers;
+  }
+  if (patch.note !== undefined) out.note = String(patch.note).slice(0, 300);
+  // Drop keys that sanitized to undefined so they don't shadow config as junk.
+  for (const k of Object.keys(out) as (keyof PositionStrategy)[]) {
+    if (out[k] === undefined) delete out[k];
+  }
+  return out;
+}
+
+/** Apply a sanitized patch onto a position's existing strategy (field-wise). */
+export function mergeStrategy(p: Position, patch: PositionStrategy): void {
+  const clean = sanitizeStrategy(patch);
+  const next: PositionStrategy = { ...(p.strategy ?? {}), ...clean };
+  next.updatedAt = new Date().toISOString();
+  p.strategy = next;
+}
+
+/** One-line human summary of the rails a position is running (for reports). */
+export function formatStrategy(s: PositionStrategy | undefined): string {
+  if (!s) return "默认策略";
+  const parts: string[] = [];
+  if (s.hardStopPct !== undefined) parts.push(`硬止损 -${(s.hardStopPct * 100).toFixed(0)}%`);
+  if (s.trailStopPct !== undefined || s.trailArmMultiple !== undefined) {
+    const arm = s.trailArmMultiple !== undefined ? `${s.trailArmMultiple}x起` : "";
+    const give = s.trailStopPct !== undefined ? `-${(s.trailStopPct * 100).toFixed(0)}%回撤` : "";
+    parts.push(`移动止损 ${[arm, give].filter(Boolean).join(" ")}`.trim());
+  }
+  if (s.takeProfits?.length) {
+    parts.push(
+      "止盈 " +
+        s.takeProfits.map((t) => `${t.atMultiple}x→${(t.sellFraction * 100).toFixed(0)}%`).join("/"),
+    );
+  }
+  if (s.maxHoldHours !== undefined) parts.push(`最长持有 ${s.maxHoldHours}h`);
+  if (s.note) parts.push(`「${s.note}」`);
+  return parts.length ? parts.join(", ") : "默认策略";
 }
 
 export function recordExit(p: Position, exit: PositionExit): void {
