@@ -74,7 +74,8 @@ export function checkPerpEntry(
   if (findOpenPerp(file, candidate.symbol)) {
     return { ok: false, reason: `${candidate.symbol} 已有持仓` };
   }
-  if (openPerps(file).length >= config.maxOpenPerps) {
+  // <=0 不限持仓数(与现货同约定);风险仍由 24h 名义敞口上限 + 账户现金兜底。
+  if (config.maxOpenPerps > 0 && openPerps(file).length >= config.maxOpenPerps) {
     return { ok: false, reason: `已达最大持仓数 (${config.maxOpenPerps})` };
   }
 

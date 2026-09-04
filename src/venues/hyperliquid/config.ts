@@ -88,7 +88,8 @@ export function loadHlConfig(): HlConfig {
     defaultLeverage: num("HL_DEFAULT_LEVERAGE", 3),
     maxLeverage: num("HL_MAX_LEVERAGE", 5),
     marginMode: marginMode === "cross" ? "cross" : "isolated",
-    maxOpenPerps: num("HL_MAX_OPEN_PERPS", 3),
+    // <=0 = 不限(与现货 TRADE_MAX_OPEN_POSITIONS 同约定,默认不限)。
+    maxOpenPerps: num("HL_MAX_OPEN_PERPS", 0),
     maxDailyNotionalUsd: num("HL_MAX_DAILY_NOTIONAL_USD", 600),
     hardStopPct: num("HL_HARD_STOP_PCT", 0.15),
     trailStopPct: num("HL_TRAIL_STOP_PCT", 0.1),

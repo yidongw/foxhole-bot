@@ -79,7 +79,9 @@ export function loadTradeConfig(): TradeConfig {
     maxDailySpendUsd: num("TRADE_MAX_DAILY_USD", 200),
     paperStartUsd: num("TRADE_PAPER_START_USD", 1000),
     autoEntry: process.env.TRADE_AUTO_ENTRY === "1",
-    maxOpenPositions: num("TRADE_MAX_OPEN_POSITIONS", 3),
+    // <=0 = unlimited. Default unlimited (2026-09-04): slots kept blocking
+    // entries at 3/3 while risk is already bounded by the 24h capital cap.
+    maxOpenPositions: num("TRADE_MAX_OPEN_POSITIONS", 0),
     minEntryLiquidityUsd: num("TRADE_MIN_LIQUIDITY_USD", 50_000),
     minEntryLiquiditySmartMoneyUsd: num("TRADE_MIN_LIQUIDITY_SMART_MONEY_USD", 15_000),
     minEntryLiquidityMomentumUsd: num("TRADE_MIN_LIQUIDITY_MOMENTUM_USD", 100_000),

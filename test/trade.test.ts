@@ -100,6 +100,9 @@ describe("checkEntry", () => {
       makePosition({ id: "c", token: "0x3000000000000000000000000000000000000000" }),
     ]);
     expect(checkEntry(CONFIG, full, CANDIDATE).reason).toMatch(/max open/);
+
+    // maxOpenPositions <= 0 = unlimited (user opt-out of the slot cap).
+    expect(checkEntry({ ...CONFIG, maxOpenPositions: 0 }, full, CANDIDATE).ok).toBe(true);
   });
 
   it("enforces the daily spend cap", () => {

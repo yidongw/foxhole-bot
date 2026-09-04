@@ -373,3 +373,10 @@ replayTokenHistory(实拉 DexPaprika OHLCV)判定 passed=pump,firstAlert 06-14 �
   kilo 前缀剥掉(kPEPE→PEPE)后全链搜 DexScreener 取最深池 fdv;HIP-3 股票
   (XYZ-CL)无现货搜不到 → 省略;纯展示,失败吞掉不影响下单风控。
 - 实测: PONS $486M / kPEPE→PEPE $1.5B / XYZ-CL 省略。251/251,typecheck 绿。
+
+## 2026-09-04 — 取消持仓数量上限(用户指示"不要有任何仓位数")
+NUDES/BONER/PONS 占满 3 槽后新信号全被 `max open positions (3)` 挡掉。
+现货 TRADE_MAX_OPEN_POSITIONS 与永续 HL_MAX_OPEN_PERPS 均改为 <=0=不限,
+默认 0。风险边界不变:现货仍有 24h $200 资金占用上限+账户现金,永续仍有
+24h $600 名义敞口上限,单笔 $50/$25 clamp、止损、安全门全保留——限的是钱,
+不再限槽位。251/251,typecheck 绿。

@@ -74,7 +74,9 @@ export function checkEntry(
   if (findOpen(file, candidate.token)) {
     return { ok: false, reason: "position already open" };
   }
-  if (openPositions(file).length >= config.maxOpenPositions) {
+  // <=0 disables the count cap (user opt-out 2026-09-04: "不要有任何仓位数" —
+  // risk stays bounded by the 24h capital-at-risk cap + account cash, not slots).
+  if (config.maxOpenPositions > 0 && openPositions(file).length >= config.maxOpenPositions) {
     return { ok: false, reason: `max open positions (${config.maxOpenPositions})` };
   }
 
