@@ -20,9 +20,11 @@ export function fdvTag(fdvUsd?: number): string {
 /** Internal chain name → gmgn.ai URL slug, for the chains gmgn indexes. */
 const GMGN_SLUG: Record<string, string> = {
   solana: "sol",
+  sol: "sol",
   bsc: "bsc",
   base: "base",
   ethereum: "eth",
+  eth: "eth",
 };
 
 /**
@@ -39,4 +41,28 @@ export function gmgnLink(chain?: string, address?: string): string {
   }
   const slug = GMGN_SLUG[chain];
   return slug ? `[🔍 GMGN](https://gmgn.ai/${slug}/token/${address})` : "";
+}
+
+/**
+ * Shared token link row (DexScreener/GMGN/GT/Explorer/Long) — matches the
+ * standard signal card so smart-money signals look the same as the rest.
+ */
+export function tokenLinks(chain: string, token: string, pairAddress?: string): string {
+  const c = chain.toLowerCase();
+  const links = [
+    `[📈 DexScreener](https://dexscreener.com/${c}/${pairAddress ?? token})`,
+  ];
+  const slug = GMGN_SLUG[c];
+  if (slug) links.push(`[🔍 GMGN](https://gmgn.ai/${slug}/token/${token})`);
+  if (pairAddress)
+    links.push(
+      `[🦎 GT](https://www.geckoterminal.com/${c === "ethereum" ? "eth" : c}/pools/${pairAddress})`,
+    );
+  if (c === "robinhood") {
+    links.push(
+      `[🔗 Explorer](https://robinhoodchain.blockscout.com/token/${token})`,
+      `[🏠 Long](https://app.long.xyz/tokens/${token})`,
+    );
+  }
+  return links.join(" · ");
 }
