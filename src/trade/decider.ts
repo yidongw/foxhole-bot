@@ -135,7 +135,14 @@ export async function maybeSpawnDecider(trigger: string): Promise<boolean> {
         "--model",
         process.env.AI_DECIDER_MODEL ?? "claude-opus-5",
       ],
-      { cwd: ROOT, stdio: ["ignore", logFd, logFd] },
+      {
+        cwd: ROOT,
+        stdio: ["ignore", logFd, logFd],
+        // Max extended-thinking budget: the decider makes irreversible buy/skip
+        // calls on thin real-time data — decision quality matters more than the
+        // few extra seconds of latency. 31999 is Claude Code's ceiling.
+        env: { ...process.env, MAX_THINKING_TOKENS: process.env.AI_DECIDER_THINKING ?? "31999" },
+      },
     );
     await writeJsonAtomic(LOCK_PATH, {
       pid: child.pid ?? 0,
