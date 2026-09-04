@@ -181,6 +181,20 @@ describe("classifyFlash", () => {
     expect(classifyFlash("Binance将上线MarsCoin(MARSCOIN)").action).toBe("wake");
   });
 
+  it("flags watched-token liquidations as negative exit signals", () => {
+    // 2026-09-04: 关注币的多单遭清算/爆仓是看空退出信号,不该以中性 watched 叫醒。
+    const c = classifyFlash(
+      "James Wynn持有的比特币和CASHCAT多单一天即遭清算",
+      ["CASHCAT"],
+    );
+    expect(c.action).toBe("wake");
+    expect(c.negative).toBe(true);
+    // 中性的"清算所/清算网络"不误判为负面
+    expect(
+      classifyFlash("某清算所上线新的结算网络", ["CASHCAT"]).negative,
+    ).toBe(false);
+  });
+
   it("does not seed exchange/index tickers as hot symbols", () => {
     // extractSymbols 曾把 OKX/SPY/QQQ 抓成 hotSymbols → 后续误叫醒
     for (const junk of ["OKX", "SPY", "QQQ", "BITGET", "UPBIT"]) {
