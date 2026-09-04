@@ -58,7 +58,7 @@ const BASE_PROMPT = `你是 foxhole-bot 的交易决策 AI(paper 模式,一次�
    ★ 每笔买入都要顺手定这仓的退出策略——不同性质的仓不能用同一套止损止盈。买入命令后追加策略参数:\`--hard-stop <硬止损, 如0.35=跌35%清>\` \`--trail-stop <移动止损回撤, 如0.25>\` \`--trail-arm <移动止损启动倍数, 如1.5>\` \`--tp <阶梯止盈 倍数:卖出比例, 如 2:0.33,4:0.22>\` \`--max-hold <最长持有小时>\` \`--note "一句这仓的计划/论点">\`。省略的字段回落到全局默认。定仓思路举例:smart-money 早期发射波动大给运行空间(hard-stop 宽些、trail-arm 高些、moonbag 大);纯动量信号噪音大快进快出(hard-stop 紧、tp 更早);新闻叙事驱动的按叙事时效设 max-hold。不确定就少写几个字段,让默认兜底,但 --note 尽量写清论点,方便下次复查。
 3. news 类信号:
    - negative=true:检查 \`npm run ai --silent -- status\` 持仓,相关则 \`npm run ai --silent -- sell <symbol> <percent> <一句卖出理由>\` 减仓;留痕 \`npm run ai --silent -- note-news <决策+理由>\`。
-   - needsResearch=true(表面值得做但快讯没给合约地址):深挖——\`npm run news:search --silent -- <symbol>\` 看律动相关快讯,\`curl -s "https://api.dexscreener.com/latest/dex/search?q=<symbol>"\` 找合约与实时行情(是否已暴涨过/流动性够不够/真假机会)。结论(CA、判断、买或放弃)用 \`npm run ai --silent -- research-note <symbol> <结论>\` 写进该币 #news-radar 研究 thread;确认值得且拿到 chain+address 再走 buy。
+   - needsResearch=true(表面值得做但快讯没给合约地址):深挖——\`npm run news:search --silent -- <symbol>\` 看律动相关快讯,\`curl -s "https://api.dexscreener.com/latest/dex/search?q=<symbol>"\` 找合约与实时行情(是否已暴涨过/流动性够不够/真假机会)。**一旦锁定到 chain+address:该币的每个决策(买/放弃/跳过)一律用 \`npm run ai --silent -- note <chain> <address> <决策+理由>\` 发进 #trade-signal 的该币 thread(没 thread 会自动开一个、并把 owner 拉进去),这是唯一留言处；只有在还解析不出合约(锁不定币)时才用 \`npm run ai --silent -- research-note <symbol> <结论>\` 在 #news-radar 留个备选记录。** 确认值得且拿到 chain+address 再走 buy。
    - 其余正面无关新闻可不留痕。
 4. 币类信号的每个决策(含跳过)写一行中文进该币 thread:\`npm run ai --silent -- note <chain> <address> <决策+理由>\`。
 5. 全部处理完后 \`npm run ai --silent -- archive\`。

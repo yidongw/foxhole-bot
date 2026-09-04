@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import type { SignalEvaluation } from "../signals/types.js";
 import { resolveWebhook } from "./routes.js";
 import { fdvTag, GMGN_SLUG as GMGN_CHAIN } from "../lib/format.js";
+import { fetchTokenPairs, selectDeepestBasePair } from "../dex/dexscreener.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const THREADS_PATH = path.resolve(__dirname, "../../data/signal-threads.json");
@@ -331,6 +332,65 @@ export async function postNewsCardThread(
 }
 
 /** Post trade/AI activity into a token's signal thread (best-effort). */
+/**
+ * Ensure a #trade-signal card+thread exists for a token known only by
+ * chain+address. This is the news→signal unification: a flash with no contract
+ * first lands in #news-radar, but the moment the decider resolves the CA its
+ * decisions must move into a real trade-signal thread (owner auto-joined), not
+ * stay buried in #news-radar. Creates the card+thread if missing.
+ */
+export async function ensureSignalThread(
+  chain: string,
+  address: string,
+): Promise<ThreadEntry | undefined> {
+  const webhook = resolveWebhook("signal", chain);
+  const channelId = SIGNAL_CHANNEL_IDS[chain];
+  if (!webhook || !channelId || !process.env.DISCORD_BOT_TOKEN) return undefined;
+  const key = `${chain}:${address.toLowerCase()}`;
+  const map = await loadMap();
+  if (map[key]?.threadId) return map[key];
+
+  let symbol = address.slice(0, 8);
+  try {
+    const p = selectDeepestBasePair(await fetchTokenPairs(address, chain), address);
+    if (p?.baseToken?.symbol) symbol = p.baseToken.symbol;
+  } catch {}
+  const label =
+    symbol && symbol.toUpperCase() !== chain.toUpperCase() ? symbol : address.slice(0, 8);
+  const now = new Date().toISOString();
+  const card = [
+    `🎯 **${label}** [${chain.toUpperCase()}] — 新闻锁定 / decider 深挖`,
+    `CA: \`${address}\``,
+    `[📈 DexScreener](https://dexscreener.com/${chain}/${address})` +
+      (GMGN_CHAIN[chain] ? `  [🔍 GMGN](https://gmgn.ai/${GMGN_CHAIN[chain]}/token/${address})` : ""),
+  ].join("\n");
+  const res = await fetch(`${webhook}?wait=true`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: card }),
+  }).catch(() => undefined);
+  if (!res?.ok) return undefined;
+  const entry: ThreadEntry = {
+    messageId: ((await res.json()) as { id: string }).id,
+    threadId: "",
+    symbol: label,
+    firstAt: now,
+    lastAt: now,
+    count: 1,
+  };
+  const tres = await discordApi(
+    `/channels/${channelId}/messages/${entry.messageId}/threads`,
+    "POST",
+    { name: `${label}·${chain}` },
+  );
+  if (!tres.ok) return undefined;
+  entry.threadId = ((await tres.json()) as { id: string }).id;
+  await addOwnerToThread(entry.threadId);
+  map[key] = entry;
+  await saveMap(map);
+  return entry;
+}
+
 export async function postToSignalThread(
   chain: string,
   address: string,
@@ -338,8 +398,10 @@ export async function postToSignalThread(
 ): Promise<boolean> {
   const webhook = resolveWebhook("signal", chain);
   if (!webhook) return false;
-  const map = await loadMap();
-  const entry = map[`${chain}:${address.toLowerCase()}`];
+  let entry = (await loadMap())[`${chain}:${address.toLowerCase()}`];
+  // News→signal unification: if no thread yet (decider just resolved a news
+  // coin's CA), open one in #trade-signal instead of failing back to #news-radar.
+  if (!entry?.threadId) entry = await ensureSignalThread(chain, address);
   if (!entry?.threadId) return false;
   const res = await fetch(`${webhook}?thread_id=${entry.threadId}`, {
     method: "POST",
