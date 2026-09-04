@@ -136,7 +136,7 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
     await writePositionsJson(file, { [position.token.toLowerCase()]: price });
     const pnl = totalPnlUsd(position, price);
     await appendTradeJournal(
-      `📤 手动平仓 ${position.symbol} [${chain}/${position.mode}] 卖出 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
+      `📤 手动平仓 ${position.symbol} [${chain}/${position.mode}] 卖出 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} | 策略: ${formatStrategy(position.strategy)}`,
     );
     return (
       `Sold ${(sellFraction * 100).toFixed(0)}% of ${position.symbol} [${chain}/${position.mode}] ` +
@@ -221,19 +221,19 @@ export async function aiBuy(
   file.positions.push(position);
   await savePositions(file);
   await writePositionsJson(file);
-  const stratLine = opts?.strategy ? `\n策略: ${formatStrategy(position.strategy)}` : "";
+  const strat = formatStrategy(position.strategy);
   await appendTradeJournal(
-    `📥 AI开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 理由: ${reason}${opts?.strategy ? ` | 策略: ${formatStrategy(position.strategy)}` : ""}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
+    `📥 AI开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 理由: ${reason} | 策略: ${strat}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
   );
   await notify(
     `🤖 ${modeTag(config)} 🟢 买入 **${position.symbol}** [${chain}]${fdvTag(analysis.fdvUsd)}\n` +
       `$${clamped.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)\n` +
-      `理由: ${reason}${stratLine}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
+      `理由: ${reason}\n策略: ${strat}${fill.txHash ? `\nTx: ${fill.txHash}` : ""}`,
     {},
     chain,
     position.token,
   );
-  return `✅ 已开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚)${opts?.strategy ? ` | 策略: ${formatStrategy(position.strategy)}` : ""}`;
+  return `✅ 已开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) | 策略: ${strat}`;
 }
 
 /**
@@ -435,13 +435,14 @@ export async function processSignals(
       file.positions.push(position);
       opened.push(position);
       await appendTradeJournal(
-        `📥 开仓 ${position.symbol} [${chain}/${config.mode}] $${config.usdPerTrade} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 触发: ${position.trigger}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
+        `📥 开仓 ${position.symbol} [${chain}/${config.mode}] $${config.usdPerTrade} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) — 触发: ${position.trigger} | 策略: ${formatStrategy(position.strategy)}${fill.txHash ? ` tx:${fill.txHash}` : ""}`,
       );
       await notify(
         [
           `${modeTag(config)} 🟢 买入 **${position.symbol ?? position.token}** [${chain}]${fdvTag(ev.input.fdvUsd)}`,
           `$${config.usdPerTrade.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
           `触发: ${position.trigger}`,
+          `策略: ${formatStrategy(position.strategy)}`,
           fill.txHash ? `Tx: ${fill.txHash}` : "",
         ]
           .filter(Boolean)
@@ -541,13 +542,14 @@ export async function managePositions(
         });
         const pnl = totalPnlUsd(position, price);
         await appendTradeJournal(
-          `📤 平仓 ${position.symbol} [${chain}/${config.mode}] 卖出 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)} — 原因: ${action.reason} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status})`,
+          `📤 平仓 ${position.symbol} [${chain}/${config.mode}] 卖出 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)} — 原因: ${action.reason} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status}) | 策略: ${formatStrategy(position.strategy)}`,
         );
         await notify(
           [
             `${modeTag(config)} 📤 **${position.symbol ?? position.token}** [${chain}] — ${action.reason}`,
             `平 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}`,
             `仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status})`,
+            `策略: ${formatStrategy(position.strategy)}`,
             fill.txHash ? `Tx: ${fill.txHash}` : "",
           ]
             .filter(Boolean)
