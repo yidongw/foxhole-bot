@@ -16,3 +16,34 @@ export function fdvTag(fdvUsd?: number): string {
   const s = fmtUsdCompact(fdvUsd);
   return s ? ` · FDV ${s}` : "";
 }
+
+const GMGN_CHAIN: Record<string, string> = {
+  solana: "sol",
+  sol: "sol",
+  bsc: "bsc",
+  base: "base",
+  ethereum: "eth",
+  eth: "eth",
+};
+
+/** Shared token link row (DexScreener/GMGN/GT/Explorer/Long) — matches the
+ *  standard signal card so smart-money signals look the same as the rest. */
+export function tokenLinks(chain: string, token: string, pairAddress?: string): string {
+  const c = chain.toLowerCase();
+  const links = [
+    `[📈 DexScreener](https://dexscreener.com/${c}/${pairAddress ?? token})`,
+  ];
+  const g = GMGN_CHAIN[c];
+  if (g) links.push(`[🔍 GMGN](https://gmgn.ai/${g}/token/${token})`);
+  if (pairAddress)
+    links.push(
+      `[🦎 GT](https://www.geckoterminal.com/${c === "ethereum" ? "eth" : c}/pools/${pairAddress})`,
+    );
+  if (c === "robinhood") {
+    links.push(
+      `[🔗 Explorer](https://robinhoodchain.blockscout.com/token/${token})`,
+      `[🏠 Long](https://app.long.xyz/tokens/${token})`,
+    );
+  }
+  return links.join(" · ");
+}
