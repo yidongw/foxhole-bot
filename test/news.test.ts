@@ -195,6 +195,13 @@ describe("classifyFlash", () => {
     ).toBe(false);
   });
 
+  it("tags watched-token dump/sell-off (砸盘/抛售) as negative", () => {
+    // 2026-09-04: 关注币被大单砸盘/抛售是看空退出信号,同清算一类。
+    const c = classifyFlash("巨鲸大单砸盘PONS，价格短时跳水", ["PONS"]);
+    expect(c.action).toBe("wake");
+    expect(c.negative).toBe(true);
+  });
+
   it("does not seed exchange/index tickers as hot symbols", () => {
     // extractSymbols 曾把 OKX/SPY/QQQ 抓成 hotSymbols → 后续误叫醒
     for (const junk of ["OKX", "SPY", "QQQ", "BITGET", "UPBIT"]) {
