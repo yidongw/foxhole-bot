@@ -202,6 +202,16 @@ describe("classifyFlash", () => {
     expect(c.negative).toBe(true);
   });
 
+  it("does not seed numbers, chain names, or majors as hot symbols", () => {
+    // 2026-09-04: 暴涨→wake 放开后,extractSymbols 把「18932」数字、BSC 链名、HYPE 大币
+    // 种进 hotSymbols → 后续误叫醒。纯数字/链名/大币都不该是 token。
+    expect(extractSymbols("某币「18932」创新高")).not.toContain("18932");
+    expect(extractSymbols("BSC链新币股meme币Stonks上线")).not.toContain("BSC");
+    expect(extractSymbols("HYPE今晨突破88美元创新高")).not.toContain("HYPE");
+    // 真 meme(Stonks/小写名)仍保留
+    expect(extractSymbols("BSC链新币股meme币Stonks上线")).toContain("Stonks");
+  });
+
   it("does not seed exchange/index tickers as hot symbols", () => {
     // extractSymbols 曾把 OKX/SPY/QQQ 抓成 hotSymbols → 后续误叫醒
     for (const junk of ["OKX", "SPY", "QQQ", "BITGET", "UPBIT"]) {

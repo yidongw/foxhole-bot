@@ -186,7 +186,9 @@ const SYMBOL_STOPLIST = new Set([
   "GLM", "BGBTC", "GPT", "QWEN", "KIMI", "GROK", "LLAMA", "GEMINI",
   // 主流币 — 不是我们交易的 meme，点名它们不构成“具体标的”
   "ARB", "OP", "SUI", "APT", "TON", "TRX", "XRP", "ADA", "AVAX", "DOT",
-  "LINK", "UNI", "AAVE", "LDO", "CRV",
+  "LINK", "UNI", "AAVE", "LDO", "CRV", "HYPE",
+  // 链名 — "BSC链…meme币Stonks"里会被当 token 抓,BSC 是链不是币(2026-09-04)
+  "BSC", "BASE", "SOLANA", "ARBITRUM",
 ]);
 
 /**
@@ -202,6 +204,8 @@ export function extractSymbols(title: string): string[] {
   }
   for (const m of title.matchAll(/「([^」\s]{1,12})」/g)) {
     const name = m[1];
+    // 纯数字(「18932」这种价格/编号)绝不是 token symbol,别种进 hotSymbols(2026-09-04)。
+    if (/^\d+$/.test(name)) continue;
     // 真 meme 名(「牛来」)一般 ≤3 个汉字或含拉丁/数字;≥4 的纯中文引号内容多是
     // 促销/叙事短语(「交易赚币」「借壳收割」),别当 token 种进 hotSymbols 自我循环叫醒。
     const pureCjk = /^[一-鿿]+$/.test(name);
