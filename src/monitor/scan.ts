@@ -66,6 +66,7 @@ import { loadTradeConfig } from "../trade/config.js";
 import { checkTokenSafety } from "../trade/safety.js";
 import { resolveWebhook } from "../notify/routes.js";
 import { appendAiInbox } from "../notify/ai-inbox.js";
+import { isDenylisted } from "../review/denylist.js";
 import { maybeSpawnDecider } from "../trade/decider.js";
 import { postThreadedSignal } from "../notify/signal-threads.js";
 import { diffStockRegistry, newlyListedQuote } from "../chains/robinhood/stock-watch.js";
@@ -240,6 +241,14 @@ async function maybeAlert(
   options: ScanOptions,
 ): Promise<ScanHit | undefined> {
   if (LEVEL_RANK[evaluation.level] < minRank) return undefined;
+
+  // Denylisted tokens are silenced across the WHOLE pipeline, not just the
+  // trade gate: no watch/alert feeds, no threads, no inbox, no decider wake.
+  // (pussy 2026-09-04: a verified honeypot kept getting "strategy analysis"
+  // posts because only trade-grade signals consulted the safety gate.)
+  if (await isDenylisted(evaluation.input.chain ?? "robinhood", evaluation.input.address)) {
+    return undefined;
+  }
 
   const upgraded = isLevelUpgrade(prevLevel, evaluation.level);
   const canSend = shouldSendAlert(state, key, evaluation.level, evaluation.triggers);

@@ -1,4 +1,5 @@
 import { appendFile, mkdir, readFile, rename } from "node:fs/promises";
+import { isDenylisted } from "../review/denylist.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,6 +30,9 @@ export interface InboxSignal {
 }
 
 export async function appendAiInbox(ev: SignalEvaluation): Promise<void> {
+  // A denylisted token must never wake the decider (defense in depth — the
+  // scanner also filters, but news/other producers reuse these writers).
+  if (await isDenylisted(ev.input.chain ?? "robinhood", ev.input.address)) return;
   const entry: InboxSignal = {
     at: new Date().toISOString(),
     chain: ev.input.chain ?? "robinhood",
@@ -85,6 +89,7 @@ export async function appendAiInboxSmartMoney(entry: {
   usd?: number;
   poolId?: string;
 }): Promise<void> {
+  if (await isDenylisted(entry.chain, entry.address)) return;
   const line: InboxSignal = {
     at: new Date().toISOString(),
     chain: entry.chain,
