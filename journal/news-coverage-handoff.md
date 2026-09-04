@@ -3,7 +3,29 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
-## 2026-09-04 15:0x UTC 第 18 轮(ultrathink:哑弹分析终于解封 + 退出信号再补)
+## 2026-09-04 17:0x UTC 第 19 轮(ultrathink:验证暴涨→wake 策略生效 + 种子卫生收尾)
+
+### ① 新闻(**验证了策略 + 修了放开后的种子污染**,commit f095b54,已部署)
+- **暴涨→wake 策略(上轮 f9726a4/49f2b2d)生产验证生效** ✅:日志实证新 meme 现在真 wake 了——
+  `BSC链新币股meme币Stonks(上线3h)`、`中文meme币「龙虾」突破1亿`、`FATCOIN单日涨3倍`
+  都发了 NEWS SIGNAL(以前只 note)。累计 news-decider spawns 149,decider 在收。
+- **但放开后 extractSymbols 种了脏 hotSymbols**:`18932`(引号内数字)、`BSC`(链名)进了热点币,
+  会变 `watched:` 噪音;`HYPE`(大币)也会经 momentum 反复叫醒。修:① 引号内纯数字不入
+  hotSymbols;② 停用词加 BSC/BASE/SOLANA/ARBITRUM(链名)+ HYPE(大币)。+1 回归(共 32)。
+  (现存 18932/BSC 是修前种下的,随 TTL 清零;停用词已挡它们不再命中。)
+- 回放:promoted 暴涨里唯一非-meme 是 HYPE(现已停用词挡住 seeding,单次 momentum-wake
+  会 decider 跳过,无害)。真 meme 暴涨(Stonks/龙虾)按策略 wake→研究 thread→decider 挖 CA。
+
+### ② 覆盖率(健康)
+- robinhood ≥100% 对照干净(8 mover 全在册,**1635 币**)。labeled 哑弹分析上轮已做(健康,不 tune)。
+
+### ③ 安全(仅新闻侧,无新)/ ④ 健康(绿)
+- src/news/ 无私钥/webhook 泄漏。npm audit 同旧。**注入面/执行层不审(归他人)。**
+- tsc 干净、npm test **307 passed**、monitor 重启健康(pid 64704)、BN 未复现、0 uncaught。
+
+**下轮重点:** ① 盯放开后新 wake 的**质量**:decider 有没有真挖到 CA 并决策(对照律动暴涨 vs
+研究 thread 产出),以及有没有新的非-meme 大币/链名漏进 wake 需再加停用词。② junk(18932/BSC/
+GLM/BGBTC/交易赚币)随各自 TTL 从 hotSymbols 清零复查。③ 守 robinhood 覆盖 + 碰撞审计。
 
 ### ② 覆盖率 + 哑弹(**labeled 解封,做成了真哑弹分析** — 本轮头号)
 - **labeled 从卡了 10 轮的 15 涨到 21**(review 循环修了 grading:按收盘评分+账本竞态),grader
