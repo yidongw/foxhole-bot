@@ -42,5 +42,17 @@
     "liquidityUsd": 189713.79,
     "kind": "coverage_miss",
     "detectedAt": "2026-09-03T18:07:44.646Z"
+  },
+  {
+    "chain": "bsc",
+    "poolId": "0xa2b1926Cb477e92445Cf70602f1A7200361F761D",
+    "address": "0xe9Bc5C6A86caA44fD7b469bf3cc7c563E4F77777",
+    "symbol": "Max",
+    "priceChange24h": 104,
+    "volume24hUsd": 4613355,
+    "liquidityUsd": 553194,
+    "fdvUsd": 17188357,
+    "kind": "threshold_miss",
+    "detectedAt": "2026-09-04T15:18:26.092Z"
   }
 ]
