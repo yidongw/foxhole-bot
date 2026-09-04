@@ -3,6 +3,45 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-04 05:0x UTC 第 13 轮(ultrathink:纠正判定层认知 + 覆盖假阳性核查,无代码改动)
+
+本轮两个深挖都收敛到"按设计工作",但纠正了我自己 6 轮的错误认知。
+
+### ① 新闻(**纠正:判定层 judge 从来没在跑,且是设计如此**)
+- **我 R6–R12 一直说"judge 在跑、0 拒绝=都合规"——错了**。实测:`ANTHROPIC_API_KEY`
+  **不在 .env、也不在 monitor 进程环境里**(R7 我误判它在)。judgeFlash 首行
+  `if(!ANTHROPIC_API_KEY) return undefined` → **judge 永远 fail-open,从未真正判定过**。
+- **但这是设计内、不是 bug**:poll.ts 现逻辑注释明说"judge 不可用(部署机没
+  ANTHROPIC_API_KEY 是常态)绝不能吞掉信号",**只有 judge 明确判否才降级**;judge 缺席时
+  所有 wake 照常进 decider(真正深度判断由 decider 的 `claude -p` 子进程做,它用 CLI 自身
+  鉴权,不依赖 ANTHROPIC_API_KEY)。生产实测:49 NEWS SIGNAL、0 降级、0 📰🚫 —— 全部
+  正常送达 decider,没有信号被误埋。→ **净行为正确,只是"judge 层"名存实亡,decider 是真门。**
+- 回放 43 wake 全 legit(USELESS/PONS/CASHCAT/MARSCOIN + 股票永续 listing 放行);无新噪音/漏。
+- 「」junk 仍冻结(02:47Z/02:50Z,距 TTL ~21h)。
+
+### ② 覆盖率(**新角度:骗子/dust 有没有漏进告警**)
+- **denylist 工作正常**:7 条(Pumpcat/DEBTCOIN/UBIK/AAPL/SHRUB…,reason=user garbage/scam);
+  **全 200 条 pending 里 0 条命中 denylist** → 无骗子漏进告警。近 25 告警 **0 条 liq<$20k**
+  → 无微盘 dust 漏进(smart_money $15k 门也没带脏货)。
+- **小挂账(归 review/scan)**:SHRUB(已 denylist 的 scam)仍在 monitor-state 被每 tick
+  扫描(R5 movers feed 会发现它,denylist 在告警门正确拦下)—— 无假告警,只是白扫,
+  可考虑发现层跳过/清除 denylist 币省算力。非我域不改。
+- robinhood ≥100% 对照干净(6 mover 全在册,**1207 币**)。
+
+### ③ 安全(承接 R12)
+- R12 的预算拆除注入面重估仍成立:paper 姿态钱包受保护。本轮补充:decider 用 claude CLI
+  鉴权(非 ANTHROPIC_API_KEY),judge 用 SDK key(缺席)——两条鉴权链独立。无新私钥/webhook 泄漏。
+- P2(注入面爆炸半径随 cap 拆除放大)、TRADE_MODE 翻 live 风险仍挂账。
+
+### ④ 健康(绿)
+- tsc 干净、npm test **261 passed**、monitor 存活(pid 14036,随 glitch-guard 部署重启)、
+  BN 未复现、0 uncaught、无停摆。review 循环已修 trail-stop 假止损(我 R6 复盘提的)。
+
+**下轮重点:** ① 别再说"judge 在跑"——它名存实亡,decider 才是真门。② TRADE_MODE 翻 live 立即评估注入面。
+③ 「」junk 09-05 02:47Z 后复查消失。④ grader 产新标签做哑弹分析。
+
+---
+
 ## 2026-09-04 03:0x UTC 第 12 轮(ultrathink 深挖:预算上限拆除的安全重估 + 从未查过的角度)
 
 用户要求 ultrathink,本轮不走例行三查,专挖盲区。无代码改动,但产出一份实质安全重估。
