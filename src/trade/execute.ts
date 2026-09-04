@@ -2,11 +2,14 @@ import { formatUnits, parseUnits, type Address } from "viem";
 import { executeSwap, MAINNET_ADDRESSES, parseUsdg } from "hoodchain";
 
 import { getTradingClient } from "../chain/client.js";
+import { okxSwap } from "../venues/okx/swap.js";
 import type { TradeConfig } from "./config.js";
 import type { Position } from "./positions.js";
 
 /** Long.xyz memes are DERC20s with 18 decimals. */
 const TOKEN_DECIMALS = 18;
+/** USDG on RB chain is 6 decimals. */
+const USDG_DECIMALS = 6;
 
 export interface TradeFill {
   priceUsd: number;
@@ -32,6 +35,21 @@ export async function buy(
 ): Promise<TradeFill> {
   if (config.mode === "paper") {
     return { priceUsd, amountTokens: usd / priceUsd };
+  }
+
+  if (config.router === "okx") {
+    const { amountOutBase, toDecimals, txHash } = await okxSwap(
+      MAINNET_ADDRESSES.usdg as Address,
+      token,
+      parseUnits(usd.toFixed(USDG_DECIMALS), USDG_DECIMALS),
+      config.slippageBps,
+    );
+    const amountTokens = Number(formatUnits(amountOutBase, toDecimals));
+    return {
+      priceUsd: amountTokens > 0 ? usd / amountTokens : priceUsd,
+      amountTokens,
+      txHash,
+    };
   }
 
   const client = getTradingClient();
@@ -66,6 +84,22 @@ export async function sell(
       priceUsd: currentPriceUsd,
       amountTokens,
       proceedsUsd: amountTokens * currentPriceUsd,
+    };
+  }
+
+  if (config.router === "okx") {
+    const { amountOutBase, toDecimals, txHash } = await okxSwap(
+      position.token as Address,
+      MAINNET_ADDRESSES.usdg as Address,
+      parseUnits(amountTokens.toFixed(TOKEN_DECIMALS), TOKEN_DECIMALS),
+      config.slippageBps,
+    );
+    const proceedsUsd = Number(formatUnits(amountOutBase, toDecimals));
+    return {
+      priceUsd: amountTokens > 0 ? proceedsUsd / amountTokens : currentPriceUsd,
+      amountTokens,
+      proceedsUsd,
+      txHash,
     };
   }
 

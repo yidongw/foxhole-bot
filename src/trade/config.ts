@@ -1,5 +1,12 @@
 export type TradeMode = "off" | "paper" | "live";
 
+/**
+ * live 下单路由。`hoodchain` = 直连 RB 链 v3 路由(默认,历史行为);
+ * `okx` = 走 OKX DEX 聚合器(多池聚合路由,可绕单池 NoRouteError)。
+ * 仅影响 live 模式;paper 两者都不下真单。
+ */
+export type TradeRouter = "hoodchain" | "okx";
+
 export interface TakeProfitTier {
   /** Price multiple of entry that arms this tier. */
   atMultiple: number;
@@ -9,6 +16,8 @@ export interface TakeProfitTier {
 
 export interface TradeConfig {
   mode: TradeMode;
+  /** live 下单路由:hoodchain(默认)| okx。 */
+  router: TradeRouter;
   /** USD notional per entry. */
   usdPerTrade: number;
   /** Hard 24h capital-at-risk cap across entries (USD); <=0 disables it. */
@@ -68,8 +77,10 @@ function num(name: string, fallback: number): number {
 
 export function loadTradeConfig(): TradeConfig {
   const mode = (process.env.TRADE_MODE ?? "off") as TradeMode;
+  const router = (process.env.TRADE_ROUTER ?? "hoodchain") as TradeRouter;
   return {
     mode: ["off", "paper", "live"].includes(mode) ? mode : "off",
+    router: router === "okx" ? "okx" : "hoodchain",
     usdPerTrade: num("TRADE_USD_PER_TRADE", 50),
     // <=0 disables (default since 2026-09-04: AI sizes/paces buys itself;
     // paper cash is the only remaining bound).
