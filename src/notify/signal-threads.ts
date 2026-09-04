@@ -149,11 +149,19 @@ export async function postThreadedSignal(ev: SignalEvaluation): Promise<boolean>
   const map = await loadMap();
   const now = new Date().toISOString();
 
+  // Never label a thread with the chain name: a stale symbol resolution once
+  // produced input.symbol="BSC" for Stonks → thread "BSC·bsc" the user couldn't
+  // find. Fall back to the address prefix if symbol is empty or == the chain.
+  const label =
+    ev.input.symbol && ev.input.symbol.toUpperCase() !== chain.toUpperCase()
+      ? ev.input.symbol
+      : ev.input.address.slice(0, 8);
+
   const createThreadOffCard = async (entry: ThreadEntry): Promise<void> => {
     const tres = await discordApi(
       `/channels/${channelId}/messages/${entry.messageId}/threads`,
       "POST",
-      { name: `${ev.input.symbol ?? ev.input.address.slice(0, 8)}·${chain}` },
+      { name: `${label}·${chain}` },
     );
     if (tres.ok) {
       entry.threadId = ((await tres.json()) as { id: string }).id;
@@ -165,7 +173,7 @@ export async function postThreadedSignal(ev: SignalEvaluation): Promise<boolean>
     const entry: ThreadEntry = {
       messageId: "",
       threadId: "",
-      symbol: ev.input.symbol,
+      symbol: label,
       firstAt: now,
       lastAt: now,
       count: 1,
