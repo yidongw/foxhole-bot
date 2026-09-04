@@ -501,6 +501,42 @@ export async function managePositions(
       } catch {}
     }
     if (price == null || price <= 0) continue;
+
+    // Glitch guard: a >65% single-tick collapse below the high-water mark is
+    // almost always a bad read (a degraded DexScreener response drops the deep
+    // pair's liquidity to null→0, so a thin wrong-pair with a garbage price
+    // ranks first), not real action on a token that had real liquidity. No
+    // configured stop is that deep, so this can only be noise or a true rug —
+    // and both deserve a second look before we market-sell the whole position.
+    // memestock was hard-stopped at $0.0077 (140x below its $1.08 entry, −$139)
+    // on ONE garbage tick while the real price never left ~$1. Corroborate with
+    // a fresh read; a genuine rug still exits one tick (~15s) later once the low
+    // price is confirmed, but a transient glitch no longer liquidates the book.
+    if (price < position.highWaterUsd * 0.35) {
+      let confirm: number | undefined;
+      try {
+        const p2 = selectDeepestBasePair(
+          await fetchTokenPairs(position.token, chain),
+          position.token,
+        );
+        if (p2?.priceUsd) confirm = Number(p2.priceUsd);
+      } catch {}
+      if (confirm == null || confirm <= 0) {
+        try {
+          confirm = await fetchPaprikaTokenPriceUsd(chain, position.token);
+        } catch {}
+      }
+      if (confirm != null && confirm > position.highWaterUsd * 0.35) {
+        console.error(
+          `glitch guard: ${position.symbol} bad tick $${price} vs confirm $${confirm} ` +
+            `(hw $${position.highWaterUsd}) — skipping exit this tick`,
+        );
+        marks[position.token.toLowerCase()] = confirm;
+        continue;
+      }
+      if (confirm != null && confirm > 0) price = confirm; // corroborated read
+    }
+
     marks[position.token.toLowerCase()] = price;
 
     position.highWaterUsd = Math.max(position.highWaterUsd, price);
