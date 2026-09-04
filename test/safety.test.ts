@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluateGoPlusFlags, isLiveFreshPool } from "../src/trade/safety.js";
+import { evaluateGoPlusFlags, isLiveFreshPool, evaluateContractProfile } from "../src/trade/safety.js";
 import {
   classifyStockQuote,
   type StockRegistry,
@@ -148,5 +148,44 @@ describe("isLiveFreshPool", () => {
   it("keeps the veto when DexScreener has no pair / no creation time", () => {
     expect(isLiveFreshPool(undefined, NOW)).toBe(false);
     expect(isLiveFreshPool({ liquidity: { usd: 50_000 } }, NOW)).toBe(false);
+  });
+});
+
+describe("evaluateContractProfile", () => {
+  const sel = (...s: string[]) => new Set(s);
+
+  it("vetoes an owned upgradeable proxy with blacklist (pussy 2026-09-04)", () => {
+    const flags = evaluateContractProfile({
+      isProxy: true,
+      ownerLive: true,
+      selectors: sel("4f1ef286", "52d1902d", "fe575a87"),
+    });
+    expect(flags).toContain("upgradeable_proxy_live_owner");
+    expect(flags).toContain("blacklist_capable");
+  });
+
+  it("passes a renounced contract even with admin functions present", () => {
+    expect(
+      evaluateContractProfile({
+        isProxy: true,
+        ownerLive: false,
+        selectors: sel("40c10f19", "fe575a87"),
+      }),
+    ).toEqual([]);
+  });
+
+  it("vetoes owned mint / pause on a plain contract", () => {
+    const flags = evaluateContractProfile({
+      isProxy: false,
+      ownerLive: true,
+      selectors: sel("40c10f19", "8456cb59"),
+    });
+    expect(flags).toEqual(["mintable", "transfer_pausable"]);
+  });
+
+  it("passes a plain owned token with no dangerous selectors", () => {
+    expect(
+      evaluateContractProfile({ isProxy: false, ownerLive: true, selectors: sel() }),
+    ).toEqual([]);
   });
 });

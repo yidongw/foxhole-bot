@@ -26,7 +26,129 @@ const GOPLUS_CHAIN_IDS: Record<string, string> = {
 export interface SafetyVerdict {
   ok: boolean;
   flags: string[];
-  source: "goplus" | "goplus-solana" | "unavailable" | "unsupported";
+  source:
+    | "goplus"
+    | "goplus-solana"
+    | "onchain-heuristics"
+    | "unavailable"
+    | "unsupported";
+}
+
+/** RPC endpoints for EVM chains GoPlus does not cover. */
+const EVM_RPC: Record<string, string> = {
+  robinhood:
+    process.env.ROBINHOOD_RPC ?? "https://rpc.mainnet.chain.robinhood.com",
+};
+
+/** ERC-1967 implementation slot (keccak("eip1967.proxy.implementation")-1). */
+const EIP1967_IMPL_SLOT =
+  "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
+
+export interface ContractProfile {
+  /** Proxy = tiny forwarder bytecode or a set ERC-1967 implementation slot. */
+  isProxy: boolean;
+  /** owner() returned a non-zero address. */
+  ownerLive: boolean;
+  /** 4-byte selectors found in the (implementation) bytecode. */
+  selectors: Set<string>;
+}
+
+const SEL = {
+  mint: "40c10f19", // mint(address,uint256)
+  pause: "8456cb59", // pause()
+  isBlacklisted: "fe575a87", // isBlacklisted(address)
+  isBlackListed: "e47d6060", // isBlackListed(address) — USDT-style casing
+  addBlackList: "0ecb93c0", // addBlackList(address)
+  upgradeToAndCall: "4f1ef286", // UUPS
+  upgradeTo: "3659cfe6",
+} as const;
+
+/**
+ * Pure verdict from an on-chain contract profile. Only owner-live combos veto:
+ * a renounced owner cannot call mint/pause/blacklist/upgrade, and legitimate
+ * fixed tokens frequently ship (dead) admin functions.
+ */
+export function evaluateContractProfile(p: ContractProfile): string[] {
+  const flags: string[] = [];
+  if (!p.ownerLive) return flags;
+  if (p.isProxy) flags.push("upgradeable_proxy_live_owner");
+  if (p.selectors.has(SEL.upgradeToAndCall) || p.selectors.has(SEL.upgradeTo))
+    if (!p.isProxy) flags.push("upgradeable_live_owner");
+  if (
+    p.selectors.has(SEL.isBlacklisted) ||
+    p.selectors.has(SEL.isBlackListed) ||
+    p.selectors.has(SEL.addBlackList)
+  )
+    flags.push("blacklist_capable");
+  if (p.selectors.has(SEL.mint)) flags.push("mintable");
+  if (p.selectors.has(SEL.pause)) flags.push("transfer_pausable");
+  return flags;
+}
+
+async function rpcCall(
+  rpc: string,
+  method: string,
+  params: unknown[],
+): Promise<string | undefined> {
+  const res = await fetch(rpc, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(8000),
+  });
+  const j = (await res.json()) as { result?: string };
+  return j.result;
+}
+
+/**
+ * Contract-level rug heuristics via direct RPC for GoPlus-unsupported EVM
+ * chains. Official tokenized stocks are exempt (they ARE owned upgradeable
+ * proxies, legitimately — Robinhood's registry vouches for them). Fails OPEN
+ * on RPC errors like the rest of the gate.
+ */
+async function checkEvmContractHeuristics(
+  chain: string,
+  token: string,
+): Promise<string[]> {
+  const rpc = EVM_RPC[chain];
+  if (!rpc) return [];
+  try {
+    if (chain === "robinhood") {
+      const reg = await fetchStockRegistry().catch(() => undefined);
+      if (reg?.addresses.has(token.toLowerCase())) return [];
+    }
+    let code = (await rpcCall(rpc, "eth_getCode", [token, "latest"])) ?? "0x";
+    const implSlot = await rpcCall(rpc, "eth_getStorageAt", [
+      token,
+      EIP1967_IMPL_SLOT,
+      "latest",
+    ]);
+    const implAddr =
+      implSlot && implSlot !== "0x" && !/^0x0+$/.test(implSlot)
+        ? "0x" + implSlot.slice(-40)
+        : undefined;
+    const isProxy = implAddr != null || (code.length - 2) / 2 < 500;
+    if (implAddr) {
+      code = (await rpcCall(rpc, "eth_getCode", [implAddr, "latest"])) ?? code;
+    }
+    const ownerRaw = await rpcCall(rpc, "eth_call", [
+      { to: token, data: "0x8da5cb5b" },
+      "latest",
+    ]).catch(() => undefined);
+    const ownerLive =
+      ownerRaw != null && ownerRaw.length >= 42 && !/^0x0+$/.test(ownerRaw);
+    const selectors = new Set<string>();
+    for (const sel of Object.values(SEL)) {
+      if (code.includes(sel)) selectors.add(sel);
+    }
+    return evaluateContractProfile({ isProxy, ownerLive, selectors });
+  } catch (err) {
+    console.error(
+      `contract heuristics failed ${chain}:${token}:`,
+      (err as Error).message,
+    );
+    return [];
+  }
 }
 
 interface GoPlusTokenData {
@@ -271,8 +393,15 @@ export async function checkTokenSafety(
         const flags = evaluateGoPlusFlags(data);
         verdict = { ok: flags.length === 0, flags, source: "goplus" };
       }
+    } else if (EVM_RPC[chain]) {
+      // robinhood etc. — GoPlus has no coverage, so until 2026-09-04 the
+      // contract level was a pass-through. "pussy" (0xf297…0156) sailed
+      // through as a UUPS upgradeable proxy with a live owner and an
+      // isBlacklisted() in the implementation — a honeypot toolkit. Read the
+      // chain directly instead: proxy detection + dangerous-selector scan.
+      const flags = await checkEvmContractHeuristics(chain, token);
+      verdict = { ok: flags.length === 0, flags, source: "onchain-heuristics" };
     } else {
-      // robinhood etc. — GoPlus has no coverage; other gates still apply
       verdict = { ok: true, flags: [], source: "unsupported" };
     }
   } catch (err) {
