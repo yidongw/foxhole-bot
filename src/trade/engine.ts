@@ -219,6 +219,24 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
     await appendTradeJournal(
       `📤 手动平仓 ${position.symbol} [${chain}/${position.mode}] 卖出 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} | 策略: ${formatStrategy(position.strategy)}`,
     );
+    // Every fill belongs in the 交易日志 channel. Buys (aiBuy) and mechanical
+    // exits (managePositions) always notified, but AI/manual sells via the CLI
+    // only wrote the journal — the ASS exit on 2026-09-04 never reached the
+    // trade log and the ledger channel silently missed a whole class of fills.
+    await notify(
+      [
+        `${position.mode === "paper" ? "📝 PAPER" : "💸 LIVE"} 📤 **${position.symbol ?? position.token}** [${chain}] — manual exit`,
+        `平 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}`,
+        `仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${positionFresh.status})`,
+        `策略: ${formatStrategy(position.strategy)}`,
+        gmgnLink(chain, position.token),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      {},
+      chain,
+      position.token,
+    );
     return (
       `Sold ${(sellFraction * 100).toFixed(0)}% of ${position.symbol} [${chain}/${position.mode}] ` +
       `@ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}. ` +
