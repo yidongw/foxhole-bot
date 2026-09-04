@@ -55,6 +55,13 @@
       "symbol": "SOLGOOD",
       "addedBy": "cli",
       "addedAt": "2026-09-03T15:07:17.187Z"
+    },
+    {
+      "chain": "robinhood",
+      "address": "0x8A47f369b17408fD9FE91Ba5b9383844Ee8A36bb",
+      "symbol": "TOPO",
+      "addedBy": "cli",
+      "addedAt": "2026-09-04T11:24:18.438Z"
     }
   ]
 }

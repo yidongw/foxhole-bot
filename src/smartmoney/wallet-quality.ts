@@ -81,8 +81,11 @@ export const REVET_QUALITY: QualityConfig = {
   minRealizedUsd: 1_000,
   minBigWins: 0,
   minAvgBuyUsd: 100,
-  entryMcapMin: 5_000,
-  entryMcapMax: 10_000_000,
+  // Entry-mcap is a SELECTION-freshness concern (find2), not a degradation
+  // signal — a proven wallet buying one large-cap (e.g. MarsCoin $150M) must
+  // not be disabled for it. Off for revet (0 = gate disabled).
+  entryMcapMin: 0,
+  entryMcapMax: 0,
   maxIdleDays: 30,
 };
 
@@ -119,7 +122,7 @@ export function scoreWallet(
   if (m.realizedUsd < cfg.minRealizedUsd) fail.push(`realized $${Math.round(m.realizedUsd)} < $${cfg.minRealizedUsd}`);
   if (m.bigWins < cfg.minBigWins) fail.push(`no >2x wins`);
   if (m.avgBuyUsd > 0 && m.avgBuyUsd < cfg.minAvgBuyUsd) fail.push(`avg buy $${Math.round(m.avgBuyUsd)} < $${cfg.minAvgBuyUsd}`);
-  if (m.medianEntryMcap > 0 && (m.medianEntryMcap < cfg.entryMcapMin || m.medianEntryMcap > cfg.entryMcapMax))
+  if (cfg.entryMcapMax > 0 && m.medianEntryMcap > 0 && (m.medianEntryMcap < cfg.entryMcapMin || m.medianEntryMcap > cfg.entryMcapMax))
     fail.push(`entry mcap $${Math.round(m.medianEntryMcap).toLocaleString()} outside band`);
   if (m.lastActiveDays > cfg.maxIdleDays) fail.push(`idle ${m.lastActiveDays.toFixed(0)}d`);
 
