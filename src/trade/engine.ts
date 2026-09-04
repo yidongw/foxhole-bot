@@ -173,6 +173,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const POSITIONS_WEB_PATH = path.resolve(__dirname, "../../web/data/positions.json");
 const PAUSE_FLAG_PATH = path.resolve(__dirname, "../../data/trading-paused");
 
+/** Per-position throttle for the loud live exit-failure alert (30 min). */
+const liveExitFailNotifiedAt = new Map<string, number>();
+
 /** Pause blocks NEW entries only — exits and stops keep running. */
 export function tradingPaused(): boolean {
   return existsSync(PAUSE_FLAG_PATH);
@@ -848,6 +851,27 @@ export async function managePositions(
 
     marks[position.token.toLowerCase()] = price;
 
+    // Live dust: routers have a minimum trade size, so a tiny remainder can
+    // NEVER be sold on-chain — WALLET's staged live exit left 2% (~$0.7) that
+    // every later mechanical exit retried and failed forever ("no v3 route").
+    // Write it off as closed (tokens stay in the wallet, proceeds 0) instead
+    // of spinning the exit engine on an unsellable crumb.
+    const remainingValueUsd =
+      remainingFraction(position) * position.amountTokens * price;
+    if (position.mode === "live" && remainingValueUsd > 0 && remainingValueUsd < 1.5) {
+      recordExit(position, {
+        at: new Date().toISOString(),
+        priceUsd: price,
+        fraction: remainingFraction(position),
+        proceedsUsd: 0,
+        reason: "dust write-off: remainder below router minimum (tokens remain in wallet)",
+      });
+      await appendTradeJournal(
+        `🧹 尘埃核销 ${position.symbol} [${chain}/live] 剩余 ~$${remainingValueUsd.toFixed(2)} 低于路由最小额,记为 closed(代币留在钱包)`,
+      );
+      continue;
+    }
+
     position.highWaterUsd = Math.max(position.highWaterUsd, price);
     const actions: ExitAction[] = evaluateExits(position, price, config);
 
@@ -917,6 +941,25 @@ export async function managePositions(
         );
       } catch (err) {
         console.error(`exit failed ${position.symbol}:`, (err as Error).message);
+        // A live exit failing is REAL money that cannot leave the market —
+        // GRASS's 1.35x take-profit spun for 18+ minutes of silent per-tick
+        // "no v3 route" failures (v4-pool token, sub-minimum size) before a
+        // review round noticed. Surface it loudly, throttled per position.
+        if (pcfg.mode === "live") {
+          const key = position.id;
+          const last = liveExitFailNotifiedAt.get(key) ?? 0;
+          if (Date.now() - last > 30 * 60_000) {
+            liveExitFailNotifiedAt.set(key, Date.now());
+            await notify(
+              `🚨 LIVE 出场失败 **${position.symbol}** [${chain}] — ${action.reason}\n` +
+                `错误: ${(err as Error).message.slice(0, 180)}\n` +
+                `仓位卖不出去(疑似 v4 池无 v3 路由/低于路由最小额),止盈止损均在空转——需要 live 路由侧处理`,
+              options,
+              chain,
+              position.token,
+            );
+          }
+        }
       }
     }
     await sleep(250);
