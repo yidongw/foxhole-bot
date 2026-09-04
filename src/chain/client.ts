@@ -1,26 +1,40 @@
 import {
   createPublicClient,
+  fallback,
   http,
   type Address,
   type PublicClient,
+  type Transport,
   erc20Abi,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createHoodClient, getQuote } from "hoodchain";
 import { LONG_AIRLOCK } from "../long/constants.js";
 
+export const PUBLIC_RB_RPC = "https://rpc.mainnet.chain.robinhood.com";
+
 export function getRpcUrl(): string {
-  return (
-    process.env.ROBINHOOD_RPC ??
-    "https://rpc.mainnet.chain.robinhood.com"
-  );
+  return process.env.ROBINHOOD_RPC ?? PUBLIC_RB_RPC;
+}
+
+/**
+ * Primary RPC with automatic fallback to the public endpoint. When the
+ * primary is a metered key (Alchemy), exhausting the monthly quota must NOT
+ * blind the engine again (2026-09-03: capped key + no fallback = days of dead
+ * on-chain discovery) — viem's fallback transport shifts traffic to the
+ * public RPC on errors and keeps retrying the primary.
+ */
+export function getRbTransport(): Transport {
+  const primary = getRpcUrl();
+  if (primary === PUBLIC_RB_RPC) return http(primary);
+  return fallback([http(primary), http(PUBLIC_RB_RPC)]);
 }
 
 let hoodClient: ReturnType<typeof createHoodClient> | undefined;
 
 function getHoodClient() {
   if (!hoodClient) {
-    hoodClient = createHoodClient({ rpcUrl: getRpcUrl() });
+    hoodClient = createHoodClient({ transport: getRbTransport() });
   }
   return hoodClient;
 }
@@ -38,7 +52,7 @@ export function getTradingClient(): ReturnType<typeof createHoodClient> {
       throw new Error("TRADER_PRIVATE_KEY not set — live trading unavailable");
     }
     tradingClient = createHoodClient({
-      rpcUrl: getRpcUrl(),
+      transport: getRbTransport(),
       account: privateKeyToAccount(pk as `0x${string}`),
     });
   }
