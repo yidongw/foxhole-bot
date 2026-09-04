@@ -61,6 +61,7 @@ function describePosition(p: Position, ctx: AdvisorContext): string {
   return JSON.stringify({
     symbol: p.symbol,
     entryTrigger: p.trigger,
+    plan: p.strategy?.note,
     heldHours: Math.round(heldHours * 10) / 10,
     remainingFraction: remainingFraction(p),
     entryPriceUsd: p.entryPriceUsd,

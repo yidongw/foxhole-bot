@@ -5,7 +5,8 @@ loadEnv();
 import { formatUnits } from "viem";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-import { aiBuy, formatPortfolioReport, manualExit } from "../trade/engine.js";
+import { aiBuy, formatPortfolioReport, manualExit, setStrategy } from "../trade/engine.js";
+import type { PositionStrategy } from "../trade/positions.js";
 import { archiveAiInbox, readAiInbox } from "../notify/ai-inbox.js";
 import { postToSignalThread } from "../notify/signal-threads.js";
 import { postToNewsResearchThread } from "../notify/news-threads.js";
@@ -21,10 +22,11 @@ import { privateKeyToAccount } from "viem/accounts";
  *
  *   ai-trade inbox               读未处理信号 (JSON)
  *   ai-trade archive             信号归档 (决策完成后)
- *   ai-trade buy <chain> <address> <usd> <reason...>
+ *   ai-trade buy <chain> <address> <usd> [策略flags] <reason...>
  *   ai-trade sell <symbol|address> <percent>
+ *   ai-trade strategy <symbol|address> [策略flags]   调整某仓的退出策略
  *   ai-trade note <chain> <address> <text...>   决策摘要写进该币 thread
- *   ai-trade status              仓位 + 余额
+ *   ai-trade status              仓位 + 余额 + 每仓策略
  */
 
 async function balances(): Promise<string> {
@@ -65,6 +67,48 @@ async function balances(): Promise<string> {
   return lines.join("\n") || "未配置钱包私钥";
 }
 
+/**
+ * Pull per-position strategy flags out of an arg list, returning the parsed
+ * strategy (undefined if none present) and the remaining args (the free-text
+ * reason). Shared by `buy` (initial plan) and `strategy` (later adjustment).
+ *
+ *   --hard-stop 0.35   --trail-stop 0.25   --trail-arm 1.5
+ *   --max-hold 96      --tp 2:0.33,4:0.22  --note "一句计划"
+ */
+function extractStrategyFlags(args: string[]): {
+  strategy: PositionStrategy | undefined;
+  rest: string[];
+} {
+  const rest: string[] = [];
+  const s: PositionStrategy = {};
+  let seen = false;
+  const valued: Record<string, (v: string) => void> = {
+    "--hard-stop": (v) => (s.hardStopPct = Number(v)),
+    "--trail-stop": (v) => (s.trailStopPct = Number(v)),
+    "--trail-arm": (v) => (s.trailArmMultiple = Number(v)),
+    "--max-hold": (v) => (s.maxHoldHours = Number(v)),
+    "--note": (v) => (s.note = v),
+    "--tp": (v) => {
+      s.takeProfits = v
+        .split(",")
+        .map((t) => t.split(":"))
+        .filter((pair) => pair.length === 2)
+        .map(([m, f]) => ({ atMultiple: Number(m), sellFraction: Number(f) }));
+    },
+  };
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    const handler = valued[flag];
+    if (handler) {
+      handler(args[++i] ?? "");
+      seen = true;
+    } else {
+      rest.push(flag);
+    }
+  }
+  return { strategy: seen ? s : undefined, rest };
+}
+
 async function main() {
   const [cmd, ...args] = process.argv.slice(2).filter((a) => a !== "--");
   switch (cmd) {
@@ -80,7 +124,11 @@ async function main() {
     case "buy": {
       const [chain, address, usd, ...rest] = args;
       if (!chain || !address || !usd) {
-        console.error("用法: ai-trade buy <chain> <address> <usd> [--smart-money] <reason...>");
+        console.error(
+          "用法: ai-trade buy <chain> <address> <usd> [--smart-money] [--momentum] " +
+            "[--hard-stop 0.35] [--trail-stop 0.25] [--trail-arm 1.5] [--tp 2:0.33,4:0.22] " +
+            "[--max-hold 96] [--note \"计划\"] <reason...>",
+        );
         process.exit(1);
       }
       const smIdx = rest.indexOf("--smart-money");
@@ -89,7 +137,14 @@ async function main() {
       const moIdx = rest.indexOf("--momentum");
       const momentum = moIdx !== -1;
       if (momentum) rest.splice(moIdx, 1);
-      console.log(await aiBuy(chain, address, Number(usd), rest.join(" ") || "无", { smartMoney, momentum }));
+      const { strategy, rest: reasonArgs } = extractStrategyFlags(rest);
+      console.log(
+        await aiBuy(chain, address, Number(usd), reasonArgs.join(" ") || "无", {
+          smartMoney,
+          momentum,
+          strategy,
+        }),
+      );
       break;
     }
     case "sell": {
@@ -99,6 +154,23 @@ async function main() {
         process.exit(1);
       }
       console.log(await manualExit(query, (Number(percent) || 100) / 100));
+      break;
+    }
+    case "strategy": {
+      const [query, ...flags] = args;
+      if (!query) {
+        console.error(
+          "用法: ai-trade strategy <symbol|address> [--hard-stop 0.35] [--trail-stop 0.25] " +
+            "[--trail-arm 1.5] [--tp 2:0.33,4:0.22] [--max-hold 96] [--note \"计划\"]",
+        );
+        process.exit(1);
+      }
+      const { strategy } = extractStrategyFlags(flags);
+      if (!strategy) {
+        console.error("未提供任何策略字段（--hard-stop/--trail-stop/--trail-arm/--tp/--max-hold/--note）");
+        process.exit(1);
+      }
+      console.log(await setStrategy(query, strategy));
       break;
     }
     case "note": {
@@ -157,7 +229,7 @@ async function main() {
     }
     default:
       console.error(
-        "用法: ai-trade inbox|archive|buy|sell|note|note-news|research-note|status",
+        "用法: ai-trade inbox|archive|buy|sell|strategy|note|note-news|research-note|status",
       );
       process.exit(1);
   }
