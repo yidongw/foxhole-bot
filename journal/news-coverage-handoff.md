@@ -3,7 +3,34 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
-## 2026-09-04 13:0x UTC 第 17 轮(ultrathink:直接哑弹分析 + 退出信号补漏)
+## 2026-09-04 15:0x UTC 第 18 轮(ultrathink:哑弹分析终于解封 + 退出信号再补)
+
+### ② 覆盖率 + 哑弹(**labeled 解封,做成了真哑弹分析** — 本轮头号)
+- **labeled 从卡了 10 轮的 15 涨到 21**(review 循环修了 grading:按收盘评分+账本竞态),grader
+  重新产标签。→ 首次做成真哑弹分析(21 条,15 clean):**11 win / 4 flat / 6 loss = 52% 胜率,
+  strong 级 9W/3L/1F ≈ 69%**,远超 30% 底线。
+- **触发器分析**:momentum_strong 13 条 9W/4L(稳);volume_spike_strong 6 条 2W/3L/1F(高方差)——
+  **但它同时抓到了单笔最大赢家 SOLCAT +9.88x**,且亏损样本流动性从 $56k 到 $297k 无干净阈值。
+  meme 交易本就靠抓 +10x,砍掉 volume_spike 会连 SOLCAT 类怪兽一起丢。→ **数据不支持收紧,
+  强行 tune=对 15 样本过拟合。结论:系统健康,不动阈值**(这正是 ② mandate"反复领先哑弹才收紧"的正确读法)。
+- robinhood ≥100% 对照干净(8 mover 全在册,**1504 币**)。
+
+### ① 新闻(**退出信号再补**,commit ad50290,已部署)
+- 承 R17 清算:关注币被「大单砸盘/抛售」也是看空退出信号,此前中性 watched 叫醒。NEGATIVE 加
+  `砸盘|抛售`。+1 回归(共 31)。
+- 回放:59 wake 无碰撞噪音;drop 侧含 RB 语境的 6 条里 4 条是 HOOD 股票新闻(正确 drop),
+  2 条 RB-meme 泛情绪(「MEME叙事暂告段落」「联创表态 MEME+30%」)—— 无具体 token、<50% 动能,
+  drop 可辩护(叫它们=加噪),**非明确漏**。挂账观察。
+- 「」junk/GLM/BGBTC 仍在 hotSymbols(各自 TTL 未到:交易赚币~09-05 02:47Z、GLM/BGBTC~09-06),
+  已被停用词/promo-veto 中和,harmless。
+
+### ③ 新闻侧安全 / ④ 健康
+- src/news/ 无泄漏。**OKX/执行层不审(归他人;新 commit b16416f 等是他们的)。**
+- tsc 干净、npm test **299 passed**、monitor 重启健康(pid 41846)、BN 未复现、0 uncaught。
+
+**下轮重点:** ① labeled 继续增长后复看 volume_spike_strong 是否稳定领先哑弹(现 n 太小)。
+② RB-meme 泛情绪 drop(MEME叙事/联创表态)若反复出现且事后证明是催化,再考虑加轻量 sentiment note。
+③ junk TTL 到期后复查 hotSymbols 清零。④ 守 robinhood 覆盖 + 碰撞审计。
 
 ### ① 新闻(**补了退出信号漏**,commit 767ab75,已部署)
 - **新角度:退出信号完整性**。关注币「James Wynn 的 CASHCAT 多单遭清算」以**中性 watched 叫醒**,
