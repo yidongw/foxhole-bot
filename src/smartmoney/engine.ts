@@ -4,7 +4,39 @@ import { appendAiInboxSmartMoney } from "../notify/ai-inbox.js";
 import { ensureSignalThread } from "../notify/signal-threads.js";
 import { canonicalChain } from "../chains/robinhood/smart-money.js";
 import { appendSmLog } from "./log.js";
-import { resolveFilter } from "./config.js";
+import { resolveFilter, type SmartMoneyFilter } from "./config.js";
+
+/** Best-liquidity market snapshot for a token (DexScreener), or undefined. */
+async function fetchTokenMarket(
+  chain: string,
+  token: string,
+): Promise<{ liquidityUsd: number; h1: number; h24: number } | undefined> {
+  try {
+    const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${token}`, {
+      headers: { "User-Agent": "foxhole-bot/0.3" },
+    });
+    if (!res.ok) return undefined;
+    const data = (await res.json()) as {
+      pairs?: Array<{
+        chainId?: string;
+        liquidity?: { usd?: number };
+        priceChange?: { h1?: number; h24?: number };
+      }>;
+    };
+    const pairs = (data.pairs ?? []).filter((p) => p.chainId === chain);
+    if (!pairs.length) return undefined;
+    const best = pairs.reduce((a, b) =>
+      (b.liquidity?.usd ?? 0) > (a.liquidity?.usd ?? 0) ? b : a,
+    );
+    return {
+      liquidityUsd: Number(best.liquidity?.usd ?? 0),
+      h1: Number(best.priceChange?.h1 ?? 0),
+      h24: Number(best.priceChange?.h24 ?? 0),
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Chain-agnostic smart-money buy handler. Both the RB on-chain wss watcher and
@@ -134,7 +166,30 @@ export class SmartMoneyEngine {
     const bigEnough = (buy.usd ?? Infinity) >= filter.aiMinUsd;
     const solo = filter.soloTrigger || buy.tier === "S";
     const meets = bigEnough && (solo || distinct >= filter.aiConvictionN);
-    if (meets) await this.escalate(buy, distinct, filter.aiWindowMin);
+    if (meets) await this.escalate(buy, distinct, filter);
+  }
+
+  /**
+   * Anti-chase gate: skip waking the AI when the token is too thin to copy or
+   * has already blown off (we'd be buying the top — the 事后 problem). Runs one
+   * DexScreener call, only on escalation (rare), so latency is fine. Fail-open:
+   * if market data is unavailable, don't block the signal.
+   */
+  private async antiChaseSkip(
+    buy: SmartMoneyBuy,
+    filter: SmartMoneyFilter,
+  ): Promise<string | undefined> {
+    if (filter.aiMinLiquidityUsd <= 0 && filter.aiMaxPump1hPct <= 0 && filter.aiMaxPump24hPct <= 0)
+      return undefined;
+    const mkt = await fetchTokenMarket(buy.chain, buy.token);
+    if (!mkt) return undefined; // fail-open
+    if (filter.aiMinLiquidityUsd > 0 && mkt.liquidityUsd < filter.aiMinLiquidityUsd)
+      return `liq $${Math.round(mkt.liquidityUsd).toLocaleString()} < $${filter.aiMinLiquidityUsd.toLocaleString()}`;
+    if (filter.aiMaxPump1hPct > 0 && mkt.h1 > filter.aiMaxPump1hPct)
+      return `1h +${Math.round(mkt.h1)}% > ${filter.aiMaxPump1hPct}% (chasing)`;
+    if (filter.aiMaxPump24hPct > 0 && mkt.h24 > filter.aiMaxPump24hPct)
+      return `24h +${Math.round(mkt.h24)}% > ${filter.aiMaxPump24hPct}% (post-hoc)`;
+    return undefined;
   }
 
   private tokenLink(chain: string, token: string): string {
@@ -176,11 +231,31 @@ export class SmartMoneyEngine {
   private async escalate(
     buy: SmartMoneyBuy,
     distinct: number,
-    windowMin: number,
+    filter: SmartMoneyFilter,
   ): Promise<void> {
+    const windowMin = filter.aiWindowMin;
     const key = `${buy.chain.toLowerCase()}:${buy.token.toLowerCase()}`;
     const last = this.escalated.get(key) ?? 0;
     if (buy.ts - last < windowMin * 60_000) return; // one signal per token/window
+
+    // Anti-chase: don't wake AI on thin or already-blown-off tokens (事后).
+    const skip = await this.antiChaseSkip(buy, filter);
+    if (skip) {
+      await appendSmLog({
+        kind: "skipped",
+        chain: buy.chain,
+        wallet: buy.wallet,
+        walletLabel: buy.walletLabel,
+        token: buy.token,
+        symbol: buy.symbol,
+        usd: buy.usd,
+        txHash: buy.txHash,
+        distinct,
+        reason: `ai-trigger anti-chase: ${skip}`,
+      });
+      console.log(`[smart-money] AI trigger skipped $${buy.symbol} [${buy.chain}]: ${skip}`);
+      return;
+    }
     this.escalated.set(key, buy.ts);
 
     const style = chainStyle(buy.chain);

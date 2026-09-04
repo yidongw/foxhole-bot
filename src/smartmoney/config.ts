@@ -28,6 +28,13 @@ export interface SmartMoneyFilter {
   soloTrigger: boolean;
   /** Suppress repeat alerts for the same (wallet, token) within N minutes. */
   alertCooldownMin: number;
+  /** AI-trigger anti-chase gates (checked once per escalation, off the hot path):
+   *  - only wake AI if token liquidity ≥ this (thin pools = un-copyable dumps);
+   *  - skip if the token already ran > these %  (late / post-hoc, we'd buy the top).
+   *  0 = gate off. */
+  aiMinLiquidityUsd: number;
+  aiMaxPump1hPct: number;
+  aiMaxPump24hPct: number;
 }
 
 export interface SmartMoneyConfig {
@@ -47,6 +54,9 @@ function envDefaults(): SmartMoneyFilter {
     aiMinUsd: num("SMART_MONEY_AI_MIN_USD", 0),
     soloTrigger: false,
     alertCooldownMin: num("SMART_MONEY_ALERT_COOLDOWN_MIN", 0),
+    aiMinLiquidityUsd: num("SMART_MONEY_AI_MIN_LIQ_USD", 0),
+    aiMaxPump1hPct: num("SMART_MONEY_AI_MAX_PUMP_1H", 0),
+    aiMaxPump24hPct: num("SMART_MONEY_AI_MAX_PUMP_24H", 0),
   };
 }
 
@@ -55,18 +65,23 @@ function envDefaults(): SmartMoneyFilter {
  * GMGN smart_degen wallets on bsc/sol are hyper-active, so raise the bar to
  * cut noise and only wake AI on meaningful size.
  */
+// Anti-chase AI-trigger gates shared by all chains (calibrated on the 事后
+// signals: thin $5–14k pools that ran pre-trigger then dumped −50~−82%). Only
+// wake AI on a liquid token that hasn't already blown off.
+const ANTI_CHASE = { aiMinLiquidityUsd: 20_000, aiMaxPump1hPct: 100, aiMaxPump24hPct: 300 };
+
 const CHAIN_DEFAULTS: Record<string, Partial<SmartMoneyFilter>> = {
   // RB is the home chain (keep all sizes) but a wallet re-buying the same token
   // (e.g. the HOOD accumulator) spams — so cool down repeat same-token alerts.
-  robinhood: { alertMinUsd: 0, aiMinUsd: 0, alertCooldownMin: 30 },
+  robinhood: { alertMinUsd: 0, aiMinUsd: 0, alertCooldownMin: 30, ...ANTI_CHASE },
   // Calibrated on live data: BSC smart-money buys are small (median ~$48, max
   // ~$712 over 3h), so the old $1000/$3000 gates blocked 100% of buys.
-  bsc: { alertMinUsd: 300, aiMinUsd: 500 },
-  sol: { alertMinUsd: 150, aiMinUsd: 400 },
-  solana: { alertMinUsd: 150, aiMinUsd: 400 },
-  base: { alertMinUsd: 200, aiMinUsd: 500 },
-  eth: { alertMinUsd: 200, aiMinUsd: 500 },
-  ethereum: { alertMinUsd: 200, aiMinUsd: 500 },
+  bsc: { alertMinUsd: 300, aiMinUsd: 500, ...ANTI_CHASE },
+  sol: { alertMinUsd: 150, aiMinUsd: 400, ...ANTI_CHASE },
+  solana: { alertMinUsd: 150, aiMinUsd: 400, ...ANTI_CHASE },
+  base: { alertMinUsd: 200, aiMinUsd: 500, ...ANTI_CHASE },
+  eth: { alertMinUsd: 200, aiMinUsd: 500, ...ANTI_CHASE },
+  ethereum: { alertMinUsd: 200, aiMinUsd: 500, ...ANTI_CHASE },
 };
 
 let cache: { at: number; config: SmartMoneyConfig } | undefined;
