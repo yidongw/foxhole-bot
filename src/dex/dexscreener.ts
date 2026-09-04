@@ -47,6 +47,13 @@ export async function fetchTokenPairs(
 export const TRUSTED_QUOTE = new Set([
   "WBNB", "BNB", "USDT", "USDC", "USD1", "BUSD", "USDB", "DAI",
   "WETH", "ETH", "SOL", "WSOL", "USDG", "WBTC", "BTCB",
+  // Tokenized-stock quotes that themselves hold DEEP real liquidity vs USDT and
+  // are redeemable — the "币股 meme" sector pairs against these, so excluding
+  // them blinded the liquidity gate and made risk-control reject every probe
+  // (Stonks/QQQB: real $329k main pool invisible, decider tried to buy 4× and
+  // was rejected on the $34k USDT edge pool → missed a +389% move). The price-
+  // consensus guard below still rejects any fake-priced pool that spoofs these.
+  "QQQB",
 ]);
 
 /**
