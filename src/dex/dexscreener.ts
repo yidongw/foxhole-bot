@@ -40,16 +40,72 @@ export async function fetchTokenPairs(
   return (data.pairs ?? []).filter((p) => p.chainId === chainId);
 }
 
+/** Real quote assets whose USD price DexScreener can be trusted. A pool quoted
+ *  against a JUNK token (e.g. memestock/GMEB with $40M fake liquidity) reports a
+ *  fabricated USD price — 100x+ off the real WBNB/USDT-quoted pools, which fed a
+ *  bogus "118x 卖飞" and can corrupt entry FDV / exit management. */
+export const TRUSTED_QUOTE = new Set([
+  "WBNB", "BNB", "USDT", "USDC", "USD1", "BUSD", "USDB", "DAI",
+  "WETH", "ETH", "SOL", "WSOL", "USDG", "WBTC", "BTCB",
+]);
+
+/**
+ * Deepest pair where the token is the BASE side (quote-side pairs belong to
+ * the other token — see the HIMS/BONER regression on Robinhood), PREFERRING
+ * pools quoted in a real asset so a junk-quote fake-liquidity pool can't hand
+ * us a fabricated USD price. Falls back to deepest overall if none are trusted.
+ */
+export function selectDeepestBasePair(
+  pairs: DexPair[],
+  address: string,
+): DexPair | undefined {
+  const own = pairs.filter(
+    (p) => p.baseToken?.address?.toLowerCase() === address.toLowerCase(),
+  );
+  const byLiq = (a: DexPair, b: DexPair) =>
+    Number(b.liquidity?.usd ?? 0) - Number(a.liquidity?.usd ?? 0);
+  const trusted = own.filter((p) =>
+    TRUSTED_QUOTE.has((p.quoteToken?.symbol ?? "").toUpperCase()),
+  );
+  const cands = [...(trusted.length ? trusted : own)].sort(byLiq);
+  if (cands.length <= 1) return cands[0];
+
+  // Price consensus: a junk pool can fake liquidity AND a trusted quote
+  // SYMBOL (symbols are free strings — a fake "USDT" passes TRUSTED_QUOTE),
+  // but it can't move every other pool's price. MarsCoin 2026-09-04: a pool
+  // claiming $1.8M liq priced the token at $149-153 vs $0.12 on the real
+  // pancake pools — it won the deepest-liquidity sort, booked $25k of phantom
+  // exit proceeds and poisoned the high-water mark. Reject candidates whose
+  // price is >3x off the median of priced candidates, then take the deepest
+  // survivor. Median uses the lower-middle on even counts, biasing against
+  // fake-HIGH pools (the profitable-looking direction for phantom exits);
+  // fake-LOW reads are still caught by the engine's downside glitch guard.
+  const prices = cands
+    .map((p) => Number(p.priceUsd))
+    .filter((x) => x > 0)
+    .sort((a, b) => a - b);
+  if (prices.length >= 2) {
+    const median = prices[Math.floor((prices.length - 1) / 2)];
+    const sane = cands.filter((p) => {
+      const px = Number(p.priceUsd);
+      if (!(px > 0)) return true; // unpriced pools keep old behavior
+      return px <= median * 3 && px >= median / 3;
+    });
+    if (sane.length) return sane[0];
+  }
+  return cands[0];
+}
+
 /** Current USD price from the deepest pair for a token on a chain. */
 export async function fetchTokenPriceUsd(
   address: string,
   chainId = "robinhood",
 ): Promise<number | undefined> {
+  // Same junk-pool-resistant selection as everywhere else — a naive
+  // deepest-liquidity sort here fed the GME entry at $0.01249 (real $0.0022,
+  // -82% "hard stop" 8s after open) and the MarsCoin $149 phantom reads.
   const pairs = await fetchTokenPairs(address, chainId);
-  const ranked = [...pairs].sort(
-    (a, b) => Number(b.liquidity?.usd ?? 0) - Number(a.liquidity?.usd ?? 0),
-  );
-  const price = ranked[0]?.priceUsd;
+  const price = selectDeepestBasePair(pairs, address)?.priceUsd;
   return price ? Number(price) : undefined;
 }
 
