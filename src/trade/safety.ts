@@ -100,11 +100,46 @@ async function rpcCall(
   return j.result;
 }
 
+/** Blockscout explorer hosts for GoPlus-unsupported chains — free, no key;
+ *  Cloudflare only gates non-browser user agents, so send a browser UA. */
+const BLOCKSCOUT_HOST: Record<string, string> = {
+  robinhood: "https://robinhoodchain.blockscout.com",
+};
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36";
+
+interface BlockscoutContract {
+  is_verified?: boolean;
+  proxy_type?: string;
+  implementations?: Array<{ address?: string }>;
+  source_code?: string;
+}
+
+async function fetchBlockscoutContract(
+  chain: string,
+  token: string,
+): Promise<BlockscoutContract | undefined> {
+  const host = BLOCKSCOUT_HOST[chain];
+  if (!host) return undefined;
+  try {
+    const res = await fetch(`${host}/api/v2/smart-contracts/${token}`, {
+      headers: { "User-Agent": BROWSER_UA, Accept: "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return undefined;
+    return (await res.json()) as BlockscoutContract;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * Contract-level rug heuristics via direct RPC for GoPlus-unsupported EVM
- * chains. Official tokenized stocks are exempt (they ARE owned upgradeable
- * proxies, legitimately — Robinhood's registry vouches for them). Fails OPEN
- * on RPC errors like the rest of the gate.
+ * Contract-level rug heuristics for GoPlus-unsupported EVM chains: direct RPC
+ * (bytecode/proxy slot/owner) corroborated by the chain's Blockscout explorer
+ * (authoritative proxy type + verified source for keyword-level checks).
+ * Official tokenized stocks are exempt (they ARE owned upgradeable proxies,
+ * legitimately — Robinhood's registry vouches for them). Fails OPEN on
+ * RPC/explorer errors like the rest of the gate.
  */
 async function checkEvmContractHeuristics(
   chain: string,
@@ -113,34 +148,48 @@ async function checkEvmContractHeuristics(
   const rpc = EVM_RPC[chain];
   if (!rpc) return [];
   try {
-    if (chain === "robinhood") {
-      const reg = await fetchStockRegistry().catch(() => undefined);
-      if (reg?.addresses.has(token.toLowerCase())) return [];
-    }
-    let code = (await rpcCall(rpc, "eth_getCode", [token, "latest"])) ?? "0x";
-    const implSlot = await rpcCall(rpc, "eth_getStorageAt", [
-      token,
-      EIP1967_IMPL_SLOT,
-      "latest",
+    // Fire the registry lookup, all three RPC reads and the Blockscout call
+    // in parallel — sequential rounds made the gate needlessly slow.
+    const [reg, codeRaw, implSlot, ownerRaw, scout] = await Promise.all([
+      chain === "robinhood"
+        ? fetchStockRegistry().catch(() => undefined)
+        : Promise.resolve(undefined),
+      rpcCall(rpc, "eth_getCode", [token, "latest"]).catch(() => undefined),
+      rpcCall(rpc, "eth_getStorageAt", [token, EIP1967_IMPL_SLOT, "latest"]).catch(
+        () => undefined,
+      ),
+      rpcCall(rpc, "eth_call", [{ to: token, data: "0x8da5cb5b" }, "latest"]).catch(
+        () => undefined,
+      ),
+      fetchBlockscoutContract(chain, token),
     ]);
+    if (reg?.addresses.has(token.toLowerCase())) return [];
+    let code = codeRaw ?? "0x";
     const implAddr =
-      implSlot && implSlot !== "0x" && !/^0x0+$/.test(implSlot)
+      (scout?.implementations?.[0]?.address as string | undefined) ??
+      (implSlot && implSlot !== "0x" && !/^0x0+$/.test(implSlot)
         ? "0x" + implSlot.slice(-40)
-        : undefined;
-    const isProxy = implAddr != null || (code.length - 2) / 2 < 500;
+        : undefined);
+    const isProxy =
+      implAddr != null ||
+      (scout?.proxy_type != null && scout.proxy_type !== "unknown") ||
+      (code.length - 2) / 2 < 500;
     if (implAddr) {
       code = (await rpcCall(rpc, "eth_getCode", [implAddr, "latest"])) ?? code;
     }
-    const ownerRaw = await rpcCall(rpc, "eth_call", [
-      { to: token, data: "0x8da5cb5b" },
-      "latest",
-    ]).catch(() => undefined);
     const ownerLive =
       ownerRaw != null && ownerRaw.length >= 42 && !/^0x0+$/.test(ownerRaw);
     const selectors = new Set<string>();
     for (const sel of Object.values(SEL)) {
       if (code.includes(sel)) selectors.add(sel);
     }
+    // Source-level corroboration: Blockscout serves VERIFIED source for most
+    // launchpad tokens here (CurvePumpTokenUpgradeableV2's own comments spell
+    // out "blacklisted can buy, cannot sell"). Keyword hits beat selector
+    // guessing when the source is available.
+    const src = (scout?.source_code as string | undefined) ?? "";
+    if (/isBlacklisted|isBlackListed|addBlackList/.test(src))
+      selectors.add(SEL.isBlacklisted);
     return evaluateContractProfile({ isProxy, ownerLive, selectors });
   } catch (err) {
     console.error(
