@@ -73,7 +73,13 @@ const ANTI_CHASE = { aiMinLiquidityUsd: 20_000, aiMaxPump1hPct: 100, aiMaxPump24
 const CHAIN_DEFAULTS: Record<string, Partial<SmartMoneyFilter>> = {
   // RB is the home chain (keep all sizes) but a wallet re-buying the same token
   // (e.g. the HOOD accumulator) spams — so cool down repeat same-token alerts.
-  robinhood: { alertMinUsd: 0, aiMinUsd: 0, alertCooldownMin: 30, ...ANTI_CHASE },
+  // RB liq floor lowered $20k→$12k: on RB the low-liq launches ARE the alpha —
+  // 2026-09-05 the $20k floor blocked Viagra ($16k liq → +924%) and OZEMPIC
+  // ($9k → +1326%, still sub-floor) while every token that PASSED the floor
+  // (BA/SCHRODINGER/NAGA, $22–208k) went flat. These were liq-blocked only, NOT
+  // pump-blocked = genuine early smart-money entries. Pump caps stay as the real
+  // anti-chase; sub-$12k stays out (rug-dense: MeiMei/CIRCLEJERK −43~−64%).
+  robinhood: { alertMinUsd: 0, aiMinUsd: 0, alertCooldownMin: 30, ...ANTI_CHASE, aiMinLiquidityUsd: 12_000 },
   // Calibrated on live data: BSC smart-money buys are small (median ~$48, max
   // ~$712 over 3h), so the old $1000/$3000 gates blocked 100% of buys.
   bsc: { alertMinUsd: 300, aiMinUsd: 500, ...ANTI_CHASE },

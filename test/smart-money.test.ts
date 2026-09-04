@@ -211,8 +211,10 @@ describe("resolveFilterSync (per-chain / per-wallet filters)", () => {
     // RB cools down a wallet re-buying the same token to kill spam.
     expect(resolveFilterSync(empty, "robinhood", "0x0").alertCooldownMin).toBe(30);
     expect(resolveFilterSync(empty, "bsc", "0x0").alertCooldownMin).toBe(0);
-    // Anti-chase AI-trigger gates apply on every chain.
-    expect(resolveFilterSync(empty, "robinhood", "0x0").aiMinLiquidityUsd).toBe(20000);
+    // Anti-chase AI-trigger gates apply on every chain. RB floor lowered to
+    // $12k (low-liq launches are the RB alpha; pump caps remain the real gate).
+    expect(resolveFilterSync(empty, "robinhood", "0x0").aiMinLiquidityUsd).toBe(12000);
+    expect(resolveFilterSync(empty, "bsc", "0x0").aiMinLiquidityUsd).toBe(20000);
     expect(resolveFilterSync(empty, "bsc", "0x0").aiMaxPump24hPct).toBe(300);
   });
   it("wallet override beats chain override beats defaults", () => {
