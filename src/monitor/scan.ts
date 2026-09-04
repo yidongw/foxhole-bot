@@ -24,6 +24,7 @@ import {
   type MonitorState,
 } from "./state.js";
 import { sleep } from "../lib/utils.js";
+import { GMGN_SLUG as GMGN_CHAIN } from "../lib/format.js";
 import {
   fetchCreatedEvents,
   formatLaunchAlert,
@@ -202,13 +203,6 @@ function isTradeGrade(evaluation: SignalEvaluation): boolean {
   const entryTriggers = loadTradeConfig().entryTriggers;
   return evaluation.triggers.some((t) => entryTriggers.includes(t));
 }
-
-const GMGN_CHAIN: Record<string, string> = {
-  solana: "sol",
-  bsc: "bsc",
-  base: "base",
-  ethereum: "eth",
-};
 
 function formatTradeSignal(ev: SignalEvaluation): string {
   const i = ev.input;
