@@ -4,12 +4,26 @@
  *
  * ⚠️ 未经真金验证 —— 需要 OKX 凭证且要在 RB 主网跑通首单;与仓库其它 live
  *    路径同纪律,先小额验证再放量。
+ *
+ * 失败分两类,给上层的 fallback 用:
+ *  - **路由/构建阶段**失败(OKX API 挂、无路由、授权失败)——尚未广播 swap,
+ *    抛 `OkxRouteError`,上层可安全回退 hoodchain(没有成交,不会重复买)。
+ *  - **广播阶段**失败(swap tx 已发出后)——抛原始错误,上层**不得**回退,
+ *    否则可能重复下单。
  */
 import { erc20Abi, type Address } from "viem";
 
 import { getTradingClient } from "../../chain/client.js";
 import { OKX_RB_CHAIN_INDEX } from "./config.js";
 import { getApproveTransaction, getSwap } from "./dex.js";
+
+/** 路由/构建阶段(swap 广播前)的失败——可安全回退到其它路由。 */
+export class OkxRouteError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "OkxRouteError";
+  }
+}
 
 export interface OkxSwapOutcome {
   /** 实际/预期成交的 toToken 数量,最小单位。 */
@@ -40,40 +54,52 @@ export async function okxSwap(
   const wallet = account.address as Address;
   const amountStr = amountIn.toString();
 
-  // 1) 确保 fromToken 已授权给 OKX 的 spender。allowance 不足才发 approve。
-  const approve = await getApproveTransaction({
-    chainIndex: OKX_RB_CHAIN_INDEX,
-    tokenContractAddress: fromToken,
-    approveAmount: amountStr,
-  });
-  const spender = approve.dexContractAddress as Address;
-  const allowance = (await client.public.readContract({
-    address: fromToken,
-    abi: erc20Abi,
-    functionName: "allowance",
-    args: [wallet, spender],
-  })) as bigint;
-  if (allowance < amountIn) {
-    const approveHash = await walletClient.sendTransaction({
-      account,
-      chain: client.chain,
-      to: fromToken,
-      data: approve.data as `0x${string}`,
+  // ── 路由/构建阶段:任何失败都抛 OkxRouteError(还没广播 swap,可回退)──
+  let tx: Awaited<ReturnType<typeof getSwap>>["tx"];
+  let routerResult: Awaited<ReturnType<typeof getSwap>>["routerResult"];
+  try {
+    // 1) 确保 fromToken 已授权给 OKX 的 spender。allowance 不足才发 approve。
+    const approve = await getApproveTransaction({
+      chainIndex: OKX_RB_CHAIN_INDEX,
+      tokenContractAddress: fromToken,
+      approveAmount: amountStr,
     });
-    await client.public.waitForTransactionReceipt({ hash: approveHash });
+    const spender = approve.dexContractAddress as Address;
+    const allowance = (await client.public.readContract({
+      address: fromToken,
+      abi: erc20Abi,
+      functionName: "allowance",
+      args: [wallet, spender],
+    })) as bigint;
+    if (allowance < amountIn) {
+      const approveHash = await walletClient.sendTransaction({
+        account,
+        chain: client.chain,
+        to: fromToken,
+        data: approve.data as `0x${string}`,
+      });
+      await client.public.waitForTransactionReceipt({ hash: approveHash });
+    }
+
+    // 2) 取 swap 交易(仅构建,未广播)。V6 用 slippagePercent(百分数)。
+    const swap = await getSwap({
+      chainIndex: OKX_RB_CHAIN_INDEX,
+      fromTokenAddress: fromToken,
+      toTokenAddress: toToken,
+      amount: amountStr,
+      slippagePercent: (slippageBps / 100).toString(),
+      userWalletAddress: wallet,
+    });
+    tx = swap.tx;
+    routerResult = swap.routerResult;
+  } catch (err) {
+    throw new OkxRouteError(
+      `OKX 路由/构建失败: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
   }
 
-  // 2) 取 swap 交易并广播。slippage 用十进制小数。
-  const swap = await getSwap({
-    chainIndex: OKX_RB_CHAIN_INDEX,
-    fromTokenAddress: fromToken,
-    toTokenAddress: toToken,
-    amount: amountStr,
-    slippage: (slippageBps / 10_000).toString(),
-    userWalletAddress: wallet,
-  });
-
-  const { tx, routerResult } = swap;
+  // ── 广播阶段:此后失败抛原始错误,上层不得回退(可能已成交)──
   const swapHash = await walletClient.sendTransaction({
     account,
     chain: client.chain,

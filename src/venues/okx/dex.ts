@@ -73,8 +73,8 @@ export interface OkxSwapResult {
 }
 
 export interface SwapParams extends QuoteParams {
-  /** 十进制小数,如 0.01 = 1%。 */
-  slippage: string;
+  /** V6 用百分数字符串:"1" = 1%(实测 minReceive = 报价 × 0.99)。 */
+  slippagePercent: string;
   userWalletAddress: string;
   /** 默认与 userWalletAddress 相同。 */
   swapReceiverAddress?: string;

@@ -1,11 +1,15 @@
 export type TradeMode = "off" | "paper" | "live";
 
 /**
- * live 下单路由。`hoodchain` = 直连 RB 链 v3 路由(默认,历史行为);
- * `okx` = 走 OKX DEX 聚合器(多池聚合路由,可绕单池 NoRouteError)。
- * 仅影响 live 模式;paper 两者都不下真单。
+ * live 下单路由。仅影响 live 模式;paper 都不下真单。
+ * - `hoodchain` = 直连 RB 链 Uniswap v3 路由(默认,历史行为;只认 v3 池)。
+ * - `okx` = 只走 OKX DEX 聚合器(多池/多版本含 v4,可绕单池 NoRouteError);
+ *   OKX 挂了就直接失败,不回退。
+ * - `okx_hood` = OKX 主路由 + hoodchain 兜底:先试 OKX,仅当 OKX 在**广播前**
+ *   路由/构建失败(API 挂、无路由、授权失败)才回退 hoodchain;swap 一旦广播
+ *   就不回退,避免重复下单。兼顾 OKX 的 v4 覆盖与 hoodchain 的稳。
  */
-export type TradeRouter = "hoodchain" | "okx";
+export type TradeRouter = "hoodchain" | "okx" | "okx_hood";
 
 export interface TakeProfitTier {
   /** Price multiple of entry that arms this tier. */
@@ -80,7 +84,9 @@ export function loadTradeConfig(): TradeConfig {
   const router = (process.env.TRADE_ROUTER ?? "hoodchain") as TradeRouter;
   return {
     mode: ["off", "paper", "live"].includes(mode) ? mode : "off",
-    router: router === "okx" ? "okx" : "hoodchain",
+    router: (["hoodchain", "okx", "okx_hood"] as const).includes(router)
+      ? router
+      : "hoodchain",
     usdPerTrade: num("TRADE_USD_PER_TRADE", 50),
     // <=0 disables (default since 2026-09-04: AI sizes/paces buys itself;
     // paper cash is the only remaining bound).
