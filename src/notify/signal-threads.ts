@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import type { SignalEvaluation } from "../signals/types.js";
 import { resolveWebhook } from "./routes.js";
+import { fdvTag } from "../lib/format.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const THREADS_PATH = path.resolve(__dirname, "../../data/signal-threads.json");
@@ -95,7 +96,7 @@ function formatCard(ev: SignalEvaluation, entry: ThreadEntry): string {
       (entry.count > 1 ? ` · 🔁 **第 ${entry.count} 次触发** ${ts(entry.lastAt)}` : ""),
   );
   lines.push(
-    `最新: $${i.priceUsd?.toPrecision(4) ?? "?"} · 流动性 $${((i.liquidityUsd ?? 0) / 1e3).toFixed(0)}K · 触发器 ${ev.triggers.slice(0, 3).join(",")}`,
+    `最新: $${i.priceUsd?.toPrecision(4) ?? "?"} · 流动性 $${((i.liquidityUsd ?? 0) / 1e3).toFixed(0)}K${fdvTag(i.fdvUsd)} · 触发器 ${ev.triggers.slice(0, 3).join(",")}`,
   );
   return lines.join("\n");
 }
@@ -106,7 +107,7 @@ function formatDetail(ev: SignalEvaluation): string {
   return [
     `**触发 #${new Date().toISOString().slice(11, 16)} UTC** — score ${ev.score}`,
     `原因: ${ev.reasons.join(" · ")}`,
-    `价格 $${i.priceUsd?.toPrecision(4) ?? "?"} · 24h量 $${((i.volume24hUsd ?? 0) / 1e6).toFixed(2)}M · 流动性 $${((i.liquidityUsd ?? 0) / 1e3).toFixed(0)}K` +
+    `价格 $${i.priceUsd?.toPrecision(4) ?? "?"} · 24h量 $${((i.volume24hUsd ?? 0) / 1e6).toFixed(2)}M · 流动性 $${((i.liquidityUsd ?? 0) / 1e3).toFixed(0)}K${fdvTag(i.fdvUsd)}` +
       (i.quoteLockRatio != null ? ` · 锁仓 ${(i.quoteLockRatio * 100).toFixed(0)}%` : "") +
       (i.curveProgress != null ? ` · 曲线 ${(i.curveProgress * 100).toFixed(0)}%` : ""),
   ].join("\n");
