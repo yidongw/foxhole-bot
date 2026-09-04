@@ -143,10 +143,15 @@ export function spendSince(file: PositionsFile, sinceIso: string): number {
  * real on-chain wallet balance, not this notional paper ledger, so mixing
  * them in (once a chain runs live) would corrupt paper cash accounting.
  */
-export function paperCashUsd(file: PositionsFile, startUsd: number): number {
+export function paperCashUsd(
+  file: PositionsFile,
+  startUsd: number,
+  chain?: string,
+): number {
   let cash = startUsd;
   for (const p of file.positions) {
     if (p.mode !== "paper") continue;
+    if (chain && (p.chain ?? "robinhood") !== chain) continue;
     cash -= p.costUsd;
     cash += realizedUsd(p);
   }

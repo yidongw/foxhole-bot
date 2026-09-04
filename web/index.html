@@ -364,9 +364,16 @@
       const anyLive = t.default_mode === 'live' || Object.values(chains).includes('live');
       el.hidden = false;
       el.className = 'mode-banner' + (anyLive ? ' banner-live' : '');
+      const sizing = (t.size_pct > 0)
+        ? `单笔 ${(t.size_pct * 100).toFixed(0)}% 可用余额`
+        : `单笔上限 $${t.usd_per_trade ?? '?'}`;
+      const ps = t.paper_starts || {};
+      const psStr = Object.keys(ps).length
+        ? ' · 纸上本金 ' + Object.entries(ps).map(([c, v]) => `${esc(c)} $${v}`).join(', ')
+        : '';
       el.innerHTML = `<strong>交易模式</strong> · 默认 ${modeChip(t.default_mode)}` +
         (parts.length ? ' · ' + parts.join(' · ') : '') +
-        ` · 路由 <code>${esc(t.router || '?')}</code> · 单笔上限 $${t.usd_per_trade ?? '?'}` +
+        ` · 路由 <code>${esc(t.router || '?')}</code> · ${sizing}${psStr}` +
         (anyLive ? ' · <b class="live-warn">⚠️ 真金交易进行中</b>' : '');
     }
 

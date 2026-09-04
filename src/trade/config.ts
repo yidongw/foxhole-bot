@@ -32,12 +32,20 @@ export interface TradeConfig {
   chainModes: Record<string, TradeMode>;
   /** live 下单路由:hoodchain(默认)| okx。 */
   router: TradeRouter;
-  /** USD notional per entry. */
+  /** USD notional per entry — the FIXED per-trade cap when sizePct<=0. */
   usdPerTrade: number;
+  /**
+   * Per-trade size as a fraction (0..1) of the chain's AVAILABLE capital.
+   * >0 makes每笔按余额比例(live=链上本币余额,paper=该链纸上现金),
+   * 自然形成多个仓;<=0 回退到固定 usdPerTrade。TRADE_SIZE_PCT.
+   */
+  sizePct: number;
   /** Hard 24h capital-at-risk cap across entries (USD); <=0 disables it. */
   maxDailySpendUsd: number;
-  /** Paper account starting cash (USD) — the balance we track P&L against. */
+  /** Paper account starting cash (USD) — global default when a chain has no override. */
   paperStartUsd: number;
+  /** Per-chain paper starting cash (USD), from TRADE_PAPER_STARTS=chain:amt,... */
+  paperStarts: Record<string, number>;
   /**
    * Mechanically auto-enter on every trade-grade signal. Default OFF: the
    * AI decider is the sole buyer, so its skip/buy judgement is authoritative
@@ -89,6 +97,17 @@ function num(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/** Parse `chain:number,chain:number` into a lowercase-keyed number map. */
+function parsePairs(raw: string | undefined): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const pair of (raw ?? "").split(",")) {
+    const [chain, val] = pair.split(":").map((s) => s.trim());
+    const n = Number(val);
+    if (chain && Number.isFinite(n)) out[chain.toLowerCase()] = n;
+  }
+  return out;
+}
+
 export function loadTradeConfig(): TradeConfig {
   const mode = (process.env.TRADE_MODE ?? "off") as TradeMode;
   const router = (process.env.TRADE_ROUTER ?? "hoodchain") as TradeRouter;
@@ -117,6 +136,8 @@ export function loadTradeConfig(): TradeConfig {
       ? router
       : "hoodchain",
     usdPerTrade: num("TRADE_USD_PER_TRADE", 50),
+    sizePct: num("TRADE_SIZE_PCT", 0),
+    paperStarts: parsePairs(process.env.TRADE_PAPER_STARTS),
     // <=0 disables (default since 2026-09-04: AI sizes/paces buys itself;
     // paper cash is the only remaining bound).
     maxDailySpendUsd: num("TRADE_MAX_DAILY_USD", 0),
@@ -157,6 +178,11 @@ export function loadTradeConfig(): TradeConfig {
 /** Effective trade mode for a chain: its TRADE_MODE_<CHAIN> override, else the global default. */
 export function resolveTradeMode(config: TradeConfig, chain: string): TradeMode {
   return (config.chainModes ?? {})[chain.toLowerCase()] ?? config.mode;
+}
+
+/** Paper starting cash for a chain: its TRADE_PAPER_STARTS override, else the global default. */
+export function paperStartFor(config: TradeConfig, chain: string): number {
+  return (config.paperStarts ?? {})[chain.toLowerCase()] ?? config.paperStartUsd;
 }
 
 /** True if ANY chain (global default or a per-chain override) is paper/live. */

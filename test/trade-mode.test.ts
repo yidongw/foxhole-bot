@@ -2,12 +2,21 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   loadTradeConfig,
+  paperStartFor,
   resolveTradeMode,
   tradingActive,
 } from "../src/trade/config.js";
 
 // Isolate the trade-mode env vars around each case.
-const KEYS = ["TRADE_MODE", "TRADE_MODES", "TRADE_MODE_ROBINHOOD", "TRADE_MODE_SOLANA"];
+const KEYS = [
+  "TRADE_MODE",
+  "TRADE_MODES",
+  "TRADE_MODE_ROBINHOOD",
+  "TRADE_MODE_SOLANA",
+  "TRADE_SIZE_PCT",
+  "TRADE_PAPER_STARTS",
+  "TRADE_PAPER_START_USD",
+];
 let saved: Record<string, string | undefined>;
 beforeEach(() => {
   saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
@@ -50,6 +59,17 @@ describe("per-chain trade mode", () => {
     expect(resolveTradeMode(c, "robinhood")).toBe("live");
     expect(resolveTradeMode(c, "solana")).toBe("off");
     expect(resolveTradeMode(c, "bsc")).toBe("paper"); // falls to global default
+  });
+
+  it("sizePct + per-chain paper starts parse", () => {
+    process.env.TRADE_SIZE_PCT = "0.25";
+    process.env.TRADE_PAPER_START_USD = "1000";
+    process.env.TRADE_PAPER_STARTS = "robinhood:5000, bsc:200";
+    const c = loadTradeConfig();
+    expect(c.sizePct).toBe(0.25);
+    expect(paperStartFor(c, "robinhood")).toBe(5000);
+    expect(paperStartFor(c, "bsc")).toBe(200);
+    expect(paperStartFor(c, "solana")).toBe(1000); // falls to global default
   });
 
   it("global off + one chain live: only that chain trades", () => {

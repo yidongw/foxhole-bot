@@ -7,7 +7,7 @@ import { fetchTokenPairs } from "../dex/dexscreener.js";
 import { fetchPaprikaTokenPriceUsd } from "../dex/dexpaprika.js";
 import { selectDeepestBasePair } from "../chains/generic-analysis.js";
 import { getAdapter, positionChain } from "../chains/registry.js";
-import type { ChainId } from "../chains/adapter.js";
+import { tradeEnabledChains, type ChainId } from "../chains/adapter.js";
 import { sendDiscordMessage } from "../notify/discord.js";
 import { appendAlertLog } from "../notify/alert-log.js";
 import { appendTradeJournal } from "./trade-journal.js";
@@ -16,11 +16,16 @@ import { postToSignalThread } from "../notify/signal-threads.js";
 import { sleep } from "../lib/utils.js";
 import { fdvTag, gmgnLink } from "../lib/format.js";
 import type { SignalEvaluation } from "../signals/types.js";
+import { formatUnits } from "viem";
+import { MAINNET_ADDRESSES } from "hoodchain";
+import { getTradingClient, getErc20Balance } from "../chain/client.js";
 import {
   loadTradeConfig,
+  paperStartFor,
   resolveTradeMode,
   tradingActive,
   type TradeConfig,
+  type TradeMode,
 } from "./config.js";
 import {
   loadPositions,
@@ -76,6 +81,50 @@ async function notify(
 
 function modeTag(config: TradeConfig): string {
   return config.mode === "paper" ? "📝 PAPER" : "💸 LIVE";
+}
+
+/**
+ * Capital available to size a trade on this chain, in USD.
+ * paper = that chain's paper cash; live = on-chain base-currency balance
+ * (RB=USDG≈$1). Other live chains aren't balance-aware yet → Infinity.
+ */
+async function availableCapitalUsd(
+  chain: string,
+  mode: TradeMode,
+  config: TradeConfig,
+  file: PositionsFile,
+): Promise<number> {
+  if (mode === "paper") {
+    return paperCashUsd(file, paperStartFor(config, chain), chain);
+  }
+  if (chain === "robinhood") {
+    try {
+      const wallet = getTradingClient().account?.address;
+      if (!wallet) return 0;
+      const bal = await getErc20Balance(
+        MAINNET_ADDRESSES.usdg as `0x${string}`,
+        wallet as `0x${string}`,
+      );
+      return Number(formatUnits(bal, 6)); // USDG = 6 decimals, ~$1
+    } catch {
+      return 0;
+    }
+  }
+  return Infinity;
+}
+
+/**
+ * Per-trade USD ceiling: a fraction of available capital when sizePct>0
+ * (→ multiple positions, scales with balance), else the fixed live cap.
+ */
+function sizeCapUsd(
+  available: number,
+  mode: TradeMode,
+  config: TradeConfig,
+): number {
+  if (config.sizePct > 0) return config.sizePct * available;
+  if (mode === "live" && config.usdPerTrade > 0) return config.usdPerTrade;
+  return Infinity;
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -285,14 +334,16 @@ export async function aiBuy(
   // 2026-09-04 用户拆除预算类限制:单笔 $50/$25 夹子取消,买多少由 AI 判断。
   // 唯一保留的是账本现金(paper 不许透支;live 由链上余额天然约束)——这是
   // 记账完整性,不是策略限制。止损/安全门(防骗子合约)不属于预算,原样保留。
-  const cash =
-    config.mode === "paper" ? paperCashUsd(file, config.paperStartUsd) : Infinity;
-  // LIVE per-trade hard cap = TRADE_USD_PER_TRADE (real money — the AI can size
-  // below it but never above). Paper stays fully AI-sized (bounded by paper cash).
-  const liveCap =
-    config.mode === "live" && config.usdPerTrade > 0 ? config.usdPerTrade : Infinity;
-  const clamped = Math.min(usd, cash, liveCap);
-  if (!(clamped > 0)) return `风控拒绝: 可用现金不足 ($${cash.toFixed(2)})`;
+  // Size relative to the chain's available capital (paper cash / on-chain
+  // base-currency balance). With TRADE_SIZE_PCT>0 each trade takes a fraction
+  // of it → naturally多个仓 that scale with balance; else fixed usdPerTrade cap.
+  // The AI's requested `usd` is honored up to that ceiling (and never > available).
+  const available = await availableCapitalUsd(chain, config.mode, config, file);
+  const clamped = Math.min(usd, available, sizeCapUsd(available, config.mode, config));
+  if (!(clamped > 0)) {
+    const av = Number.isFinite(available) ? `$${available.toFixed(2)}` : "∞";
+    return `风控拒绝: 可用资金不足 (可用 ${av})`;
+  }
   const verdict = checkEntry({ ...config, usdPerTrade: clamped }, file, candidate);
   if (!verdict.ok) return `风控拒绝: ${verdict.reason}`;
 
@@ -331,7 +382,9 @@ export async function aiBuy(
   // eaten by exactly this race on 2026-09-04).
   const { file: freshFile, result: ok } = await mutatePositions((f) => {
     const freshCash =
-      config.mode === "paper" ? paperCashUsd(f, config.paperStartUsd) : Infinity;
+      config.mode === "paper"
+        ? paperCashUsd(f, paperStartFor(config, chain), chain)
+        : Infinity;
     if (freshCash < clamped) return false;
     f.positions.push(position);
     return true;
@@ -441,6 +494,8 @@ async function writePositionsJson(
           chains: cfgSnapshot.chainModes,
           router: cfgSnapshot.router,
           usd_per_trade: cfgSnapshot.usdPerTrade,
+          size_pct: cfgSnapshot.sizePct,
+          paper_starts: cfgSnapshot.paperStarts,
         },
       },
       positions: rows,
@@ -809,8 +864,13 @@ export async function managePositions(
 export async function formatPortfolioReport(): Promise<string> {
   const file = await loadPositions();
   const config = loadTradeConfig();
-  const start = config.paperStartUsd;
-  const cash = paperCashUsd(file, start);
+  // Sum paper capital across all trade-enabled chains (each with its own start).
+  const paperChains = tradeEnabledChains();
+  const start = paperChains.reduce((s, c) => s + paperStartFor(config, c), 0);
+  const cash = paperChains.reduce(
+    (s, c) => s + paperCashUsd(file, paperStartFor(config, c), c),
+    0,
+  );
 
   // 措辞/结构对齐永续 formatPerpReport,两条 trade-log 消息长得一样。
   const lines: string[] = [];
