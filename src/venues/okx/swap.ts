@@ -92,9 +92,21 @@ export async function okxSwap(
     });
     tx = swap.tx;
     routerResult = swap.routerResult;
+
+    // 广播前先 eth_call 模拟 OKX 返回的 calldata。OKX 在 RB 链会返回能报价、
+    // 但执行会 revert("adaptor call failed")的路由(实测 2026-09-04,quote 通、
+    // swap 恒 revert)。模拟失败即视为路由不可用 → 抛 OkxRouteError 让上层回退,
+    // 绝不浪费 gas 广播一笔注定 revert 的交易。
+    await client.public.call({
+      account: wallet,
+      to: tx.to as `0x${string}`,
+      data: tx.data as `0x${string}`,
+      value: tx.value ? BigInt(tx.value) : 0n,
+      ...(tx.gas ? { gas: BigInt(tx.gas) } : {}),
+    });
   } catch (err) {
     throw new OkxRouteError(
-      `OKX 路由/构建失败: ${err instanceof Error ? err.message : String(err)}`,
+      `OKX 路由/构建/模拟失败: ${err instanceof Error ? err.message : String(err)}`,
       { cause: err },
     );
   }
@@ -108,7 +120,14 @@ export async function okxSwap(
     value: tx.value ? BigInt(tx.value) : 0n,
     ...(tx.gas ? { gas: BigInt(tx.gas) } : {}),
   });
-  await client.public.waitForTransactionReceipt({ hash: swapHash });
+  const receipt = await client.public.waitForTransactionReceipt({
+    hash: swapHash,
+  });
+  // 回执必须成功:waitForTransactionReceipt 对 reverted 不抛错,不查就会把
+  // revert 的 swap 当成交(2026-09-04 实测踩过)。已过模拟仍 revert 属极少数。
+  if (receipt.status !== "success") {
+    throw new Error(`OKX swap 交易 revert(${swapHash})`);
+  }
 
   return {
     amountOutBase: BigInt(routerResult.toTokenAmount),
