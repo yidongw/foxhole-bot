@@ -5,12 +5,13 @@ import { ensureSignalThread } from "../notify/signal-threads.js";
 import { canonicalChain } from "../chains/robinhood/smart-money.js";
 import { appendSmLog } from "./log.js";
 import { resolveFilter, type SmartMoneyFilter } from "./config.js";
+import { fdvTag } from "../lib/format.js";
 
 /** Best-liquidity market snapshot for a token (DexScreener), or undefined. */
 async function fetchTokenMarket(
   chain: string,
   token: string,
-): Promise<{ liquidityUsd: number; h1: number; h24: number } | undefined> {
+): Promise<{ liquidityUsd: number; h1: number; h24: number; fdvUsd?: number } | undefined> {
   try {
     const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${token}`, {
       headers: { "User-Agent": "foxhole-bot/0.3" },
@@ -21,6 +22,7 @@ async function fetchTokenMarket(
         chainId?: string;
         liquidity?: { usd?: number };
         priceChange?: { h1?: number; h24?: number };
+        fdv?: number;
       }>;
     };
     const pairs = (data.pairs ?? []).filter((p) => p.chainId === chain);
@@ -32,6 +34,7 @@ async function fetchTokenMarket(
       liquidityUsd: Number(best.liquidity?.usd ?? 0),
       h1: Number(best.priceChange?.h1 ?? 0),
       h24: Number(best.priceChange?.h24 ?? 0),
+      fdvUsd: Number(best.fdv) || undefined,
     };
   } catch {
     return undefined;
@@ -203,8 +206,9 @@ export class SmartMoneyEngine {
   private async alert(buy: SmartMoneyBuy, distinct: number): Promise<void> {
     const style = chainStyle(buy.chain);
     const usdStr = buy.usd ? ` (~$${Math.round(buy.usd).toLocaleString()})` : "";
+    const fdv = (await fetchTokenMarket(buy.chain, buy.token))?.fdvUsd;
     const description = [
-      `\`${buy.walletLabel}\` 买入 **$${buy.symbol}**${usdStr}`,
+      `\`${buy.walletLabel}\` 买入 **$${buy.symbol}**${usdStr}${fdvTag(fdv)}`,
       `窗口内 **${distinct}** 个追踪钱包买入 $${buy.symbol}`,
       `CA: \`${buy.token}\``,
       `👛 \`${buy.wallet}\``,
@@ -261,11 +265,12 @@ export class SmartMoneyEngine {
     const style = chainStyle(buy.chain);
     const link = this.tokenLink(buy.chain, buy.token);
     const usdStr = buy.usd ? ` (~$${Math.round(buy.usd).toLocaleString()})` : "";
+    const fdv = (await fetchTokenMarket(buy.chain, buy.token))?.fdvUsd;
 
     // 1) Trade signal → the chain's signal channel (a decision is requested).
     const signal = [
       `🎯 **交易信号 / TRADE SIGNAL** · ${style.emoji} ${style.name}`,
-      `聪明钱驱动:窗口内 **${distinct}** 个追踪钱包买入 **$${buy.symbol}**${usdStr}`,
+      `聪明钱驱动:窗口内 **${distinct}** 个追踪钱包买入 **$${buy.symbol}**${usdStr}${fdvTag(fdv)}`,
       `最近:\`${buy.walletLabel}\``,
       `CA: \`${buy.token}\``,
       `🔗 <${link}>`,

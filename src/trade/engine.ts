@@ -108,6 +108,13 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
   const chain = positionChain(position.chain);
   const price = await getAdapter(chain).priceUsd(position.token);
   if (!price || price <= 0) return `No price available for ${position.symbol} — try again.`;
+  let fdvUsd: number | undefined;
+  try {
+    fdvUsd = selectDeepestBasePair(
+      await fetchTokenPairs(position.token, chain),
+      position.token,
+    )?.fdv;
+  } catch {}
 
   const sellFraction = Math.min(Math.max(fraction, 0), 1) * remainingFraction(position);
   const config = { ...loadTradeConfig(), mode: position.mode };
@@ -126,11 +133,11 @@ export async function manualExit(query: string, fraction = 1): Promise<string> {
     await writePositionsJson(file, { [position.token.toLowerCase()]: price });
     const pnl = totalPnlUsd(position, price);
     await appendTradeJournal(
-      `📤 手动平仓 ${position.symbol} [${chain}/${position.mode}] 卖出 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
+      `📤 手动平仓 ${position.symbol} [${chain}/${position.mode}] 卖出 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)} | 持仓盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`,
     );
     return (
       `Sold ${(sellFraction * 100).toFixed(0)}% of ${position.symbol} [${chain}/${position.mode}] ` +
-      `@ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}. ` +
+      `@ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}. ` +
       `Position P&L ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${position.status}).`
     );
   } catch (err) {
