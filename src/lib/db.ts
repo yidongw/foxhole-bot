@@ -181,6 +181,26 @@ const MIGRATIONS: string[] = [
      wallet TEXT, token TEXT, data TEXT NOT NULL
    );
    CREATE INDEX IF NOT EXISTS idx_sm_log_at ON sm_log(at);`,
+
+  // v12 — concurrent deciders: an inbox item is claimed by one worker so N
+  // deciders process DISJOINT batches in parallel (the ledger is already ACID +
+  // dup-guarded, so this is safe). Stale claims (dead worker) are reclaimable.
+  `ALTER TABLE inbox ADD COLUMN claimed_by TEXT;
+   ALTER TABLE inbox ADD COLUMN claimed_at TEXT;
+   CREATE INDEX IF NOT EXISTS idx_inbox_claim ON inbox(archived, claimed_by);`,
+
+  // v13 — execution-failure ledger (see src/trade/exec-failure.ts). Every trade
+  // that can't fill is captured with a classification (transient vs structural)
+  // so the maintenance layer can retry, alert, or dispatch a repair agent.
+  `CREATE TABLE IF NOT EXISTS exec_failures (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     at TEXT, chain TEXT, token TEXT, symbol TEXT, pool TEXT,
+     kind TEXT,                 -- transient | structural | unknown
+     signature TEXT,            -- dedup key (kind + route shape)
+     reason TEXT,               -- combined venue reasons
+     repair_status TEXT         -- null | dispatched | pr:<url> | skipped
+   );
+   CREATE INDEX IF NOT EXISTS idx_exec_fail_sig ON exec_failures(signature, at);`,
 ];
 
 let cached: { path: string; db: DatabaseSync } | undefined;

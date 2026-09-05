@@ -497,7 +497,24 @@ export async function aiBuy(
     }
   }
 
-  const fill = await executeBuy(chain, config, address, candidate.priceUsd!, clamped);
+  let fill: TradeFill;
+  try {
+    fill = await executeBuy(chain, config, address, candidate.priceUsd!, clamped);
+  } catch (err) {
+    // Capture + classify the fill failure (transient vs structural routing gap),
+    // alert, and — for structural gaps — dispatch the repair agent. Then surface
+    // the failure to the decider as before.
+    const reason = (err as Error).message ?? String(err);
+    const { recordExecFailure } = await import("./exec-failure.js");
+    await recordExecFailure({
+      chain,
+      token: analysis.address,
+      symbol: analysis.symbol,
+      pool: analysis.primaryPairAddress,
+      reason,
+    });
+    return `成交失败(${chain}): ${reason}`;
+  }
   const position: Position = {
     id: `${address.toLowerCase()}-${Date.now()}`,
     mode: config.mode,
