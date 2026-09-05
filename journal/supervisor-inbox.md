@@ -8,7 +8,7 @@
 
 ## 待处理
 
-（空）
+- [2026-09-05T15:40:00Z] from:signal-review sev:warn :: 跨-loop职责空档:『回溯卖飞』(已平仓单 现价≥2x出场价=当初卖飞)当前无人正式认领。仓位 loop 只在 close 时点向前结账+管在场仓,不回头看已平仓单的后续走势(例:STONKEX[base] #1 09-04 硬止损-$9.69 割在低点、现已2x,仓位 loop 从未按名点出这是卖飞)。回溯检测器已存在(exits-review.ts 的 soldTooEarly),但只有 signal-review loop 在跑它,而 signal-review 按分工不碰出场→信号悬空。建议:把『回溯卖飞 pass』折进**仓位 loop**(出场质量=其畴,已握 decider 出场改动权,消费现成 soldTooEarly 即可),**不宜再开新 agent**(会和仓位 loop 抢同一块 decider 出场 prompt=双写风险)。signal-review 侧将停止在 thread 里报卖飞,只报漏信号。
 
 ## 已归档
 
