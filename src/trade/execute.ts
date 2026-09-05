@@ -4,6 +4,7 @@ import { executeSwap, MAINNET_ADDRESSES, parseUsdg } from "hoodchain";
 import { getErc20Balance, getTradingClient } from "../chain/client.js";
 import { RouteError } from "../venues/route-error.js";
 import { okxSwap } from "../venues/okx/swap.js";
+import { kyberSwap } from "../venues/kyber/swap.js";
 import { lifiSwap } from "../venues/lifi/swap.js";
 import type { TradeConfig, TradeRouter } from "./config.js";
 import type { Position } from "./positions.js";
@@ -51,11 +52,18 @@ export async function runWithFallback<T>(
   }
 }
 
-/** Ordered aggregators to attempt for a router, before any hoodchain fallback. */
-function aggChain(router: TradeRouter): ("lifi" | "okx")[] {
-  if (router.startsWith("lifi_okx")) return ["lifi", "okx"];
-  if (router.startsWith("okx_lifi")) return ["okx", "lifi"];
-  return router.startsWith("lifi") ? ["lifi"] : ["okx"];
+type AggKind = "lifi" | "okx" | "kyber";
+const AGG_KINDS: AggKind[] = ["lifi", "okx", "kyber"];
+
+/**
+ * Aggregators to attempt, in the order they appear in the router string
+ * (e.g. `lifi_kyber_okx_hood` → [lifi, kyber, okx]). Unknown segments (like the
+ * trailing `hood`) are ignored — the `_hood` fallback is handled separately.
+ */
+function aggChain(router: TradeRouter): AggKind[] {
+  return router
+    .split("_")
+    .filter((p): p is AggKind => (AGG_KINDS as string[]).includes(p));
 }
 
 /**
@@ -65,11 +73,13 @@ function aggChain(router: TradeRouter): ("lifi" | "okx")[] {
  * fill). If every aggregator `RouteError`s, the last one is rethrown so the
  * caller's hoodchain fallback (via `runWithFallback`) can take over.
  *
- * The OKX leg exists to cover v4 pools LI.FI won't route (e.g. UFG's v4/native
- * pool — quote-only on LI.FI, buyable on OKX). Those are fresh, hyper-volatile
- * launches, so a *fallback* OKX leg (LI.FI already declined) uses the wider
- * `fallbackSlippageBps` floor — the tight primary slippage makes OKX revert
- * "Min return not reached" on exactly the tokens it's there to rescue.
+ * The Kyber/OKX legs cover pools LI.FI won't route: UFG's v4/native pool
+ * (quote-only on LI.FI) and ORDO-class tokens only one aggregator can sell.
+ * Those are fresh, hyper-volatile launches, so any *fallback* leg (i>0 — LI.FI
+ * already declined) uses the wider `fallbackSlippageBps` floor — the tight
+ * primary slippage makes them revert "Min return not reached" / slippage on
+ * exactly the tokens they're there to rescue. The primary leg keeps tight
+ * slippage, so normal tokens are unaffected.
  */
 function primarySwap(
   router: TradeRouter,
@@ -84,14 +94,11 @@ function primarySwap(
     let lastErr: unknown;
     for (let i = 0; i < chain.length; i++) {
       const kind = chain[i];
-      const slip =
-        kind === "okx" && i > 0
-          ? Math.max(slippageBps, fallbackSlippageBps)
-          : slippageBps;
+      const slip = i > 0 ? Math.max(slippageBps, fallbackSlippageBps) : slippageBps;
       try {
-        return kind === "lifi"
-          ? await lifiSwap(fromToken, toToken, aggAmountIn, slip)
-          : await okxSwap(fromToken, toToken, aggAmountIn, slip);
+        if (kind === "lifi") return await lifiSwap(fromToken, toToken, aggAmountIn, slip);
+        if (kind === "kyber") return await kyberSwap(fromToken, toToken, aggAmountIn, slip);
+        return await okxSwap(fromToken, toToken, aggAmountIn, slip);
       } catch (err) {
         if (err instanceof RouteError) {
           lastErr = err;

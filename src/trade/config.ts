@@ -16,7 +16,11 @@ export type TradeRouter =
   | "lifi_hood"
   // LI.FI primary → OKX (covers v4 pools LI.FI won't route, e.g. native-paired
   // launches like UFG: quote-only on LI.FI, buyable on OKX) → hoodchain (v3).
-  | "lifi_okx_hood";
+  | "lifi_okx_hood"
+  // LI.FI → KyberSwap (own quota, executes where OKX's RB adaptor reverts, and
+  // routes both UFG-buy and ORDO-class-sell gaps) → OKX → hoodchain. Aggregators
+  // are tried in the order named; see aggChain() in execute.ts.
+  | "lifi_kyber_okx_hood";
 
 export interface TakeProfitTier {
   /** Price multiple of entry that arms this tier. */
@@ -141,7 +145,15 @@ export function loadTradeConfig(): TradeConfig {
     mode: ["off", "paper", "live"].includes(mode) ? mode : "off",
     chainModes,
     router: (
-      ["hoodchain", "okx", "okx_hood", "lifi", "lifi_hood", "lifi_okx_hood"] as const
+      [
+        "hoodchain",
+        "okx",
+        "okx_hood",
+        "lifi",
+        "lifi_hood",
+        "lifi_okx_hood",
+        "lifi_kyber_okx_hood",
+      ] as const
     ).includes(router)
       ? router
       : "hoodchain",
