@@ -267,6 +267,33 @@
       "realizedUsd": 18267.47956689264,
       "addedAt": "2026-09-04T19:05:57.523Z",
       "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x7A32AC68349d7aC69b44dC9FABe685E1b1e6d98f",
+      "label": "S v2 胜率60% $87k",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 87000,
+      "addedAt": "2026-09-05T08:46:04.092Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x6Da7c700cDD0A7AF1b88e605d385f5Cb255B8484",
+      "label": "S recovered (reset-wipe 2026-09-05)",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 0,
+      "addedAt": "2026-09-05T08:46:04.095Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0xD4F9A2871D61f7F91340f0a726882b52D8FDF0E0",
+      "label": "S recovered (reset-wipe 2026-09-05)",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 0,
+      "addedAt": "2026-09-05T08:46:04.095Z",
+      "addedBy": "winner-finder-v2"
     }
   ]
 }
