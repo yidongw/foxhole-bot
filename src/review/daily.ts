@@ -1,9 +1,7 @@
-import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 
 import { enabledChains } from "../chains/adapter.js";
 import { fetchStockRegistry } from "../chains/robinhood/stock-registry.js";
@@ -35,7 +33,6 @@ import { reviewOwnTrades, type OwnTradeReview } from "./exits-review.js";
 import { loadPositions } from "../trade/positions.js";
 import { kvDel, kvGet, kvSet } from "../lib/db.js";
 
-const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../..");
 const REVIEW_WEB_PATH = path.join(ROOT, "web/data/review.json");
@@ -70,24 +67,6 @@ function clearPendingMovers(): void {
   kvDel(PENDING_MOVERS_KV);
 }
 
-/**
- * Export the learning tables (labeled outcomes + confirmed miss cases) back to
- * git-tracked JSON so the auto-push audit trail survives the move to SQLite.
- * The DB is the source of truth; these are derived snapshots for git history.
- */
-async function exportReviewAudit(): Promise<void> {
-  await mkdir(OUTCOMES_DIR, { recursive: true });
-  await writeFile(
-    path.join(OUTCOMES_DIR, "labeled.json"),
-    JSON.stringify(await loadLabeledOutcomes(), null, 2),
-    "utf8",
-  );
-  await writeFile(
-    path.join(OUTCOMES_DIR, "missed.json"),
-    JSON.stringify(await loadMissedCases(), null, 2),
-    "utf8",
-  );
-}
 
 async function deliver(
   body: string,
@@ -437,40 +416,13 @@ export async function confirmMovers(
   return { confirmed, excluded, tune, narrative, report, pushed };
 }
 
-async function autoPush(tune: TuneResult): Promise<boolean> {
-  if (!tune.adopted || process.env.AUTO_TUNE_PUSH !== "1") return false;
-  try {
-    // Snapshot the learning tables (now in SQLite) back to git-tracked JSON so
-    // the audit trail survives the migration.
-    await exportReviewAudit().catch((err) =>
-      console.error("review audit export failed:", (err as Error).message),
-    );
-    await execFileAsync(
-      "git",
-      [
-        "add",
-        "data/signal-overrides.json",
-        "data/outcomes/labeled.json",
-        "data/outcomes/missed.json",
-        "data/review-denylist.json",
-        "REVIEW-LOG.md",
-        "journal",
-      ],
-      { cwd: ROOT },
-    );
-    await execFileAsync(
-      "git",
-      [
-        "commit",
-        "-m",
-        `Auto-tune: ${JSON.stringify(tune.changes)} (${tune.reason})\n\nAdopted by the daily self-review loop after human confirmation; gates:\nbase fixtures pass, wins held, misses captured up, false alerts not\nincreased.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>`,
-      ],
-      { cwd: ROOT },
-    );
-    await execFileAsync("git", ["push", "origin", "HEAD"], { cwd: ROOT });
-    return true;
-  } catch (err) {
-    console.error("auto-push failed:", (err as Error).message);
-    return false;
-  }
+/**
+ * Auto-push removed: review learning (outcomes, denylist, journals) now lives in
+ * SQLite, and personalized state must not be committed to a public repo. The
+ * tuner still writes its params locally (data/signal-overrides.json, untracked);
+ * the DB is backed up out-of-band (litestream / snapshot), not via git. Kept as
+ * a no-op so callers/telemetry are unchanged.
+ */
+async function autoPush(_tune: TuneResult): Promise<boolean> {
+  return false;
 }

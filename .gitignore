@@ -60,3 +60,20 @@ deploy/litestream.yml
 
 # Decider personalization seed (per-user trade lessons → decider_notes table)
 data/decider-notes.seed.json
+
+# ── Personalized/curated data — now in SQLite (foxhole.db), not the public repo ──
+data/good-tokens.json
+data/review-denylist.json
+data/smart-money.json
+data/outcomes/missed.json
+data/outcomes/labeled.json
+data/signal-overrides.json
+# Derived dashboard / launch snapshots (regenerated at runtime)
+data/launches.json
+data/factory-launches.json
+web/data/
+# Journals — now in SQLite (journal table); handoff notes are personal
+REVIEW-LOG.md
+journal/filters/
+journal/trades/
+journal/*-handoff.md
