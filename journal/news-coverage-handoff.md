@@ -3,7 +3,23 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
-## 2026-09-05 01:0x UTC 第 22 轮(ultrathink:补 momentum 措辞漏口)
+## 2026-09-05 01:0x UTC 第 23 轮(ultrathink:验证 R22 措辞放开无噪音,全绿)
+
+无新代码改动;R22 的 momentum 措辞放开经验证干净。
+
+- ① 新闻:**R22 放开(暴涨/飙升/N倍)零噪音**——24h 回放里唯一含新措辞且 wake 的是
+  「币股Meme项目MEME +800倍」(真 meme,且它靠 CAP_BREAKOUT 市值突破本来也会 wake)。
+  无其它非-meme 误触发。无新漏。R20 大币护栏持续生效。
+- ① junk:交易赚币(02:47:47Z 09-03)/借壳收割(02:50Z)仍在 hotSymbols,但**未到期**——
+  48h TTL 到 **09-05 02:47Z**,现真实 UTC 01:07Z,还剩 ~1.7h,到期后随下一条 flash 清零。
+  (提醒下轮:feed 里 create_time 是北京时 UTC+8,lastRunAt/日志是 UTC,用 `date -u` 核实,
+  别再时区错觉。)news poll 健康(lastRunAt 01:07Z 实时,lastId 追平)。
+- ② 覆盖率:robinhood ≥100% 干净(7 mover 全在册,**1835 币**)。
+- ③ 安全:src/news 无泄漏。④ 健康:tsc 干净、npm test **309 passed**、monitor 存活
+  (pid 89866)、BN 未复现、0 uncaught。
+
+**下轮重点:** ① 02:47Z 后复查 交易赚币/借壳收割 是否从 hotSymbols 清零(R3+TTL 闭环)。
+② labeled 新激进 wake 成熟后胜率(会不会被泛暴涨拉低)。③ 新大币/链名漏进补停用词。④ 守 robinhood 覆盖。
 
 ### ① 新闻(**补 hasMomentum 措辞覆盖**,commit 52ff583,已部署)
 - **新角度:hasMomentum 措辞完整性**。原只认「涨超N%≥50」「市值突破」「短时暴涨」,漏了
