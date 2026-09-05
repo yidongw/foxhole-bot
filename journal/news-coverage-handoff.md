@@ -3,7 +3,28 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
-## 2026-09-05 05:0x UTC 第 25 轮(ultrathink:全量 hotSymbol 碰撞审计,全绿无改动)
+## 2026-09-05 07:0x UTC 第 26 轮(ultrathink:新闻源完整性审计 + 截断缺口收紧)
+
+### ① 新闻(**新角度:feed 完整性审计** + 修截断缺口,commit 3b42a25,已部署)
+- **首次审计新闻源是否漏拉**:直播 24h feed 159 条 flash id vs 我们归档——**只漏 1 条**(365316
+  「Claude成本高…AIP2-1.0…Agent赛道」= AI 行业噪音,本来就 drop),且是单条中段 id(非截断块,
+  属瞬时),→ **实际无有效新闻漏拉**。
+- **发现潜在截断缺口并收紧**:fetchNewFlashesOfficial 只拉 page1 最新 cap 条、lastId 直接跳最大——
+  一次 tick 来 >cap 条会**永久漏中间的**。实测 0/159 触发(纯潜在),但忙市突发正是最不想漏 RB 快讯时。
+  **CAP_PER_TICK 30→50**(API 单页上限),缺口从 >30/tick 收紧到 >50/tick。
+  **新挂账**:>50 条/180s 的极端突发仍漏中间,根治需**分页拉到 lastId**(fetchNewFlashesOfficial 循环
+  page 直到 min(id)<=sinceId);当前风险极低(news 率远 <50/tick),留给后续需要时做。
+- 回放无新噪音;hotSymbol 碰撞 R25 已全量审过。
+
+### ② 覆盖率 + 哑弹(健康)
+- robinhood ≥100% 干净(3 mover 全在册,**2036 币**破 2000)。clean **胜率 67%** 稳定。junk:SPY/QQQ 已
+  TTL 清零;18932/GLM/BGBTC/BSC ~09-06 到期。
+
+### ③ 安全(无新)/ ④ 健康(绿)
+- src/news 无泄漏。tsc 干净、npm test **319 passed**(review 循环加了测试)、monitor 重启健康、BN 未复现、0 uncaught。
+
+**下轮重点:** ① 若观察到忙市突发(单 tick fetched>40),考虑上分页根治截断。② 18932/GLM/BGBTC/BSC
+09-06 TTL 清零复查。③ labeled 新激进 wake 成熟后胜率。④ 守 robinhood 覆盖。
 
 系统成熟,本轮做了全量碰撞审计,确认无新噪音、无新 junk,不改。
 
