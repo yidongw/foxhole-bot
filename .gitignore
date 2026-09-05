@@ -57,3 +57,6 @@ data/trading-paused
 
 # Litestream real config (holds object-storage credentials)
 deploy/litestream.yml
+
+# Decider personalization seed (per-user trade lessons → decider_notes table)
+data/decider-notes.seed.json

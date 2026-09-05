@@ -156,6 +156,15 @@ const MIGRATIONS: string[] = [
    );` +
     auditSql("sm_good_tokens", ["key", "chain", "address", "added_at", "data"]) +
     auditSql("review_denylist", ["key", "chain", "address", "added_at", "data"]),
+
+  // v9 — decider personalization notes (see src/trade/decider-notes.ts). The base
+  // prompt is a generic default in code; per-user calibrations are rows here,
+  // appended at spawn time — add/remove personalization without touching code.
+  `CREATE TABLE IF NOT EXISTS decider_notes (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     at TEXT, enabled INTEGER NOT NULL DEFAULT 1, ord INTEGER NOT NULL DEFAULT 0,
+     text TEXT NOT NULL
+   );` + auditSql("decider_notes", ["id", "at", "enabled", "ord", "text"]),
 ];
 
 let cached: { path: string; db: DatabaseSync } | undefined;
