@@ -45,6 +45,7 @@ import {
   type PositionsFile,
 } from "./positions.js";
 import { checkEntry } from "./risk.js";
+import { appendDecision } from "./decisions.js";
 import { checkTokenSafety, safetyGateEnabled } from "./safety.js";
 import { evaluateExits, type ExitAction } from "./exits.js";
 import type { TradeFill } from "./execute.js";
@@ -346,6 +347,14 @@ export async function manualExit(
       chain,
       position.token,
     );
+    await appendDecision({
+      verdict: "sell",
+      chain,
+      token: position.token,
+      symbol: position.symbol,
+      reason: reason ?? "手动平仓",
+      snap: { price: fill.priceUsd, mcap: fdvUsd },
+    });
     return (
       `Sold ${(sellFraction * 100).toFixed(0)}% of ${position.symbol} [${chain}/${position.mode}] ` +
       `@ $${fill.priceUsd.toPrecision(4)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}${fdvTag(fdvUsd)}. ` +
@@ -473,6 +482,17 @@ export async function aiBuy(
     chain,
     position.token,
   );
+  // Durable decision trail (outlives positions.json once the position closes):
+  // lets a later decider see "you already bought this Nh ago" on re-entry.
+  await appendDecision({
+    verdict: "buy",
+    chain,
+    token: position.token,
+    symbol: position.symbol,
+    reason,
+    snap: { price: fill.priceUsd, liq: analysis.liquidityUsd, mcap: analysis.fdvUsd },
+    source: triggers.join(","),
+  });
   return `✅ 已开仓 ${position.symbol} [${chain}/${config.mode}] $${clamped} @ $${fill.priceUsd.toPrecision(4)} (${fill.amountTokens.toFixed(2)} 枚) | 策略: ${strat}`;
 }
 

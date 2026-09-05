@@ -301,7 +301,23 @@ async function maybeAlert(
           await appendAiInbox(evaluation).catch((err) =>
             console.error("ai inbox write failed:", (err as Error).message),
           );
-          void maybeSpawnDecider("signal");
+          // Stage 3 — 免疫无意义重复唤醒: if we skipped this exact token <2h ago
+          // and the price hasn't moved materially, don't burn the scarce single-
+          // decider window re-deciding it. The signal is still in the inbox; the
+          // next genuine wake or the hourly patrol picks it up (annotated).
+          const { suppressRewake } = await import("../trade/decisions.js");
+          const suppress = await suppressRewake(
+            evaluation.input.chain ?? "robinhood",
+            evaluation.input.address,
+            { price: evaluation.input.priceUsd, liq: evaluation.input.liquidityUsd },
+          ).catch(() => false);
+          if (suppress) {
+            console.log(
+              `decider wake suppressed (recent no-change skip): ${evaluation.input.symbol ?? evaluation.input.address}`,
+            );
+          } else {
+            void maybeSpawnDecider("signal");
+          }
         }
       } else {
         await deliverFeed(

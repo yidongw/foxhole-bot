@@ -8,6 +8,13 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { aiBuy, formatPortfolioReport, manualExit, setStrategy } from "../trade/engine.js";
 import type { PositionStrategy } from "../trade/positions.js";
 import { archiveAiInbox, readAiInbox } from "../notify/ai-inbox.js";
+import {
+  appendDecision,
+  formatPriorVerdict,
+  formatRecentDecisions,
+  priorVerdict,
+} from "../trade/decisions.js";
+import { getAdapter, positionChain } from "../chains/registry.js";
 import { postToSignalThread } from "../notify/signal-threads.js";
 import { postToNewsResearchThread } from "../notify/news-threads.js";
 import { resolveWebhook } from "../notify/routes.js";
@@ -25,8 +32,9 @@ import { privateKeyToAccount } from "viem/accounts";
  *   ai-trade buy <chain> <address> <usd> [策略flags] <reason...>
  *   ai-trade sell <symbol|address> <percent>
  *   ai-trade strategy <symbol|address> [策略flags]   调整某仓的退出策略
+ *   ai-trade skip <chain> <address> [--revisit "..."] <reason...>  记一次"不买"决策(+发thread)
  *   ai-trade note <chain> <address> <text...>   决策摘要写进该币 thread
- *   ai-trade status              仓位 + 余额 + 每仓策略
+ *   ai-trade status              仓位 + 余额 + 每仓策略 + 近期决策
  */
 
 async function balances(): Promise<string> {
@@ -114,7 +122,29 @@ async function main() {
   switch (cmd) {
     case "inbox": {
       const signals = await readAiInbox();
-      console.log(JSON.stringify(signals, null, 2));
+      // Annotate each item with this token's most recent prior verdict (48h),
+      // so a re-entering signal carries "you already skipped this 25min ago: R"
+      // right where the decision is made — the decider fast-paths a proven
+      // no-change re-skip instead of redoing the analysis, and won't silently
+      // contradict a prior pass. It stays free to override when data changed.
+      const annotated = await Promise.all(
+        signals.map(async (s) => {
+          const kind = (s as { kind?: string }).kind;
+          let chain: string | undefined;
+          let token: string | undefined;
+          if (!kind) {
+            chain = (s as { chain: string }).chain;
+            token = (s as { address: string }).address;
+          } else if (kind === "perp-signal") {
+            chain = "hl";
+            token = (s as { symbol: string }).symbol;
+          }
+          if (!chain || !token) return s;
+          const prior = await priorVerdict(chain, token).catch(() => undefined);
+          return prior ? { ...s, priorVerdict: formatPriorVerdict(prior) } : s;
+        }),
+      );
+      console.log(JSON.stringify(annotated, null, 2));
       break;
     }
     case "archive":
@@ -186,6 +216,44 @@ async function main() {
       console.log(await setStrategy(query, strategy));
       break;
     }
+    case "skip": {
+      // First-class "decided NOT to buy" — persists a structured decision (with
+      // a decision-time snapshot) so a later pass sees it inline on inbox
+      // re-entry, AND posts the same note to the token thread. Use this for
+      // every coin signal you don't act on, instead of a bare `note`.
+      //   ai-trade skip <chain> <address> [--revisit "收回$X则再看"] <reason...>
+      const [chain, address, ...rest] = args;
+      if (!chain || !address || !rest.length) {
+        console.error(
+          "用法: ai-trade skip <chain> <address> [--revisit \"重看条件\"] <reason...>",
+        );
+        process.exit(1);
+      }
+      let revisit: string | undefined;
+      const rvIdx = rest.indexOf("--revisit");
+      if (rvIdx !== -1) {
+        revisit = rest[rvIdx + 1];
+        rest.splice(rvIdx, 2);
+      }
+      const reason = rest.join(" ").trim();
+      if (!reason) {
+        console.error("缺少跳过理由：<reason...> 是必填的（为什么这次不买）");
+        process.exit(1);
+      }
+      const nchain = positionChain(chain);
+      let snap: { price?: number; liq?: number; mcap?: number } | undefined;
+      try {
+        const a = await getAdapter(nchain).analyze(address);
+        snap = { price: a.priceUsd, liq: a.liquidityUsd, mcap: a.fdvUsd };
+      } catch {
+        // Snapshot is best-effort — a skip must record even if analyze fails.
+      }
+      await appendDecision({ verdict: "skip", chain: nchain, token: address, reason, revisit, snap });
+      const line = revisit ? `${reason} (revisit: ${revisit})` : reason;
+      const ok = await postToSignalThread(chain, address, `🤖⏭️ 跳过: ${line}`);
+      console.log(`decision logged${ok ? " + posted to thread" : ""}`);
+      break;
+    }
     case "note": {
       const [chain, address, ...text] = args;
       if (!chain || !address || !text.length) {
@@ -238,11 +306,15 @@ async function main() {
       const { formatRecentLessons } = await import("../review/exits-review.js");
       const lessons = await formatRecentLessons().catch(() => "");
       if (lessons) console.log("\n" + lessons);
+      // Continuity for the no-new-signal patrol: what recent passes decided
+      // (skips included — they have no other read surface).
+      const decisions = await formatRecentDecisions().catch(() => "");
+      if (decisions) console.log("\n" + decisions);
       break;
     }
     default:
       console.error(
-        "用法: ai-trade inbox|archive|buy|sell|strategy|note|note-news|research-note|status",
+        "用法: ai-trade inbox|archive|buy|sell|strategy|skip|note|note-news|research-note|status",
       );
       process.exit(1);
   }
