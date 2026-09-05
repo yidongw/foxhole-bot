@@ -129,29 +129,10 @@ async function loadState(): Promise<ExitReviewState> {
 /** First alert-time price per token address from the inbox archives, so
  *  报了没买 anchors to our decision point instead of the rolling 24h change. */
 async function loadAlertPrices(): Promise<Map<string, number>> {
-  const prices = new Map<string, number>();
-  for (const name of ["ai-inbox-processed.jsonl", "ai-inbox.jsonl"]) {
-    try {
-      const raw = await readFile(
-        path.resolve(__dirname, "../../data", name),
-        "utf8",
-      );
-      for (const line of raw.split("\n")) {
-        if (!line.trim()) continue;
-        try {
-          const it = JSON.parse(line) as { address?: string; priceUsd?: number };
-          if (!it.address || !it.priceUsd || it.priceUsd <= 0) continue;
-          const key = it.address.toLowerCase();
-          if (!prices.has(key)) prices.set(key, it.priceUsd);
-        } catch {
-          /* skip unparseable line */
-        }
-      }
-    } catch {
-      /* archive missing is fine */
-    }
-  }
-  return prices;
+  // Inbox now lives in SQLite; the alert prices come from there (was a direct
+  // scan of ai-inbox{,-processed}.jsonl).
+  const { alertPricesByToken } = await import("../notify/ai-inbox.js");
+  return alertPricesByToken();
 }
 
 export interface OwnTradeReview {

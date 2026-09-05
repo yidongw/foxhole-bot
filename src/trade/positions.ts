@@ -1,14 +1,15 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { writeJsonAtomic } from "../lib/atomic-json.js";
-import { withFileLock } from "../lib/file-lock.js";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { DatabaseSync } from "node:sqlite";
+
+import { dbPath, getDb, transaction } from "../lib/db.js";
 
 import type { TradeMode, TakeProfitTier } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-/** Overridable (POSITIONS_FILE_PATH) so tests can isolate the ledger. */
-function positionsPath(): string {
+/** Legacy JSON ledger — import source only; overridable for tests. */
+function legacyPositionsPath(): string {
   return (
     process.env.POSITIONS_FILE_PATH ??
     path.resolve(__dirname, "../../data/positions.json")
@@ -84,34 +85,115 @@ export interface PositionsFile {
   positions: Position[];
 }
 
+const backfilledPaths = new Set<string>();
+/**
+ * One-time import of the pre-SQLite data/positions.json. Guarded by an empty-
+ * table check inside the write transaction so a concurrent monitor + CLI can't
+ * double-import (SQLite serializes the writers; the second sees a non-empty
+ * table). Called inside every DB access below.
+ */
+function ensureBackfill(db: DatabaseSync): void {
+  const p = dbPath();
+  if (backfilledPaths.has(p)) return;
+  backfilledPaths.add(p);
+  const jsonl = legacyPositionsPath();
+  if (!existsSync(jsonl)) return;
+  const count = (db.prepare("SELECT COUNT(*) AS n FROM positions").get() as { n: number }).n;
+  if (count > 0) return;
+  try {
+    const file = JSON.parse(readFileSync(jsonl, "utf8")) as PositionsFile;
+    for (const pos of file.positions ?? []) upsertPosition(db, pos);
+    if (file.lastReportAt) setMeta(db, "lastReportAt", file.lastReportAt);
+  } catch (err) {
+    console.error("positions backfill failed:", (err as Error).message);
+  }
+}
+
+/** Run the one-time backfill once, in a serialized write transaction, so reads
+ *  below can be plain lock-free SELECTs (WAL) with no SQLITE_BUSY risk. */
+async function ensureBackfilled(): Promise<void> {
+  if (backfilledPaths.has(dbPath())) return;
+  await transaction((db) => ensureBackfill(db));
+}
+
+function upsertPosition(db: DatabaseSync, p: Position): void {
+  db.prepare(
+    `INSERT INTO positions (id, status, chain, token, mode, opened_at, cost_usd, data)
+     VALUES (?,?,?,?,?,?,?,?)
+     ON CONFLICT(id) DO UPDATE SET
+       status=excluded.status, chain=excluded.chain, token=excluded.token,
+       mode=excluded.mode, opened_at=excluded.opened_at, cost_usd=excluded.cost_usd,
+       data=excluded.data`,
+  ).run(
+    p.id,
+    p.status,
+    (p.chain ?? "robinhood").toLowerCase(),
+    p.token.toLowerCase(),
+    p.mode,
+    p.openedAt,
+    p.costUsd,
+    JSON.stringify(p),
+  );
+}
+
+function setMeta(db: DatabaseSync, key: string, value: string): void {
+  db.prepare(
+    `INSERT INTO kv (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+  ).run(key, value);
+}
+
+function readFileFrom(db: DatabaseSync): PositionsFile {
+  const rows = db.prepare("SELECT data FROM positions ORDER BY opened_at").all() as unknown as {
+    data: string;
+  }[];
+  const meta = db.prepare("SELECT value FROM kv WHERE key='lastReportAt'").get() as
+    | { value: string }
+    | undefined;
+  const file: PositionsFile = {
+    version: 1,
+    positions: rows.map((r) => JSON.parse(r.data) as Position),
+  };
+  if (meta?.value) file.lastReportAt = meta.value;
+  return file;
+}
+
 export async function loadPositions(): Promise<PositionsFile> {
   try {
-    const raw = await readFile(positionsPath(), "utf8");
-    return JSON.parse(raw) as PositionsFile;
+    await ensureBackfilled();
+    return readFileFrom(getDb()); // plain lock-free read (WAL)
   } catch {
     return { version: 1, positions: [] };
   }
 }
 
+/** Persist the whole file (upsert every position) atomically. */
 export async function savePositions(file: PositionsFile): Promise<void> {
-  await writeJsonAtomic(positionsPath(), file);
+  await ensureBackfilled();
+  await transaction((db) => {
+    for (const p of file.positions) upsertPosition(db, p);
+    if (file.lastReportAt) setMeta(db, "lastReportAt", file.lastReportAt);
+  });
 }
 
 /**
- * The ONLY safe way to write the ledger from concurrent processes: take the
- * cross-process lock, load FRESH state, apply the mutation, save, release.
- * Do all slow work (price fetches, chain calls) BEFORE calling this — the
- * mutator must be fast. Direct load→mutate→save with a stale snapshot is what
- * ate a buy, resurrected a sold honeypot and rolled back the denylist on
- * 2026-09-04.
+ * The ONLY safe way to write the ledger from concurrent processes: an IMMEDIATE
+ * write transaction that loads FRESH state, applies the mutation, and persists
+ * — atomically. Cross-process writers serialize on SQLite's write lock, so no
+ * stale snapshot can overwrite a concurrent write (what ate a buy, resurrected
+ * a sold honeypot and rolled back the denylist on 2026-09-04). Do slow work
+ * (price fetches, chain calls) BEFORE calling this — the mutator must be fast,
+ * it runs inside the write lock.
  */
 export async function mutatePositions<T>(
   mutator: (file: PositionsFile) => T | Promise<T>,
 ): Promise<{ file: PositionsFile; result: T }> {
-  return withFileLock(positionsPath() + ".lock", async () => {
-    const file = await loadPositions();
+  await ensureBackfilled();
+  return transaction(async (db) => {
+    const file = readFileFrom(db);
     const result = await mutator(file);
-    await savePositions(file);
+    for (const p of file.positions) upsertPosition(db, p);
+    if (file.lastReportAt) setMeta(db, "lastReportAt", file.lastReportAt);
     return { file, result };
   });
 }

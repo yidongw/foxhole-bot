@@ -10,6 +10,7 @@ import {
   loadPositions,
   type Position,
 } from "../src/trade/positions.js";
+import { resetDbForTest } from "../src/lib/db.js";
 
 /**
  * The fix behind aiBuy's in-lock dup re-check: checkEntry's 一币一仓 gate runs on
@@ -50,10 +51,16 @@ function guardedOpen(token: string) {
 
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "ledger-"));
-  process.env.POSITIONS_FILE_PATH = path.join(dir, "positions.json");
+  process.env.FOXHOLE_DB_PATH = path.join(dir, "foxhole.db");
+  // Point the legacy-import source at a non-existent path so backfill is a
+  // no-op (an unset var would fall back to the real data/positions.json).
+  process.env.POSITIONS_FILE_PATH = path.join(dir, "none.json");
+  resetDbForTest();
 });
 
 afterEach(() => {
+  resetDbForTest();
+  delete process.env.FOXHOLE_DB_PATH;
   delete process.env.POSITIONS_FILE_PATH;
   rmSync(dir, { recursive: true, force: true });
 });

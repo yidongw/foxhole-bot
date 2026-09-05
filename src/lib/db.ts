@@ -43,6 +43,37 @@ const MIGRATIONS: string[] = [
    );
    CREATE INDEX IF NOT EXISTS idx_decisions_token ON decisions(chain, token, at);
    CREATE INDEX IF NOT EXISTS idx_decisions_at ON decisions(at);`,
+
+  // v2 — positions ledger (the money path; see src/trade/positions.ts). The
+  // full Position is kept losslessly in `data` (JSON); the columns are just
+  // indexed projections for openPositions / findOpen and future queries.
+  `CREATE TABLE IF NOT EXISTS positions (
+     id        TEXT PRIMARY KEY,
+     status    TEXT NOT NULL,
+     chain     TEXT NOT NULL,
+     token     TEXT NOT NULL,
+     mode      TEXT NOT NULL,
+     opened_at TEXT NOT NULL,
+     cost_usd  REAL NOT NULL,
+     data      TEXT NOT NULL
+   );
+   CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status);
+   CREATE INDEX IF NOT EXISTS idx_positions_token ON positions(token);
+   CREATE TABLE IF NOT EXISTS kv (
+     key   TEXT PRIMARY KEY,
+     value TEXT NOT NULL
+   );`,
+
+  // v3 — AI decision inbox (producer→decider queue; see src/notify/ai-inbox.ts).
+  // archived=1 replaces the move to ai-inbox-processed.jsonl.
+  `CREATE TABLE IF NOT EXISTS inbox (
+     id       INTEGER PRIMARY KEY AUTOINCREMENT,
+     at       TEXT NOT NULL,
+     kind     TEXT NOT NULL,
+     archived INTEGER NOT NULL DEFAULT 0,
+     data     TEXT NOT NULL
+   );
+   CREATE INDEX IF NOT EXISTS idx_inbox_archived ON inbox(archived, at);`,
 ];
 
 let cached: { path: string; db: DatabaseSync } | undefined;
@@ -82,6 +113,41 @@ function migrate(db: DatabaseSync): void {
   if (current < MIGRATIONS.length) {
     db.exec(`PRAGMA user_version=${MIGRATIONS.length}`);
   }
+}
+
+let txTail: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run `fn` inside an IMMEDIATE write transaction. Serialized in-process (the one
+ * shared connection must never nest a BEGIN); cross-process writers are
+ * serialized by SQLite's own write lock + busy_timeout. This is the ACID
+ * replacement for the advisory mkdir file lock — same "one writer at a time,
+ * see fresh state" guarantee, but atomic and fail-closed (a rare SQLITE_BUSY
+ * throws and the caller retries next tick, instead of the file lock's
+ * fail-open "proceed without the lock").
+ */
+export function transaction<T>(fn: (db: DatabaseSync) => T | Promise<T>): Promise<T> {
+  const run = txTail.then(async () => {
+    const db = getDb();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const r = await fn(db);
+      db.exec("COMMIT");
+      return r;
+    } catch (e) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // transaction already rolled back / not open
+      }
+      throw e;
+    }
+  });
+  txTail = run.then(
+    () => {},
+    () => {},
+  );
+  return run;
 }
 
 /** Test helper: drop the cached handle so a new FOXHOLE_DB_PATH takes effect. */

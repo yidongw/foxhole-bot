@@ -1,18 +1,30 @@
-import { appendFile, mkdir, readFile, rename } from "node:fs/promises";
-import { isDenylisted } from "../review/denylist.js";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { DatabaseSync } from "node:sqlite";
+
+import { isDenylisted } from "../review/denylist.js";
+import { dbPath, getDb, transaction } from "../lib/db.js";
 
 import type { SignalEvaluation } from "../signals/types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const INBOX_PATH = path.resolve(__dirname, "../../data/ai-inbox.jsonl");
-const PROCESSED_PATH = path.resolve(__dirname, "../../data/ai-inbox-processed.jsonl");
+/** Legacy jsonl locations — import source only (pre-SQLite); overridable for tests. */
+function inboxJsonlPath(): string {
+  return process.env.AI_INBOX_JSONL ?? path.resolve(__dirname, "../../data/ai-inbox.jsonl");
+}
+function processedJsonlPath(): string {
+  return (
+    process.env.AI_INBOX_PROCESSED_JSONL ??
+    path.resolve(__dirname, "../../data/ai-inbox-processed.jsonl")
+  );
+}
 
 /**
- * AI decision inbox: every delivered trade signal is appended here; a
- * waiting background probe wakes the Claude session, which reads the inbox,
- * decides buy/size/skip, then archives it.
+ * AI decision inbox: every delivered trade signal is appended here; a waking
+ * decider reads the unarchived rows, decides buy/size/skip, then archives them.
+ * Backed by SQLite (archived flag replaces the move to ai-inbox-processed.jsonl);
+ * the legacy jsonl files are imported once on first use.
  */
 
 export interface InboxSignal {
@@ -27,6 +39,96 @@ export interface InboxSignal {
   triggers: string[];
   reasons: string[];
   poolId?: string;
+}
+
+/** BlockBeats 快讯叫醒条目 — AI 会话读到后自行判断是否查价/开仓/退出。 */
+export interface InboxNews {
+  kind: "news";
+  at: string;
+  title: string;
+  url: string;
+  reasons: string[];
+  /** true = 危险信号（关注币暴跌/rug/造假）→ 优先考虑退出而非进场 */
+  negative: boolean;
+  note?: string;
+  /** 主体币名（有则可 note 回它的 news-radar 研究 thread）。 */
+  symbol?: string;
+  /** true = 值得做但没解析出合约 → decider 需先深挖找 CA 再判断。 */
+  needsResearch?: boolean;
+}
+
+/**
+ * 永续数据异动信号(如 OI 异动)。方向已定,decider 复核后经 `npm run hl` 下单。
+ * 与链上现货信号不同:标的是**永续 symbol**,无 chain/address。
+ */
+export interface InboxPerpSignal {
+  kind: "perp-signal";
+  at: string;
+  /** 信号源,如 "oi-anomaly"。 */
+  source: string;
+  /** 基础币名(如 AKE),直接喂 `npm run hl -- long <symbol>`。 */
+  symbol: string;
+  side: "long" | "short";
+  score: number;
+  /** 触发指标快照(OI值/涨幅/大户占比/价格 等)。 */
+  metrics: Record<string, number>;
+  reasons: string[];
+}
+
+type InboxEntry = InboxSignal | InboxNews | InboxPerpSignal;
+
+function kindOf(entry: InboxEntry): string {
+  return (entry as { kind?: string }).kind ?? "signal";
+}
+
+const backfilledPaths = new Set<string>();
+/**
+ * One-time import of the pre-SQLite jsonl files: ai-inbox.jsonl → active,
+ * ai-inbox-processed.jsonl → archived. Guarded by an empty-table check inside
+ * the caller's transaction so a concurrent monitor + CLI can't double-import.
+ */
+function ensureBackfill(db: DatabaseSync): void {
+  const p = dbPath();
+  if (backfilledPaths.has(p)) return;
+  backfilledPaths.add(p);
+  const count = (db.prepare("SELECT COUNT(*) AS n FROM inbox").get() as { n: number }).n;
+  if (count > 0) return;
+  const insert = db.prepare("INSERT INTO inbox (at, kind, archived, data) VALUES (?,?,?,?)");
+  const importFile = (file: string, archived: number) => {
+    if (!existsSync(file)) return;
+    try {
+      for (const line of readFileSync(file, "utf8").split("\n").filter(Boolean)) {
+        try {
+          const entry = JSON.parse(line) as InboxEntry;
+          insert.run(entry.at ?? new Date().toISOString(), kindOf(entry), archived, line);
+        } catch {
+          // skip a corrupt line
+        }
+      }
+    } catch (err) {
+      console.error("inbox backfill read failed:", (err as Error).message);
+    }
+  };
+  importFile(inboxJsonlPath(), 0);
+  importFile(processedJsonlPath(), 1);
+}
+
+/** Run the one-time backfill once, in a serialized write transaction, so reads
+ *  below can be plain lock-free SELECTs (WAL). */
+async function ensureBackfilled(): Promise<void> {
+  if (backfilledPaths.has(dbPath())) return;
+  await transaction((db) => ensureBackfill(db));
+}
+
+async function insertEntry(entry: InboxEntry): Promise<void> {
+  await ensureBackfilled();
+  await transaction((db) => {
+    db.prepare("INSERT INTO inbox (at, kind, archived, data) VALUES (?,?,0,?)").run(
+      entry.at,
+      kindOf(entry),
+      JSON.stringify(entry),
+    );
+  });
 }
 
 export async function appendAiInbox(ev: SignalEvaluation): Promise<void> {
@@ -46,32 +148,14 @@ export async function appendAiInbox(ev: SignalEvaluation): Promise<void> {
     reasons: ev.reasons,
     poolId: ev.input.primaryPairAddress,
   };
-  await mkdir(path.dirname(INBOX_PATH), { recursive: true });
-  await appendFile(INBOX_PATH, JSON.stringify(entry) + "\n", "utf8");
-}
-
-/** BlockBeats 快讯叫醒条目 — AI 会话读到后自行判断是否查价/开仓/退出。 */
-export interface InboxNews {
-  kind: "news";
-  at: string;
-  title: string;
-  url: string;
-  reasons: string[];
-  /** true = 危险信号（关注币暴跌/rug/造假）→ 优先考虑退出而非进场 */
-  negative: boolean;
-  note?: string;
-  /** 主体币名（有则可 note 回它的 news-radar 研究 thread）。 */
-  symbol?: string;
-  /** true = 值得做但没解析出合约 → decider 需先深挖找 CA 再判断。 */
-  needsResearch?: boolean;
+  await insertEntry(entry);
 }
 
 export async function appendAiInboxNews(
   entry: Omit<InboxNews, "kind" | "at">,
 ): Promise<void> {
   const line: InboxNews = { kind: "news", at: new Date().toISOString(), ...entry };
-  await mkdir(path.dirname(INBOX_PATH), { recursive: true });
-  await appendFile(INBOX_PATH, JSON.stringify(line) + "\n", "utf8");
+  await insertEntry(line);
 }
 
 /**
@@ -102,26 +186,7 @@ export async function appendAiInboxSmartMoney(entry: {
     reasons: entry.reasons,
     poolId: entry.poolId,
   };
-  await mkdir(path.dirname(INBOX_PATH), { recursive: true });
-  await appendFile(INBOX_PATH, JSON.stringify(line) + "\n", "utf8");
-}
-
-/**
- * 永续数据异动信号(如 OI 异动)。方向已定,decider 复核后经 `npm run hl` 下单。
- * 与链上现货信号不同:标的是**永续 symbol**,无 chain/address。
- */
-export interface InboxPerpSignal {
-  kind: "perp-signal";
-  at: string;
-  /** 信号源,如 "oi-anomaly"。 */
-  source: string;
-  /** 基础币名(如 AKE),直接喂 `npm run hl -- long <symbol>`。 */
-  symbol: string;
-  side: "long" | "short";
-  score: number;
-  /** 触发指标快照(OI值/涨幅/大户占比/价格 等)。 */
-  metrics: Record<string, number>;
-  reasons: string[];
+  await insertEntry(line);
 }
 
 export async function appendAiInboxPerp(
@@ -132,32 +197,53 @@ export async function appendAiInboxPerp(
     at: new Date().toISOString(),
     ...entry,
   };
-  await mkdir(path.dirname(INBOX_PATH), { recursive: true });
-  await appendFile(INBOX_PATH, JSON.stringify(line) + "\n", "utf8");
+  await insertEntry(line);
 }
 
-export async function readAiInbox(): Promise<
-  Array<InboxSignal | InboxNews | InboxPerpSignal>
-> {
+export async function readAiInbox(): Promise<InboxEntry[]> {
   try {
-    const raw = await readFile(INBOX_PATH, "utf8");
-    return raw
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => JSON.parse(l) as InboxSignal | InboxNews | InboxPerpSignal);
+    await ensureBackfilled();
+    const rows = getDb()
+      .prepare("SELECT data FROM inbox WHERE archived=0 ORDER BY at")
+      .all() as unknown as { data: string }[];
+    return rows.map((r) => JSON.parse(r.data) as InboxEntry);
   } catch {
     return [];
   }
 }
 
-/** Archive processed signals so the wake-probe stops firing. */
-export async function archiveAiInbox(): Promise<void> {
+/**
+ * address(lowercased) → earliest-seen alert priceUsd, across ALL inbox rows
+ * (active + archived). Used by the self-trade review to price past alerts —
+ * replaces its old direct scan of ai-inbox{,-processed}.jsonl.
+ */
+export async function alertPricesByToken(): Promise<Map<string, number>> {
+  const prices = new Map<string, number>();
   try {
-    const raw = await readFile(INBOX_PATH, "utf8");
-    if (raw) await appendFile(PROCESSED_PATH, raw, "utf8");
-    const { rm } = await import("node:fs/promises");
-    await rm(INBOX_PATH, { force: true });
+    await ensureBackfilled();
+    const rows = getDb()
+      .prepare("SELECT data FROM inbox ORDER BY at")
+      .all() as unknown as { data: string }[];
+    for (const r of rows) {
+      try {
+        const it = JSON.parse(r.data) as { address?: string; priceUsd?: number };
+        if (!it.address || !it.priceUsd || it.priceUsd <= 0) continue;
+        const key = it.address.toLowerCase();
+        if (!prices.has(key)) prices.set(key, it.priceUsd);
+      } catch {
+        // skip unparseable row
+      }
+    }
+    return prices;
   } catch {
-    // nothing to archive
+    return prices;
   }
+}
+
+/** Archive all currently-active signals so the wake-probe stops firing. */
+export async function archiveAiInbox(): Promise<void> {
+  await ensureBackfilled();
+  await transaction((db) => {
+    db.prepare("UPDATE inbox SET archived=1 WHERE archived=0").run();
+  });
 }
