@@ -62,3 +62,41 @@ describe("selectDeepestBasePair price consensus", () => {
     expect(selectDeepestBasePair([a, b], TOKEN)?.priceUsd).toBe("0.24");
   });
 });
+
+describe("trustedOwnLiquidityUsd (transitive quote trust)", () => {
+  const Q = "0x205812cdbed920aff76c6580b34a4325bfbb15aa";
+  const p = (base: string, quote: string, liq: number): DexPair => ({
+    baseToken: { address: base, symbol: "Q" },
+    quoteToken: { symbol: quote },
+    liquidity: { usd: liq },
+  });
+
+  it("real QQQB passes the $1M bar on trusted-quoted own pools", async () => {
+    const { trustedOwnLiquidityUsd, CREDIBLE_QUOTE_MIN_TRUSTED_LIQ_USD } = await import(
+      "../src/dex/quote-verify.js"
+    );
+    const pairs = [p(Q, "USDT", 2_000_000), p(Q, "WBNB", 1_167_000)];
+    expect(trustedOwnLiquidityUsd(pairs, Q)).toBeGreaterThanOrEqual(
+      CREDIBLE_QUOTE_MIN_TRUSTED_LIQ_USD,
+    );
+  });
+
+  it("GMEB-style attack quote ($418k) stays below the bar", async () => {
+    const { trustedOwnLiquidityUsd, CREDIBLE_QUOTE_MIN_TRUSTED_LIQ_USD } = await import(
+      "../src/dex/quote-verify.js"
+    );
+    const pairs = [p(Q, "USDT", 418_054)];
+    expect(trustedOwnLiquidityUsd(pairs, Q)).toBeLessThan(
+      CREDIBLE_QUOTE_MIN_TRUSTED_LIQ_USD,
+    );
+  });
+
+  it("ignores pools where the quote token is only the QUOTE side or untrusted-quoted", async () => {
+    const { trustedOwnLiquidityUsd } = await import("../src/dex/quote-verify.js");
+    const pairs = [
+      p("0x000000000000000000000000000000000000dead", "USDT", 9_000_000), // other base
+      p(Q, "JUNK", 9_000_000), // untrusted quote doesn't count
+    ];
+    expect(trustedOwnLiquidityUsd(pairs, Q)).toBe(0);
+  });
+});

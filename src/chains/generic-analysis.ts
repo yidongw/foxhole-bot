@@ -1,4 +1,5 @@
-import { fetchTokenPairs, selectDeepestBasePair } from "../dex/dexscreener.js";
+import { fetchTokenPairs, selectDeepestBasePair, TRUSTED_QUOTE } from "../dex/dexscreener.js";
+import { isCredibleQuote } from "../dex/quote-verify.js";
 import type { TokenAnalysis } from "../types.js";
 import type { ChainId } from "./adapter.js";
 
@@ -18,7 +19,41 @@ export async function analyzeTokenGeneric(
   if (!pairs.length) {
     throw new Error(`No ${chain} pairs found for ${address}`);
   }
-  const primary = selectDeepestBasePair(pairs, address);
+  let primary = selectDeepestBasePair(pairs, address);
+  // Credible-quote widening (Stonks 2026-09-04 lesson): the deepest pool is
+  // often quoted in a stock token (QQQB/TSLA/…) that the symbol whitelist
+  // rejects, so the gate saw $19.9k liquidity while the real deepest pool
+  // held ~20x that. If such a pool is DEEPER than the trusted pick, verify
+  // its quote token transitively (own trusted depth ≥$1M, or RB registry)
+  // and require price consensus with the trusted pick (3x band) before
+  // promoting it. Checks at most the top 2 candidates; results are cached
+  // 1h per quote address, so steady-state API cost ≈ 0. Not on the 15s
+  // manage path (that keeps the sync selector + two-source guards).
+  const own = pairs
+    .filter((p) => p.baseToken?.address?.toLowerCase() === address.toLowerCase())
+    .sort((a, b) => Number(b.liquidity?.usd ?? 0) - Number(a.liquidity?.usd ?? 0));
+  const primaryLiq = Number(primary?.liquidity?.usd ?? 0);
+  const primaryPrice = Number(primary?.priceUsd) || undefined;
+  const candidates = own
+    .filter(
+      (p) =>
+        p !== primary &&
+        Number(p.liquidity?.usd ?? 0) > primaryLiq &&
+        !TRUSTED_QUOTE.has((p.quoteToken?.symbol ?? "").toUpperCase()),
+    )
+    .slice(0, 2);
+  for (const cand of candidates) {
+    const px = Number(cand.priceUsd) || undefined;
+    const priceConsistent =
+      primaryPrice == null || (px != null && px < primaryPrice * 3 && px > primaryPrice / 3);
+    if (!priceConsistent) continue;
+    if (
+      await isCredibleQuote(chain, cand.quoteToken?.address, cand.quoteToken?.symbol)
+    ) {
+      primary = cand;
+      break;
+    }
+  }
   if (!primary) {
     throw new Error(`${address} only appears as a quote token on ${chain}`);
   }
