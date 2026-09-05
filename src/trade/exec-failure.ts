@@ -97,7 +97,11 @@ export async function recordExecFailure(f: ExecFailure): Promise<void> {
       ).catch(() => {});
     }
 
-    if (kind === "structural") await maybeSpawnRepair(f, signature);
+    // NOTE: we only RECORD here. Dispatching the repair agent is the long-lived
+    // monitor's job (dispatchPendingRepairs) — spawning a 20-min agent from this
+    // short-lived `ai-trade buy` process would die with it (the same "probes die
+    // with their session" trap the decider avoids by letting the monitor own the
+    // wake). The decider gets its failure message back immediately and moves on.
   } catch (err) {
     console.error("recordExecFailure failed:", (err as Error).message);
   }
@@ -154,28 +158,54 @@ function repairPrompt(f: ExecFailure): string {
 }
 
 /**
- * Dispatch a headless repair agent for a structural failure. Off by default —
- * set AI_REPAIR=1 to enable (it edits code, so it's opt-in). PR-only, bounded to
- * one at a time, deduped per signature. Never throws.
+ * The long-lived monitor calls this (a slow loop): scan for an undispatched
+ * structural failure and spawn ONE repair agent for it. Owning the spawn here —
+ * not in the short-lived executor — gives the agent a proper (detached) lifecycle
+ * and a single, rate-limited dispatch point (mirrors "the monitor owns the
+ * decider wake"). Off by default (AI_REPAIR=1). PR-only, one at a time, deduped.
  */
-export async function maybeSpawnRepair(f: ExecFailure, signature: string): Promise<boolean> {
+export async function dispatchPendingRepairs(): Promise<boolean> {
   if (process.env.AI_REPAIR !== "1") return false;
   const bin = resolveClaudeBin();
   if (!bin) return false;
   try {
-    if (repairRunning() || repairRecentlyDispatched(signature)) return false;
+    if (repairRunning()) return false;
+    const cutoff = new Date(Date.now() - DEDUP_MS).toISOString();
+    const row = getDb()
+      .prepare(
+        `SELECT id, chain, token, symbol, pool, signature, reason FROM exec_failures
+         WHERE kind='structural' AND repair_status IS NULL AND at>=?
+         ORDER BY at DESC LIMIT 1`,
+      )
+      .get(cutoff) as
+      | { id: number; chain: string; token: string; symbol: string | null; pool: string | null; signature: string; reason: string }
+      | undefined;
+    if (!row) return false;
+    if (repairRecentlyDispatched(row.signature)) {
+      // Another failure with this signature already dispatched — mark skipped.
+      getDb().prepare("UPDATE exec_failures SET repair_status='skipped' WHERE id=?").run(row.id);
+      return false;
+    }
+
     mkdirSync(LOG_DIR, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const logFd = openSync(path.join(LOG_DIR, `${stamp}-repair.log`), "a");
+    const f: ExecFailure = {
+      chain: row.chain,
+      token: row.token,
+      symbol: row.symbol ?? undefined,
+      pool: row.pool ?? undefined,
+      reason: row.reason,
+    };
     const child = spawn(
       bin,
       ["-p", repairPrompt(f), "--allowedTools", "Edit Bash Read Write", "--model", process.env.AI_REPAIR_MODEL ?? "claude-opus-5"],
-      { cwd: ROOT, stdio: ["ignore", logFd, logFd], env: { ...process.env } },
+      // detached + unref: the agent outlives this monitor tick.
+      { cwd: ROOT, stdio: ["ignore", logFd, logFd], env: { ...process.env }, detached: true },
     );
+    child.unref();
     writeFileSync(LOCK, JSON.stringify({ pid: child.pid ?? 0, at: new Date().toISOString() }));
-    getDb()
-      .prepare("UPDATE exec_failures SET repair_status='dispatched' WHERE signature=? AND repair_status IS NULL")
-      .run(signature);
+    getDb().prepare("UPDATE exec_failures SET repair_status='dispatched' WHERE id=?").run(row.id);
     const killer = setTimeout(() => child.kill("SIGKILL"), CHILD_TIMEOUT_MS);
     killer.unref();
     child.on("exit", (code) => {
@@ -184,10 +214,10 @@ export async function maybeSpawnRepair(f: ExecFailure, signature: string): Promi
       console.log(`repair agent exited ${code}`);
     });
     child.on("error", () => rmSync(LOCK, { force: true }));
-    console.log(`repair agent spawned pid ${child.pid} for ${signature}`);
+    console.log(`repair agent spawned pid ${child.pid} for ${row.signature}`);
     return true;
   } catch (err) {
-    console.error("repair spawn error:", (err as Error).message);
+    console.error("repair dispatch error:", (err as Error).message);
     return false;
   }
 }

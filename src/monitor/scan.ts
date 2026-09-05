@@ -1073,6 +1073,21 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
     }
   };
 
+  // The monitor owns the repair-agent wake (like the decider wake): the executor
+  // only records structural fill failures; this loop dispatches the fix. No-op
+  // unless AI_REPAIR=1.
+  const repairLoop = async () => {
+    const { dispatchPendingRepairs } = await import("../trade/exec-failure.js");
+    while (!stopped) {
+      try {
+        await dispatchPendingRepairs();
+      } catch (err) {
+        console.error("repair dispatch loop error:", (err as Error).message);
+      }
+      await sleep(60_000);
+    }
+  };
+
   if (options.once) {
     await stockTick().catch((err) =>
       console.error("stock registry watch error:", (err as Error).message),
@@ -1133,6 +1148,8 @@ export async function runMonitorLoop(options: ScanOptions & { once?: boolean }):
   void oiLoopPromise;
   const stockLoopPromise = stockLoop();
   void stockLoopPromise;
+  const repairLoopPromise = repairLoop();
+  void repairLoopPromise;
 
   while (true) {
     try {
