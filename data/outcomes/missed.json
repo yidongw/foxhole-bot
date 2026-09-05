@@ -66,5 +66,53 @@
     "fdvUsd": 13931568,
     "kind": "threshold_miss",
     "detectedAt": "2026-09-04T19:02:32.147Z"
+  },
+  {
+    "chain": "solana",
+    "poolId": "7t477j7S8SDcdg1pzCSvjRjYK3nPc14FmrbzPYTjfHYs",
+    "address": "HcRLc9VDgjLeK154xDawfb1dmVJ98DoSqcwTHGqiDeJR",
+    "symbol": "ZCAT",
+    "priceChange24h": 178.146,
+    "volume24hUsd": 1386687.43,
+    "liquidityUsd": 239005.82,
+    "fdvUsd": 11942985,
+    "kind": "threshold_miss",
+    "ladder": false,
+    "collapsed": false,
+    "noData": false,
+    "safetyFlags": [],
+    "detectedAt": "2026-09-05T06:30:00.000Z"
+  },
+  {
+    "chain": "robinhood",
+    "poolId": "0xa659efd0442e9bb12f94193422d29bce5799225fca316ea8dd59f98afaaa90e1",
+    "address": "0x12D5ee7917cA430073C3A638ee1e6f0648A98a01",
+    "symbol": "FATCOIN",
+    "priceChange24h": 211,
+    "volume24hUsd": 8700000,
+    "liquidityUsd": 699000,
+    "fdvUsd": 26200000,
+    "kind": "threshold_miss",
+    "ladder": false,
+    "collapsed": false,
+    "noData": false,
+    "safetyFlags": [],
+    "detectedAt": "2026-09-05T06:01:10.683Z"
+  },
+  {
+    "chain": "robinhood",
+    "poolId": "0x778a632fdd85577efe9cfce4a2c9ac91b9decdb24c351f9b56e25d38fbe587b4",
+    "address": "0xab093dEF657F15dF31b33922A95e047aDd645B29",
+    "symbol": "SHROOM",
+    "priceChange24h": 387,
+    "volume24hUsd": 6300000,
+    "liquidityUsd": 283000,
+    "fdvUsd": 27300000,
+    "kind": "threshold_miss",
+    "ladder": false,
+    "collapsed": false,
+    "noData": false,
+    "safetyFlags": [],
+    "detectedAt": "2026-09-05T06:01:10.683Z"
   }
 ]
