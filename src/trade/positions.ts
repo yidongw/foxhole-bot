@@ -7,7 +7,13 @@ import { fileURLToPath } from "node:url";
 import type { TradeMode, TakeProfitTier } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const POSITIONS_PATH = path.resolve(__dirname, "../../data/positions.json");
+/** Overridable (POSITIONS_FILE_PATH) so tests can isolate the ledger. */
+function positionsPath(): string {
+  return (
+    process.env.POSITIONS_FILE_PATH ??
+    path.resolve(__dirname, "../../data/positions.json")
+  );
+}
 
 export interface PositionExit {
   at: string;
@@ -80,7 +86,7 @@ export interface PositionsFile {
 
 export async function loadPositions(): Promise<PositionsFile> {
   try {
-    const raw = await readFile(POSITIONS_PATH, "utf8");
+    const raw = await readFile(positionsPath(), "utf8");
     return JSON.parse(raw) as PositionsFile;
   } catch {
     return { version: 1, positions: [] };
@@ -88,7 +94,7 @@ export async function loadPositions(): Promise<PositionsFile> {
 }
 
 export async function savePositions(file: PositionsFile): Promise<void> {
-  await writeJsonAtomic(POSITIONS_PATH, file);
+  await writeJsonAtomic(positionsPath(), file);
 }
 
 /**
@@ -102,7 +108,7 @@ export async function savePositions(file: PositionsFile): Promise<void> {
 export async function mutatePositions<T>(
   mutator: (file: PositionsFile) => T | Promise<T>,
 ): Promise<{ file: PositionsFile; result: T }> {
-  return withFileLock(POSITIONS_PATH + ".lock", async () => {
+  return withFileLock(positionsPath() + ".lock", async () => {
     const file = await loadPositions();
     const result = await mutator(file);
     await savePositions(file);

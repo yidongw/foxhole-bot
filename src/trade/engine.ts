@@ -31,6 +31,7 @@ import {
 import {
   loadPositions,
   openPositions,
+  findOpen,
   paperCashUsd,
   recordExit,
   remainingFraction,
@@ -450,15 +451,22 @@ export async function aiBuy(
   // above ran on a snapshot that may be minutes stale (MarsCoin's $60 buy was
   // eaten by exactly this race on 2026-09-04).
   const { file: freshFile, result: ok } = await mutatePositions((f) => {
+    // Dup re-check INSIDE the lock — checkEntry ran on a pre-lock snapshot, so
+    // two concurrent deciders could both pass its 一币一仓 gate on the same new
+    // token and double-open it. Re-evaluate against FRESH state here (mirrors
+    // the freshCash re-check below). Harmless today under the single-decider
+    // lock; the guarantee that makes multi-decider safe against double-buy.
+    if (findOpen(f, position.token)) return "dup" as const;
     const freshCash =
       config.mode === "paper"
         ? paperCashUsd(f, paperStartFor(config, chain), chain)
         : Infinity;
-    if (freshCash < clamped) return false;
+    if (freshCash < clamped) return "cash" as const;
     f.positions.push(position);
-    return true;
+    return "ok" as const;
   });
-  if (!ok) return `风控拒绝: 可用现金不足（并发核算后）`;
+  if (ok === "dup") return `风控拒绝: 已持有 ${position.symbol ?? position.token} 仓位（并发去重）`;
+  if (ok === "cash") return `风控拒绝: 可用现金不足（并发核算后）`;
   await writePositionsJson(freshFile);
   const strat = formatStrategy(position.strategy);
   await appendTradeJournal(
