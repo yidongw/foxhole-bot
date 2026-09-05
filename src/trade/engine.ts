@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { fetchTokenPairs } from "../dex/dexscreener.js";
+import { fetchDexJson, fetchTokenPairs } from "../dex/dexscreener.js";
 import { fetchPaprikaTokenPriceUsd } from "../dex/dexpaprika.js";
 import { selectDeepestBasePair } from "../chains/generic-analysis.js";
 import { getAdapter, positionChain } from "../chains/registry.js";
@@ -16,6 +16,7 @@ import { postToSignalThread } from "../notify/signal-threads.js";
 import { sleep } from "../lib/utils.js";
 import { fdvTag, gmgnLink } from "../lib/format.js";
 import type { SignalEvaluation } from "../signals/types.js";
+import type { DexPair } from "../types.js";
 import { formatUnits } from "viem";
 import { MAINNET_ADDRESSES } from "hoodchain";
 import { getTradingClient, getErc20Balance } from "../chain/client.js";
@@ -785,6 +786,33 @@ export async function managePositions(
   if (!open.length) return;
   const marks: Record<string, number> = {};
 
+  // Batch price prefetch: one /tokens/{a,b,…} call per 25 positions instead of
+  // one call each. Per-position fetches were the engine's main contribution to
+  // the DexScreener 429 storms (841 rate-limit hits on 09-05 alone), which
+  // stretched 15s ticks to minutes and delayed stop execution. Falls back to
+  // the per-position fetch below when a token is missing from the batch.
+  const prefetched = new Map<string, DexPair[]>();
+  for (let i = 0; i < open.length; i += 25) {
+    const chunk = open.slice(i, i + 25);
+    try {
+      const res = await fetchDexJson<{ pairs?: DexPair[] }>(
+        `/latest/dex/tokens/${chunk.map((p) => p.token).join(",")}`,
+      );
+      for (const pair of res.pairs ?? []) {
+        const key = pair.baseToken?.address?.toLowerCase();
+        if (!key) continue;
+        const list = prefetched.get(key) ?? [];
+        list.push(pair);
+        prefetched.set(key, list);
+      }
+      for (const p of chunk) {
+        if (!prefetched.has(p.token.toLowerCase())) prefetched.set(p.token.toLowerCase(), []);
+      }
+    } catch {
+      /* batch failed — the per-position path below covers this chunk */
+    }
+  }
+
   for (const position of open) {
     const chain = positionChain(position.chain);
     // Exit in the mode the position was OPENED in — a live RB position must
@@ -795,7 +823,11 @@ export async function managePositions(
     let priceChange24h: number | undefined;
     let fdvUsd: number | undefined;
     try {
-      const pairs = await fetchTokenPairs(position.token, chain);
+      const cached = prefetched.get(position.token.toLowerCase());
+      const pairs =
+        cached && cached.length
+          ? cached.filter((p) => p.chainId === chain)
+          : await fetchTokenPairs(position.token, chain);
       const primary = selectDeepestBasePair(pairs, position.token);
       if (primary?.priceUsd) price = Number(primary.priceUsd);
       volume24hUsd = Number(primary?.volume?.h24 ?? 0) || undefined;
