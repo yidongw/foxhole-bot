@@ -136,7 +136,16 @@ export async function runDailyReview(options: {
     console.error("real-fdv guard failed (continuing):", (err as Error).message);
   }
 
+  // Already-reviewed misses (in the case library) must NOT resurface as
+  // candidates. The human confirmed/processed them once (case + find2 + ★B);
+  // re-presenting the same coin every hour is noise. User 2026-09-05:
+  // 「做过的就不用再提醒我了，这里就是需要复盘那些没警报的或者还没复盘的」.
+  const reviewed = new Set(
+    (await loadMissedCases()).map((c) => `${c.chain}:${c.address.toLowerCase()}`),
+  );
+
   // Candidates = misses that survived ALL automatic filters (incl. 市值≥$10M)
+  // and are not already in the case library.
   const candidates = movers.filter(
     (m) =>
       m.kind !== "alerted" &&
@@ -145,6 +154,7 @@ export async function runDailyReview(options: {
       !m.safetyFlags?.length &&
       !isStock(m) &&
       !isMalformed(m) &&
+      !reviewed.has(`${m.chain}:${m.address.toLowerCase()}`) &&
       (m.fdvUsd == null || m.fdvUsd >= MOVER_MIN_FDV_USD),
   );
 
@@ -175,7 +185,9 @@ export async function runDailyReview(options: {
     const seen = new Set(candidates.map((m) => `${m.chain}:${m.address.toLowerCase()}`));
     for (const p of prior) {
       const key = `${p.chain}:${p.address.toLowerCase()}`;
-      if (!seen.has(key)) {
+      // Skip anything already reviewed (case library) — e.g. a prior pending
+      // entry the user has since confirmed elsewhere shouldn't linger.
+      if (!seen.has(key) && !reviewed.has(key)) {
         candidates.push(p);
         seen.add(key);
       }
