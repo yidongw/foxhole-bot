@@ -145,6 +145,17 @@ const MIGRATIONS: string[] = [
   // outcomes_missed, inbox) are their own history and are not audited.
   auditSql("sm_wallets", ["address", "chain", "disabled", "added_at", "data"]) +
     auditSql("kv", ["key", "value"]),
+
+  // v8 — winner-finder good-token universe + review denylist (both hand-curated,
+  // audited). See src/smartmoney/good-tokens.ts and src/review/denylist.ts.
+  `CREATE TABLE IF NOT EXISTS sm_good_tokens (
+     key TEXT PRIMARY KEY, chain TEXT, address TEXT, added_at TEXT, data TEXT NOT NULL
+   );
+   CREATE TABLE IF NOT EXISTS review_denylist (
+     key TEXT PRIMARY KEY, chain TEXT, address TEXT, added_at TEXT, data TEXT NOT NULL
+   );` +
+    auditSql("sm_good_tokens", ["key", "chain", "address", "added_at", "data"]) +
+    auditSql("review_denylist", ["key", "chain", "address", "added_at", "data"]),
 ];
 
 let cached: { path: string; db: DatabaseSync } | undefined;
