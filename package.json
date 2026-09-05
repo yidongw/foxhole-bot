@@ -20,6 +20,7 @@
     "review:confirm": "tsx src/cli/review.ts --confirm",
     "factory:backfill": "tsx src/cli/factory-backfill.ts",
     "positions": "tsx src/cli/positions.ts",
+    "capital": "tsx src/cli/capital.ts",
     "news": "tsx src/cli/news.ts",
     "news:search": "tsx src/cli/news.ts search",
     "smartmoney": "tsx src/cli/smart-money.ts",
