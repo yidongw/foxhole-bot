@@ -120,10 +120,11 @@
     .mini-btn:disabled { opacity: .4; cursor: default; }
     .pager { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 14px; }
     .pos-filter { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 4px 0 14px; }
-    .pos-filter select {
+    .pos-filter select, .pos-filter input {
       background: var(--panel); color: var(--text); border: 1px solid var(--border);
       border-radius: 10px; padding: 8px 12px; font-size: 13px; min-width: 150px;
     }
+    .pos-filter input { min-width: 180px; }
     .pos-filter .hint { color: var(--muted); font-size: 12px; }
     .sig { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; }
     .sig-watch { background: rgba(255, 176, 32, 0.14); color: var(--warn); }
@@ -194,6 +195,7 @@
       <select id="fChain">
         <option value="all">全部链</option>
       </select>
+      <input id="fToken" type="search" placeholder="代币符号 / 地址" />
       <span class="hint" id="fCount"></span>
     </div>
 
@@ -372,14 +374,18 @@
     let capitalFlows = []; /* 真实账户入出金台账 (data/capital-flows.json) */
 
     /* ── mode/chain filter + pagination (shared across position views) ── */
-    const posFilter = { mode: 'all', chain: 'all' };
+    const posFilter = { mode: 'all', chain: 'all', token: '' };
     const PAGE = 25;
     let openPage = 1, closedPage = 1;
     function applyPosFilter(rows) {
+      const tok = posFilter.token;
       return (rows || []).filter(p =>
         (posFilter.mode === 'all'
           || (posFilter.mode === 'live' ? p.mode === 'live' : p.mode !== 'live'))
-        && (posFilter.chain === 'all' || (p.chain || 'robinhood') === posFilter.chain));
+        && (posFilter.chain === 'all' || (p.chain || 'robinhood') === posFilter.chain)
+        && (!tok
+          || (p.symbol || '').toLowerCase().includes(tok)
+          || (p.token || '').toLowerCase().includes(tok)));
     }
     function filteredPositions() { return applyPosFilter(posData?.positions || []); }
     function populateChainFilter() {
@@ -716,7 +722,7 @@
         populateChainFilter();
         renderModeBanner(); renderPositions();
         document.getElementById('posMeta').textContent = '账本更新于 ' + fmtDate(posData.meta?.updated_at) +
-          '（价格随引擎 tick 刷新；memestock 等历史脏价误伤已按出场时点真实价修正）';
+          '（价格随引擎 tick 刷新）';
       } catch {}
     }
 
@@ -909,11 +915,13 @@
     function onPosFilterChange() {
       posFilter.mode = document.getElementById('fMode').value;
       posFilter.chain = document.getElementById('fChain').value;
+      posFilter.token = document.getElementById('fToken').value.trim().toLowerCase();
       openPage = 1; closedPage = 1;
       if (posData) renderPositions();
     }
     document.getElementById('fMode').addEventListener('change', onPosFilterChange);
     document.getElementById('fChain').addEventListener('change', onPosFilterChange);
+    document.getElementById('fToken').addEventListener('input', onPosFilterChange);
     document.getElementById('refreshBtn').addEventListener('click', refreshAll);
     document.getElementById('search').addEventListener('input', renderTable);
     document.getElementById('quoteFilter').addEventListener('change', renderTable);
