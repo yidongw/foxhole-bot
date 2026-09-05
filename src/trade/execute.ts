@@ -1,7 +1,7 @@
 import { formatUnits, parseUnits, type Address } from "viem";
 import { executeSwap, MAINNET_ADDRESSES, parseUsdg } from "hoodchain";
 
-import { getTradingClient } from "../chain/client.js";
+import { getErc20Balance, getTradingClient } from "../chain/client.js";
 import { RouteError } from "../venues/route-error.js";
 import { okxSwap } from "../venues/okx/swap.js";
 import { lifiSwap } from "../venues/lifi/swap.js";
@@ -184,6 +184,33 @@ async function sellViaHood(
   };
 }
 
+/**
+ * Clamp a live sell to what the wallet actually holds.
+ *
+ * The ledger stores the *quoted* fill size (`quote.amountOut`), but the wallet
+ * receives the post-slippage amount, so `position.amountTokens` runs slightly
+ * ahead of the real balance. Asking the router to sell more than we hold makes
+ * its `transferFrom` fail and the whole swap reverts with `STF` — which on
+ * 2026-09-05 silently blocked *every* live RB exit (ROBINCAT ledger 830.3357 vs
+ * chain 830.2488; GRASS 1151.9191 vs 1149.2892), so stop-losses and trailing
+ * stops fired for hours with nothing ever getting sold.
+ *
+ * Clamping (rather than only fixing the buy-side bookkeeping) also covers drift
+ * from any other source — fee-on-transfer tokens, partial fills, manual moves.
+ */
+async function liveSellAmount(
+  position: Position,
+  amountTokens: number,
+): Promise<number> {
+  const holder = getTradingClient().account?.address;
+  if (!holder) return amountTokens;
+  const balBase = await getErc20Balance(position.token as Address, holder);
+  const balance = Number(formatUnits(balBase, TOKEN_DECIMALS));
+  if (!Number.isFinite(balance) || balance <= 0) return amountTokens;
+  // Shave a hair off so rounding in parseUnits can't land back above balance.
+  return Math.min(amountTokens, balance * 0.999);
+}
+
 /** Sell `fraction` of the position's original token amount. */
 export async function sell(
   config: TradeConfig,
@@ -191,15 +218,16 @@ export async function sell(
   fraction: number,
   currentPriceUsd: number,
 ): Promise<TradeFill> {
-  const amountTokens = position.amountTokens * fraction;
+  const ledgerAmount = position.amountTokens * fraction;
 
   if (config.mode === "paper") {
     return {
       priceUsd: currentPriceUsd,
-      amountTokens,
-      proceedsUsd: amountTokens * currentPriceUsd,
+      amountTokens: ledgerAmount,
+      proceedsUsd: ledgerAmount * currentPriceUsd,
     };
   }
+  const amountTokens = await liveSellAmount(position, ledgerAmount);
   return runWithFallback(
     config.router,
     () => sellViaAgg(config, position, amountTokens, currentPriceUsd),
