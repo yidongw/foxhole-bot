@@ -181,6 +181,13 @@ const MIGRATIONS: string[] = [
      wallet TEXT, token TEXT, data TEXT NOT NULL
    );
    CREATE INDEX IF NOT EXISTS idx_sm_log_at ON sm_log(at);`,
+
+  // v12 — concurrent deciders: an inbox item is claimed by one worker so N
+  // deciders process DISJOINT batches in parallel (the ledger is already ACID +
+  // dup-guarded, so this is safe). Stale claims (dead worker) are reclaimable.
+  `ALTER TABLE inbox ADD COLUMN claimed_by TEXT;
+   ALTER TABLE inbox ADD COLUMN claimed_at TEXT;
+   CREATE INDEX IF NOT EXISTS idx_inbox_claim ON inbox(archived, claimed_by);`,
 ];
 
 let cached: { path: string; db: DatabaseSync } | undefined;

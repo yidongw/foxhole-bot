@@ -1,11 +1,18 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, closeSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import {
+  existsSync,
+  mkdirSync,
+  openSync,
+  closeSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { writeJsonAtomic } from "../lib/atomic-json.js";
 import { loadHlConfig } from "../venues/hyperliquid/config.js";
 import { loadDeciderNotes } from "./decider-notes.js";
 
@@ -26,8 +33,11 @@ import { loadDeciderNotes } from "./decider-notes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../..");
-const LOCK_PATH = path.join(ROOT, "data", "decider.lock");
+const LOCKS_DIR = path.join(ROOT, "data", "decider-locks");
 const LOG_DIR = path.join(ROOT, "data", "decider-logs");
+/** Max deciders running at once. The ledger is ACID + dup-guarded and the inbox
+ *  is claim-sharded, so concurrent deciders are safe; they work disjoint items. */
+const MAX_CONCURRENCY = Number(process.env.AI_DECIDER_CONCURRENCY ?? 3);
 
 /** One decider at a time; a lock older than this is presumed crashed. */
 const LOCK_STALE_MS = 10 * 60_000;
@@ -54,7 +64,7 @@ const PERP_ADDENDUM = `
  i. 每个 OI 信号决策(含跳过)用 note-news 留痕。`;
 
 const BASE_PROMPT = `你是 foxhole-bot 的交易决策 AI(paper 模式,一次性无头运行)。按顺序执行:
-1. \`npm run ai --silent -- inbox\` 读未决信号;空数组也别急着退,先做第 6 步的持仓策略复查再结束。
+1. \`npm run ai --silent -- claim\` 认领并读取分配给你的未决信号(可能有多个 decider 并发跑,claim 只给你不与他人重复的那一批);空数组也别急着退,先做第 6 步的持仓策略复查再结束。
 2. 币类信号逐个决策:先 \`curl -s https://api.dexscreener.com/latest/dex/tokens/<address>\` 查实时价格/流动性/1h涨跌,对比信号时快照判断动量是否延续。信号时 24h 涨幅已超 500% 的视为事后警报,谨慎——但先分清是哪种 500%,别一刀切跳过:①成熟池(创建>24h)真涨了 5 倍=确实追晚,基本跳过;②新发射池(创建<24h,尤其<12h)的"24h +600倍/+62940%"是近零基数的数学假象,不代表"已涨完追晚",而是价格发现期——别用 24h 绝对涨幅判死刑,改看短窗(m5/h1 价格是否还在走、流动性是否在增厚、买卖单),用 pairCreatedAt 核实池龄。对②这类新发射+热叙事(尤其同一时段多个同题材币连发的"币股Meme"这种活跃板块),只要不是明确净卖压(买卖单<0.8 且 m5/h1 转负)或无量阴跌,默认做小额试探仓(小金额+紧硬止损+早启trail+短max-hold)而不是整单放弃——这类板块反复产出跳过后仍 +3x 的续涨,半数派发也是 +EV,VOXEL(+230倍事后警报)就是这么做对的,而 MEME/币股Meme 同样形态却被整单跳过后 $13M→$47M(+3x),是这条门槛的系统性误伤。校准要点:买卖单 0.9–1.1 在垂直拉升中是换手噪音不是派发,别据此扣"净卖压";单个同题材前车(如 CINEMA 砸盘)是轶事不是本币判据。整单跳过只留给:成熟池确认追晚、明确持续净卖压+量价背离、崩盘态(现价<窗口高点40%,安全门也会拦)、无量阴跌。判断校准(FATCOIN 教训: 24h 仅 +54% 时被以"从ATH回落33%=行情走完""买卖单1339:1357=转向"跳过,随后又涨数倍): 发射数日内的新币从高点回落 30-40% 且量能仍在,是回调不是派发,"已从高点回落"本身不构成跳过理由;买卖单接近 1:1 是噪音,动量转向要看持续卖压/量价背离。真正该跳的是崩盘态(现价<窗口高点40%,安全门也会拦)和无量阴跌。★代币化真股票有锚,别当自由漂浮的meme炒(AMC教训 2026-09-04,同日两次误伤:@\$8.35=正股2.65的215%溢价被硬止损-35%,@\$4.02=52%溢价被迫撤退):data/rh-stock-registry.json 里的官方代币化美股(AMC/GME正股/AAPL等)可铸可赎,美股开盘(13:30 UTC,夏令时)做市商套利会把溢价压向正股价——买前必查正股实时价(WebSearch"<ticker> stock price premarket"),算溢价:溢价>20%别做多,持仓时限跨越美股开盘的要在开盘前收敛处理;溢价小或折价+叙事强才有不对称性。纯meme(MEME/币股meme仿盘)无锚不适用此条,该怎么炒怎么炒。没有做空工具(HL无股票永续已验证),高溢价的正确动作是不买/离场,不是硬扛。买入用 \`npm run ai --silent -- buy <chain> <address> <usd> <一句理由>\`(金额由你判断:无单笔/日预算上限,唯一硬边界是账户可用现金;按信心和流动性自行定仓,风控拒绝就接受,禁止绕过 CLI 动钱包)。信号 triggers 含 momentum_strong 但不含 lock_strong/lock_rising_strong/boner_composite/curve_near_grad_strong 的属纯动量信号:风控要求流动性≥$100k(比普通高),噪音更大建议仓位更小,买入时加 --momentum 标志:\`npm run ai --silent -- buy <chain> <address> <usd> --momentum <理由>\`。信号 triggers 含 smart_money 的用 --smart-money 标志。
    ★ 每笔买入都要顺手定这仓的退出策略——不同性质的仓不能用同一套止损止盈。买入命令后追加策略参数:\`--hard-stop <硬止损, 如0.35=跌35%清>\` \`--trail-stop <移动止损回撤, 如0.25>\` \`--trail-arm <移动止损启动倍数, 如1.5>\` \`--tp <阶梯止盈 倍数:卖出比例, 如 2:0.33,4:0.22>\` \`--max-hold <最长持有小时>\` \`--note "一句这仓的计划/论点">\`。省略的字段回落到全局默认。定仓思路举例:smart-money 早期发射波动大给运行空间(hard-stop 宽些、trail-arm 高些、moonbag 大);纯动量信号噪音大快进快出(hard-stop 紧、tp 更早);新闻叙事驱动的按叙事时效设 max-hold。★纯动量 probe 的策略里必须写明【快速失败条件】(--note 里明确):论点是『脉冲进行中』的仓,脉冲熄火本身=论点破(典型判据:开仓后30-45分钟 m5/h1 双转负 且 h1量能对 h6 均速腰斩),届时该主动小亏离场,别把 -20%~-28% 硬止损当主要出场——那是灾难兜底。依据(live 实盘 09-05 复盘):12 笔亏损中 8 笔死于开仓 90 分钟内、平均硬扛到 -$2.8 才走,最大两笔(-6.07/-5.61)全是等大止损;同期赢家平均 +$6.5,快速失败早退可把 probe 类平均亏损近乎砍半而不伤盈亏比。不确定就少写几个字段,让默认兜底,但 --note 尽量写清论点,方便下次复查。
 3. news 类信号:
@@ -107,22 +117,35 @@ function pidAlive(pid: number): boolean {
   }
 }
 
-async function lockHeld(): Promise<boolean> {
+/** Count live (non-stale, pid-alive) decider workers from their lock files. */
+function activeDeciderCount(): number {
+  let n = 0;
   try {
-    const lock = JSON.parse(await readFile(LOCK_PATH, "utf8")) as LockFile;
-    return (
-      Date.now() - new Date(lock.at).getTime() < LOCK_STALE_MS &&
-      pidAlive(lock.pid)
-    );
+    for (const f of readdirSync(LOCKS_DIR)) {
+      if (!f.endsWith(".lock")) continue;
+      try {
+        const lock = JSON.parse(readFileSync(path.join(LOCKS_DIR, f), "utf8")) as LockFile;
+        if (Date.now() - new Date(lock.at).getTime() < LOCK_STALE_MS && pidAlive(lock.pid)) {
+          n++;
+        } else {
+          rmSync(path.join(LOCKS_DIR, f), { force: true }); // reap dead worker
+        }
+      } catch {
+        rmSync(path.join(LOCKS_DIR, f), { force: true });
+      }
+    }
   } catch {
-    return false;
+    // dir absent → 0
   }
+  return n;
 }
 
 /**
- * Spawn a decider run unless one is already working the inbox. Returns
- * true when a child was actually started. Never throws — a failed wake
- * must not break the monitor tick (the hourly patrol remains the backstop).
+ * Spawn a decider worker if a concurrency slot is free AND there is work to do.
+ * Up to MAX_CONCURRENCY deciders run in parallel, each claiming a DISJOINT
+ * inbox batch (the ledger is ACID + dup-guarded). An empty-inbox patrol still
+ * gets one worker (for portfolio review). Never throws — a failed wake must not
+ * break the monitor tick (the hourly patrol is the backstop).
  */
 export async function maybeSpawnDecider(trigger: string): Promise<boolean> {
   if (process.env.AI_DECIDER === "0") return false;
@@ -130,11 +153,19 @@ export async function maybeSpawnDecider(trigger: string): Promise<boolean> {
   if (!bin) return false;
 
   try {
-    if (await lockHeld()) return false;
+    const active = activeDeciderCount();
+    if (active >= MAX_CONCURRENCY) return false;
+    // Only spawn an extra worker when there's fresh claimable work; but always
+    // allow one worker (portfolio patrol) when none is running.
+    const { hasClaimableInbox } = await import("../notify/ai-inbox.js");
+    if (active > 0 && !(await hasClaimableInbox())) return false;
 
+    mkdirSync(LOCKS_DIR, { recursive: true });
     mkdirSync(LOG_DIR, { recursive: true });
+    const workerId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const lockPath = path.join(LOCKS_DIR, `${workerId}.lock`);
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const logFd = openSync(path.join(LOG_DIR, `${stamp}-${trigger}.log`), "a");
+    const logFd = openSync(path.join(LOG_DIR, `${stamp}-${trigger}-${workerId}.log`), "a");
 
     const child = spawn(
       bin,
@@ -152,28 +183,30 @@ export async function maybeSpawnDecider(trigger: string): Promise<boolean> {
         // Max extended-thinking budget: the decider makes irreversible buy/skip
         // calls on thin real-time data — decision quality matters more than the
         // few extra seconds of latency. 31999 is Claude Code's ceiling.
-        env: { ...process.env, MAX_THINKING_TOKENS: process.env.AI_DECIDER_THINKING ?? "31999" },
+        // AI_WORKER_ID shards the inbox: this worker only claims/archives its own.
+        env: {
+          ...process.env,
+          AI_WORKER_ID: workerId,
+          MAX_THINKING_TOKENS: process.env.AI_DECIDER_THINKING ?? "31999",
+        },
       },
     );
-    await writeJsonAtomic(LOCK_PATH, {
-      pid: child.pid ?? 0,
-      at: new Date().toISOString(),
-    } satisfies LockFile);
+    writeFileSync(lockPath, JSON.stringify({ pid: child.pid ?? 0, at: new Date().toISOString() }));
 
     const killer = setTimeout(() => child.kill("SIGKILL"), CHILD_TIMEOUT_MS);
     killer.unref();
     child.on("exit", (code) => {
       clearTimeout(killer);
       closeSync(logFd);
-      void rm(LOCK_PATH, { force: true });
-      console.log(`decider[${trigger}] exited ${code}`);
+      rmSync(lockPath, { force: true });
+      console.log(`decider[${trigger}/${workerId}] exited ${code} (active~${activeDeciderCount()})`);
     });
     child.on("error", (err) => {
       closeSync(logFd);
-      void rm(LOCK_PATH, { force: true });
-      console.error(`decider[${trigger}] spawn failed:`, err.message);
+      rmSync(lockPath, { force: true });
+      console.error(`decider[${trigger}/${workerId}] spawn failed:`, err.message);
     });
-    console.log(`decider[${trigger}] spawned pid ${child.pid}`);
+    console.log(`decider[${trigger}/${workerId}] spawned pid ${child.pid} (slot ${active + 1}/${MAX_CONCURRENCY})`);
     return true;
   } catch (err) {
     console.error("decider spawn error:", (err as Error).message);

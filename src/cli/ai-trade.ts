@@ -117,38 +117,55 @@ function extractStrategyFlags(args: string[]): {
   return { strategy: seen ? s : undefined, rest };
 }
 
+/**
+ * Annotate each inbox item with this token's most recent prior verdict (48h),
+ * so a re-entering signal carries "you already skipped this 25min ago: R" right
+ * where the decision is made — the decider fast-paths a proven no-change
+ * re-skip instead of redoing the analysis, and won't silently contradict a
+ * prior pass. It stays free to override when data changed.
+ */
+async function annotateInbox(signals: unknown[]): Promise<unknown[]> {
+  return Promise.all(
+    signals.map(async (s) => {
+      const kind = (s as { kind?: string }).kind;
+      let chain: string | undefined;
+      let token: string | undefined;
+      if (!kind) {
+        chain = (s as { chain: string }).chain;
+        token = (s as { address: string }).address;
+      } else if (kind === "perp-signal") {
+        chain = "hl";
+        token = (s as { symbol: string }).symbol;
+      }
+      if (!chain || !token) return s;
+      const prior = await priorVerdict(chain, token).catch(() => undefined);
+      return prior ? { ...(s as object), priorVerdict: formatPriorVerdict(prior) } : s;
+    }),
+  );
+}
+
 async function main() {
   const [cmd, ...args] = process.argv.slice(2).filter((a) => a !== "--");
   switch (cmd) {
     case "inbox": {
-      const signals = await readAiInbox();
-      // Annotate each item with this token's most recent prior verdict (48h),
-      // so a re-entering signal carries "you already skipped this 25min ago: R"
-      // right where the decision is made — the decider fast-paths a proven
-      // no-change re-skip instead of redoing the analysis, and won't silently
-      // contradict a prior pass. It stays free to override when data changed.
-      const annotated = await Promise.all(
-        signals.map(async (s) => {
-          const kind = (s as { kind?: string }).kind;
-          let chain: string | undefined;
-          let token: string | undefined;
-          if (!kind) {
-            chain = (s as { chain: string }).chain;
-            token = (s as { address: string }).address;
-          } else if (kind === "perp-signal") {
-            chain = "hl";
-            token = (s as { symbol: string }).symbol;
-          }
-          if (!chain || !token) return s;
-          const prior = await priorVerdict(chain, token).catch(() => undefined);
-          return prior ? { ...s, priorVerdict: formatPriorVerdict(prior) } : s;
-        }),
-      );
-      console.log(JSON.stringify(annotated, null, 2));
+      // Read-only view of ALL active signals (humans/status). Deciders use
+      // `claim` instead, which shards the inbox across concurrent workers.
+      console.log(JSON.stringify(await annotateInbox(await readAiInbox()), null, 2));
+      break;
+    }
+    case "claim": {
+      // Concurrent-decider entrypoint: atomically claim THIS worker's disjoint
+      // batch (AI_WORKER_ID set by the spawner) so N deciders don't redo each
+      // other's items. Same priorVerdict annotation as `inbox`.
+      const worker = process.env.AI_WORKER_ID ?? `cli-${process.pid}`;
+      const { claimInbox } = await import("../notify/ai-inbox.js");
+      console.log(JSON.stringify(await annotateInbox(await claimInbox(worker)), null, 2));
       break;
     }
     case "archive":
-      await archiveAiInbox();
+      // Archive only THIS worker's claimed batch (concurrent-safe); a bare CLI
+      // call with no worker archives everything (legacy/manual).
+      await archiveAiInbox(process.env.AI_WORKER_ID);
       console.log("inbox archived");
       break;
     case "buy": {

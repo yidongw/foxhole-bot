@@ -240,10 +240,64 @@ export async function alertPricesByToken(): Promise<Map<string, number>> {
   }
 }
 
-/** Archive all currently-active signals so the wake-probe stops firing. */
-export async function archiveAiInbox(): Promise<void> {
+/** Default: a claim older than this (a dead worker) is reclaimable. */
+const CLAIM_STALE_MS = 10 * 60_000;
+
+/**
+ * Concurrent deciders: atomically claim the currently-unclaimed (or stale-
+ * claimed) active items for `worker`, so N deciders process DISJOINT batches in
+ * parallel. Serialized by the write transaction — a second worker running at
+ * the same instant claims only what the first didn't. Returns this worker's
+ * batch.
+ */
+export async function claimInbox(worker: string, staleMs = CLAIM_STALE_MS): Promise<InboxEntry[]> {
+  try {
+    return await transaction((db) => {
+      ensureBackfill(db);
+      const cutoff = new Date(Date.now() - staleMs).toISOString();
+      db.prepare(
+        `UPDATE inbox SET claimed_by=?, claimed_at=?
+         WHERE archived=0 AND (claimed_by IS NULL OR claimed_at < ?)`,
+      ).run(worker, new Date().toISOString(), cutoff);
+      const rows = db
+        .prepare("SELECT data FROM inbox WHERE archived=0 AND claimed_by=? ORDER BY at")
+        .all(worker) as unknown as { data: string }[];
+      return rows.map((r) => JSON.parse(r.data) as InboxEntry);
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** True if there is any unclaimed (or stale-claimed) active item — a new
+ *  decider is only worth spawning when there is fresh work to claim. */
+export async function hasClaimableInbox(staleMs = CLAIM_STALE_MS): Promise<boolean> {
+  try {
+    await ensureBackfilled();
+    const cutoff = new Date(Date.now() - staleMs).toISOString();
+    const row = getDb()
+      .prepare(
+        "SELECT 1 FROM inbox WHERE archived=0 AND (claimed_by IS NULL OR claimed_at < ?) LIMIT 1",
+      )
+      .get(cutoff);
+    return !!row;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Archive processed signals so the wake-probe stops firing. With `worker`, only
+ * that worker's claimed items (so concurrent deciders don't archive each
+ * other's in-flight batches); without, archive all active (legacy/single).
+ */
+export async function archiveAiInbox(worker?: string): Promise<void> {
   await ensureBackfilled();
   await transaction((db) => {
-    db.prepare("UPDATE inbox SET archived=1 WHERE archived=0").run();
+    if (worker) {
+      db.prepare("UPDATE inbox SET archived=1 WHERE archived=0 AND claimed_by=?").run(worker);
+    } else {
+      db.prepare("UPDATE inbox SET archived=1 WHERE archived=0").run();
+    }
   });
 }
