@@ -179,7 +179,7 @@
 
     <div class="tabs" id="tabs">
       <button class="tab active" data-tab="open">📊 当前持仓</button>
-      <button class="tab" data-tab="closed">📜 已平仓</button>
+      <button class="tab" data-tab="closed">📜 交易记录</button>
       <button class="tab" data-tab="equity">📈 权益曲线</button>
       <button class="tab" data-tab="alerts">🚨 警报</button>
       <button class="tab" data-tab="sm">🐳 聪明钱</button>
@@ -195,7 +195,9 @@
       <select id="fChain">
         <option value="all">全部链</option>
       </select>
-      <input id="fToken" type="search" placeholder="代币符号 / 地址" />
+      <select id="fToken">
+        <option value="all">全部代币</option>
+      </select>
       <span class="hint" id="fCount"></span>
     </div>
 
@@ -377,15 +379,15 @@
     const posFilter = { mode: 'all', chain: 'all', token: '' };
     const PAGE = 25;
     let openPage = 1, closedPage = 1;
+    function matchesScope(p) { // mode + chain only (used to build the token list)
+      return (posFilter.mode === 'all'
+          || (posFilter.mode === 'live' ? p.mode === 'live' : p.mode !== 'live'))
+        && (posFilter.chain === 'all' || (p.chain || 'robinhood') === posFilter.chain);
+    }
     function applyPosFilter(rows) {
       const tok = posFilter.token;
       return (rows || []).filter(p =>
-        (posFilter.mode === 'all'
-          || (posFilter.mode === 'live' ? p.mode === 'live' : p.mode !== 'live'))
-        && (posFilter.chain === 'all' || (p.chain || 'robinhood') === posFilter.chain)
-        && (!tok
-          || (p.symbol || '').toLowerCase().includes(tok)
-          || (p.token || '').toLowerCase().includes(tok)));
+        matchesScope(p) && (!tok || (p.symbol || '').toLowerCase() === tok));
     }
     function filteredPositions() { return applyPosFilter(posData?.positions || []); }
     function populateChainFilter() {
@@ -396,6 +398,18 @@
         chains.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
       sel.value = chains.includes(cur) ? cur : 'all';
       posFilter.chain = sel.value;
+    }
+    function populateTokenFilter() {
+      // token 列表跟随当前 模式+链 范围，只列出该范围内出现过的代币
+      const sel = document.getElementById('fToken');
+      const inScope = (posData?.positions || []).filter(matchesScope);
+      const syms = [...new Set(inScope.map(p => p.symbol || '?'))]
+        .sort((a, b) => a.localeCompare(b));
+      const cur = sel.value;
+      sel.innerHTML = '<option value="all">全部代币</option>' +
+        syms.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+      sel.value = syms.includes(cur) ? cur : 'all';
+      posFilter.token = sel.value === 'all' ? '' : sel.value.toLowerCase();
     }
     function updateFilterCount() {
       const el = document.getElementById('fCount');
@@ -719,7 +733,7 @@
           const cf = await fetch('./data/capital-flows.json?_=' + Date.now());
           if (cf.ok) capitalFlows = (await cf.json()).flows || [];
         } catch {}
-        populateChainFilter();
+        populateChainFilter(); populateTokenFilter();
         renderModeBanner(); renderPositions();
         document.getElementById('posMeta').textContent = '账本更新于 ' + fmtDate(posData.meta?.updated_at) +
           '（价格随引擎 tick 刷新）';
@@ -915,13 +929,14 @@
     function onPosFilterChange() {
       posFilter.mode = document.getElementById('fMode').value;
       posFilter.chain = document.getElementById('fChain').value;
-      posFilter.token = document.getElementById('fToken').value.trim().toLowerCase();
+      // rebuild the token list for the current 模式+链 scope; it also sets posFilter.token
+      populateTokenFilter();
       openPage = 1; closedPage = 1;
       if (posData) renderPositions();
     }
     document.getElementById('fMode').addEventListener('change', onPosFilterChange);
     document.getElementById('fChain').addEventListener('change', onPosFilterChange);
-    document.getElementById('fToken').addEventListener('input', onPosFilterChange);
+    document.getElementById('fToken').addEventListener('change', onPosFilterChange);
     document.getElementById('refreshBtn').addEventListener('click', refreshAll);
     document.getElementById('search').addEventListener('input', renderTable);
     document.getElementById('quoteFilter').addEventListener('change', renderTable);
