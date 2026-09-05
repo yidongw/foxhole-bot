@@ -1,0 +1,8 @@
+{
+  "updated_at": "2026-09-05T17:48:00.000Z",
+  "note": "真实账户入出金台账（+ = 充值/收到, - = 提现）。用 `npm run capital` 追加，或直接手改本文件。引擎每 tick 会把它复制到 web/data/ 供仪表盘读取。",
+  "flows": [
+    { "at": "2026-09-04T16:20:00.000Z", "usd": 80, "mode": "live", "note": "初始充值 (USDG)" },
+    { "at": "2026-09-05T17:47:55.000Z", "usd": 420.23, "mode": "live", "note": "0.17 ETH 换 USDG (tx 0x79007a372637ea10a4cf50a93d85c8043670f4ac52213fab1be57acd242ca737)" }
+  ]
+}

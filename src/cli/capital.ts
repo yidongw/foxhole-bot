@@ -14,7 +14,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FLOWS_PATH = path.resolve(__dirname, "../../web/data/capital-flows.json");
+// Tracked source of truth. web/data/ is gitignored + wiped by deploy `git clean`,
+// so the engine re-copies this into web/data/capital-flows.json every tick.
+const FLOWS_PATH = path.resolve(__dirname, "../../data/capital-flows.json");
 
 interface Flow {
   at: string;

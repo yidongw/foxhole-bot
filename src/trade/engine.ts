@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -204,6 +204,10 @@ function sizeCapUsd(
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const POSITIONS_WEB_PATH = path.resolve(__dirname, "../../web/data/positions.json");
+// Real-account deposit/withdrawal ledger: tracked source in data/, mirrored into
+// the gitignored (deploy-wiped) served dir each tick so the dashboard can read it.
+const CAPITAL_SRC_PATH = path.resolve(__dirname, "../../data/capital-flows.json");
+const CAPITAL_WEB_PATH = path.resolve(__dirname, "../../web/data/capital-flows.json");
 const PAUSE_FLAG_PATH = path.resolve(__dirname, "../../data/trading-paused");
 
 /** Per-position throttle for the loud live exit-failure alert (30 min). */
@@ -695,6 +699,8 @@ async function writePositionsJson(
   await writeFile(POSITIONS_WEB_PATH, payload, "utf8").catch((err) =>
     console.error("failed to write positions.json:", (err as Error).message),
   );
+  // Regenerate the served capital-flow ledger from its tracked source.
+  await copyFile(CAPITAL_SRC_PATH, CAPITAL_WEB_PATH).catch(() => {});
 }
 
 /** Paper fills happen here; live fills route to the chain adapter. */
