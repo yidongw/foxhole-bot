@@ -88,10 +88,15 @@ function modeTag(config: TradeConfig): string {
 
 const signedUsd = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(2)}`;
 
+/** 代币数量：≥1000 取整加千分位（8万枚不用两位小数），否则保 4 位有效数字。 */
+const fmtQty = (n: number) =>
+  n >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toPrecision(4);
+
 /**
  * 统一成交消息（买卖同构，用户 2026-09-05 修订）：
  *   头行   <mode> 📥买入/📤卖出 **SYM** [chain] · FDV
- *   (买入) 成交行（fillLine，调用方拼好）
+ *   (买入) 建仓 · 均价 $入                      ← 价格锚点，与卖出的「均价」同措辞
+ *          投入 $cost · 持 N 枚                 ← 花了多少 / 持多少
  *   (卖出) 平X% · 均价 $入 → $出 (±N%)        ← 价格锚点，明确是买入价→卖出价
  *          收回 $proceeds · 盈亏 ±$            ← 全平/单笔：只一个盈亏数
  *          收回 $proceeds · 本次实现 ±$ · 仓位盈亏 ±$ (open 剩X%)  ← 分批才拆两数
@@ -105,11 +110,12 @@ function fillMessage(o: {
   chain: string;
   token: string;
   fdvUsd?: number;
-  /** 买入侧成交行（调用方拼好）。卖出侧改用下面的结构化字段。 */
-  fillLine?: string;
+  entryPriceUsd?: number;
+  /** 买入侧：投入的美元（记账成本）与拿到的代币数。 */
+  costUsd?: number;
+  amountTokens?: number;
   /** 卖出侧：本次卖出占原仓的比例（0..1）。 */
   fraction?: number;
-  entryPriceUsd?: number;
   exitPriceUsd?: number;
   proceedsUsd?: number;
   thisRealizedUsd?: number;
@@ -123,7 +129,10 @@ function fillMessage(o: {
     `${o.modeText} ${o.side === "in" ? "📥 买入" : "📤 卖出"} **${o.symbol}** [${o.chain}]${fdvTag(o.fdvUsd)}`,
   ];
   if (o.side === "in") {
-    if (o.fillLine) lines.push(o.fillLine);
+    lines.push(`建仓 · 均价 $${(o.entryPriceUsd ?? 0).toPrecision(4)}`);
+    lines.push(
+      `投入 $${(o.costUsd ?? 0).toFixed(2)} · 持 ${fmtQty(o.amountTokens ?? 0)} 枚`,
+    );
   } else {
     const entry = o.entryPriceUsd ?? 0;
     const exit = o.exitPriceUsd ?? 0;
@@ -542,7 +551,9 @@ export async function aiBuy(
       chain,
       token: position.token,
       fdvUsd: analysis.fdvUsd,
-      fillLine: `$${clamped.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
+      entryPriceUsd: fill.priceUsd,
+      costUsd: clamped,
+      amountTokens: fill.amountTokens,
       reason,
       follow: `策略: ${strat}`,
       txHash: fill.txHash,
@@ -829,7 +840,9 @@ export async function processSignals(
           chain,
           token: position.token,
           fdvUsd: ev.input.fdvUsd,
-          fillLine: `$${cfg.usdPerTrade.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
+          entryPriceUsd: fill.priceUsd,
+          costUsd: cfg.usdPerTrade,
+          amountTokens: fill.amountTokens,
           reason: `触发 ${position.trigger}`,
           follow: `策略: ${formatStrategy(position.strategy)}`,
           txHash: fill.txHash,
