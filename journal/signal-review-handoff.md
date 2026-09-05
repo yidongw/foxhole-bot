@@ -5,6 +5,11 @@
 
 ---
 
+## 2026-09-05 ~15:00 (loop: signal-review)
+**本轮做了:** Phase 1 干净(0 候选/0 假警报)。worktree 同步到 cd27277(并发轮做了全量亏损归因)。STONKEX[base] 卖飞(hard stop→现2x,-$9.69)属**出场策略=仓位 loop 地盘**,本 loop 未碰。11 个报了没买全是无警报价噪声。无新工作。
+**挂账:** 未变 —— decider MarsCoin 出场规则(`b11f689`)归仓位 loop、需重启生效待确认;SLINK 2 钱包跨1 无 soloTrigger;confirm 写 missed.json 未提交结构性 TODO;pre-pump/社媒大工程 TODO。
+**下轮重点:** 只报没警报/没复盘真候选;★C 仅碰入场/风控门槛,出场一律让给仓位 loop。
+
 ## 2026-09-05 ~14:00 (loop: signal-review)
 **本轮做了:** Phase 1 干净(0 候选/0 假警报/0 报了没买;15 刷单无数据 + 10 低市值已自动过滤)。worktree 同步到 118b158(并发 R30 修了 deploy.sh flock→mkdir、救回 2 个 RB winner)。无新工作。
 **挂账:** 同上轮未变 —— decider MarsCoin 出场规则(`b11f689`)属仓位 loop 地盘、需重启生效(R30 动过 deploy.sh 可能已部署重启,待确认是否 live);SLINK 2 钱包跨1 无 soloTrigger;confirm 写 missed.json 未提交的结构性 TODO;pre-pump/社媒大工程 TODO。
