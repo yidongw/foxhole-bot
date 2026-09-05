@@ -257,7 +257,10 @@
       "tier": "S",
       "realizedUsd": 5424.536479154335,
       "addedAt": "2026-09-04T19:05:57.521Z",
-      "addedBy": "winner-finder-v2"
+      "addedBy": "winner-finder-v2",
+      "disabled": true,
+      "disabledReason": "ROI 0.20x < 0.3x; winrate 18% < 20% (revet R30)",
+      "disabledAt": "2026-09-05T13:49:19.239467Z"
     },
     {
       "address": "0xB0F82754752d3A117c04bf5A055FdEFbF98Ec0F4",
@@ -293,6 +296,24 @@
       "tier": "S",
       "realizedUsd": 0,
       "addedAt": "2026-09-05T08:46:04.095Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x1D4f6f17BAa6E2938Ec4f5e8A68C68348a058560",
+      "label": "S v2 胜率45% $366k",
+      "chain": "robinhood",
+      "tier": "S",
+      "realizedUsd": 365702.8441925475,
+      "addedAt": "2026-09-05T12:53:37.127Z",
+      "addedBy": "winner-finder-v2"
+    },
+    {
+      "address": "0x750e8FCE838fa7Db0e15e2732f2733e989102181",
+      "label": "A v2 胜率42% $40k",
+      "chain": "robinhood",
+      "tier": "A",
+      "realizedUsd": 40307.041313657974,
+      "addedAt": "2026-09-05T12:53:37.130Z",
       "addedBy": "winner-finder-v2"
     }
   ]
