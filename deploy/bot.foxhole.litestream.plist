@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>bot.foxhole.litestream</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <!-- Continuous WAL replication of data/foxhole.db to object storage.
+             Fill deploy/litestream.yml (gitignored) from the .example first.
+             load:  launchctl bootstrap gui/$(id -u) deploy/bot.foxhole.litestream.plist -->
+        <string>cd /Users/xinjuan/git/foxhole-bot &amp;&amp; PATH=/opt/homebrew/bin:/usr/bin:/bin exec /opt/homebrew/bin/litestream replicate -config /Users/xinjuan/git/foxhole-bot/deploy/litestream.yml</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/xinjuan/preview/logs/foxhole-litestream.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/xinjuan/preview/logs/foxhole-litestream.log</string>
+</dict>
+</plist>

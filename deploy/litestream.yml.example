@@ -1,0 +1,42 @@
+# Litestream — continuous backup of the SQLite DB (data/foxhole.db) to object
+# storage (near-zero data loss + point-in-time restore). Copy this to
+# deploy/litestream.yml (gitignored), fill in real credentials, then run via
+# the launchd job (deploy/bot.foxhole.litestream.plist) or `litestream replicate`.
+#
+# Install:  brew install benbjohnson/litestream/litestream
+# Restore:  litestream restore -config deploy/litestream.yml \
+#             -o data/foxhole.db <replica-url>
+#
+# NOTE: never `cp` a live WAL db — litestream (or `sqlite3 .backup`) is the only
+# consistent way to snapshot it while the monitor is writing.
+
+dbs:
+  - path: /Users/xinjuan/git/foxhole-bot/data/foxhole.db
+    replicas:
+      # ── AWS S3 ────────────────────────────────────────────────────────────
+      - type: s3
+        bucket: my-foxhole-backup
+        path: foxhole
+        region: us-east-1
+        access-key-id: AWS_ACCESS_KEY_ID
+        secret-access-key: AWS_SECRET_ACCESS_KEY
+
+      # ── Aliyun OSS (S3-compatible) — uncomment instead of the block above ──
+      # - type: s3
+      #   endpoint: https://oss-cn-hangzhou.aliyuncs.com   # your region endpoint
+      #   bucket: my-foxhole-backup
+      #   path: foxhole
+      #   region: oss-cn-hangzhou
+      #   access-key-id: OSS_ACCESS_KEY_ID
+      #   secret-access-key: OSS_ACCESS_KEY_SECRET
+      #   force-path-style: true
+
+      # ── Cloudflare R2 (S3-compatible, no egress fees) ─────────────────────
+      # - type: s3
+      #   endpoint: https://<accountid>.r2.cloudflarestorage.com
+      #   bucket: my-foxhole-backup
+      #   path: foxhole
+      #   region: auto
+      #   access-key-id: R2_ACCESS_KEY_ID
+      #   secret-access-key: R2_SECRET_ACCESS_KEY
+      #   force-path-style: true

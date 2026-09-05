@@ -54,3 +54,6 @@ data/news-state.json
 data/signal-threads.json
 data/news/
 data/trading-paused
+
+# Litestream real config (holds object-storage credentials)
+deploy/litestream.yml
