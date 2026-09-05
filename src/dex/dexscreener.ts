@@ -8,26 +8,84 @@ const BASE = "https://api.dexscreener.com";
  * which made the mcap gate fail open (keep-on-unknown let junk through). Retry
  * so `fdv` is reliably present. Backoff: 0.5s, 1s, 2s.
  */
-export async function fetchDexJson<T>(path: string, retries = 3): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)));
-    try {
-      const res = await fetch(`${BASE}${path}`, {
-        headers: { "User-Agent": "foxhole-bot/0.3" },
-      });
-      if ((res.status === 429 || res.status >= 500) && attempt < retries) {
-        lastErr = new Error(`DexScreener ${res.status}: ${path}`);
-        continue;
-      }
-      if (!res.ok) throw new Error(`DexScreener ${res.status}: ${path}`);
-      return (await res.json()) as T;
-    } catch (err) {
-      lastErr = err;
-      if (attempt >= retries) break;
+/**
+ * Self-inflicted 429 storms (841 rate-limit hits on 09-05: scanner + engine +
+ * decider + four review loops sharing one IP against DexScreener's ~300/min
+ * cap) stretched engine ticks to minutes and fed degraded responses into the
+ * phantom-price incidents. Every module funnels through this function, so
+ * robustness lives here:
+ *   1. token bucket (240/min, under the cap) — we stop DDoSing ourselves;
+ *   2. in-flight dedupe — concurrent identical GETs share one request
+ *      (scanner/engine/reviews constantly ask for the same hot tokens);
+ *   3. 10s response cache — sub-tick TTL, so exits still see fresh prices.
+ */
+const BUCKET_CAPACITY = 240;
+let bucketTokens = BUCKET_CAPACITY;
+let bucketRefillAt = Date.now();
+const RESPONSE_TTL_MS = 10_000;
+const responseCache = new Map<string, { at: number; data: unknown }>();
+const inFlight = new Map<string, Promise<unknown>>();
+
+async function takeBucketToken(): Promise<void> {
+  for (;;) {
+    const now = Date.now();
+    const elapsed = now - bucketRefillAt;
+    if (elapsed > 0) {
+      bucketTokens = Math.min(
+        BUCKET_CAPACITY,
+        bucketTokens + (elapsed / 60_000) * BUCKET_CAPACITY,
+      );
+      bucketRefillAt = now;
     }
+    if (bucketTokens >= 1) {
+      bucketTokens -= 1;
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 250));
   }
-  throw lastErr instanceof Error ? lastErr : new Error(`DexScreener failed: ${path}`);
+}
+
+export async function fetchDexJson<T>(path: string, retries = 3): Promise<T> {
+  const hit = responseCache.get(path);
+  if (hit && Date.now() - hit.at < RESPONSE_TTL_MS) return hit.data as T;
+  const pending = inFlight.get(path);
+  if (pending) return pending as Promise<T>;
+
+  const run = (async () => {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)));
+      await takeBucketToken();
+      try {
+        const res = await fetch(`${BASE}${path}`, {
+          headers: { "User-Agent": "foxhole-bot/0.3" },
+        });
+        if ((res.status === 429 || res.status >= 500) && attempt < retries) {
+          lastErr = new Error(`DexScreener ${res.status}: ${path}`);
+          continue;
+        }
+        if (!res.ok) throw new Error(`DexScreener ${res.status}: ${path}`);
+        const data = (await res.json()) as T;
+        responseCache.set(path, { at: Date.now(), data });
+        if (responseCache.size > 500) {
+          for (const [k, v] of responseCache) {
+            if (Date.now() - v.at > RESPONSE_TTL_MS) responseCache.delete(k);
+          }
+        }
+        return data;
+      } catch (err) {
+        lastErr = err;
+        if (attempt >= retries) break;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(`DexScreener failed: ${path}`);
+  })();
+  inFlight.set(path, run);
+  try {
+    return await run;
+  } finally {
+    inFlight.delete(path);
+  }
 }
 
 export async function fetchTokenPairs(
