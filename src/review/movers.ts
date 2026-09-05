@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +9,8 @@ import { detectLadderPump } from "../signals/ladder.js";
 import { loadDenylist } from "./denylist.js";
 import { checkTokenSafety } from "../trade/safety.js";
 import { sleep } from "../lib/utils.js";
+import { withFileLock } from "../lib/file-lock.js";
+import { writeJsonAtomic } from "../lib/atomic-json.js";
 import type { MonitorState } from "../monitor/state.js";
 import type { DexPair } from "../types.js";
 import type { AlertRecord, LabeledOutcome } from "./ledger.js";
@@ -263,34 +265,37 @@ export async function loadMissedCases(): Promise<MissedCase[]> {
 export async function saveMissedCases(
   fresh: ClassifiedMover[],
 ): Promise<MissedCase[]> {
-  const existing = await loadMissedCases();
-  const today = new Date().toISOString().slice(0, 10);
-  const seen = new Set(
-    existing.map((m) => `${m.chain}:${m.address.toLowerCase()}:${m.detectedAt.slice(0, 10)}`),
-  );
-  const added: MissedCase[] = [];
-  for (const m of fresh) {
-    if (m.kind === "alerted") continue;
-    // Ladder pumps are not real misses — training the tuner to capture
-    // wash-painted charts would optimize toward exit-liquidity traps.
-    // No-data pools can't be replayed at all. (Collapsed pumps stay: we
-    // should have alerted before the collapse — that's a real miss.)
-    if (m.ladder || m.noData) continue;
-    if (m.fdvUsd != null && m.fdvUsd < MOVER_MIN_FDV_USD) continue;
-    const key = `${m.chain}:${m.address.toLowerCase()}:${today}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    added.push({ ...m, detectedAt: new Date().toISOString() });
-  }
-  if (added.length) {
-    await mkdir(path.dirname(MISSED_PATH), { recursive: true });
-    await writeFile(
-      MISSED_PATH,
-      JSON.stringify([...existing, ...added], null, 2),
-      "utf8",
+  await mkdir(path.dirname(MISSED_PATH), { recursive: true });
+  // Cross-process lock + atomic write: the load→append→write was racy and a
+  // concurrent writer (hourly review vs. a manual confirm) clobbered it with a
+  // stale copy, silently dropping a just-confirmed case — ZCAT 2026-09-05 was
+  // "confirmed" 3× but never persisted, so it re-surfaced every hour. Load
+  // FRESH inside the lock so the append never loses a concurrent one.
+  return withFileLock(MISSED_PATH + ".lock", async () => {
+    const existing = await loadMissedCases();
+    const today = new Date().toISOString().slice(0, 10);
+    const seen = new Set(
+      existing.map((m) => `${m.chain}:${m.address.toLowerCase()}:${m.detectedAt.slice(0, 10)}`),
     );
-  }
-  return added;
+    const added: MissedCase[] = [];
+    for (const m of fresh) {
+      if (m.kind === "alerted") continue;
+      // Ladder pumps are not real misses — training the tuner to capture
+      // wash-painted charts would optimize toward exit-liquidity traps.
+      // No-data pools can't be replayed at all. (Collapsed pumps stay: we
+      // should have alerted before the collapse — that's a real miss.)
+      if (m.ladder || m.noData) continue;
+      if (m.fdvUsd != null && m.fdvUsd < MOVER_MIN_FDV_USD) continue;
+      const key = `${m.chain}:${m.address.toLowerCase()}:${today}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      added.push({ ...m, detectedAt: new Date().toISOString() });
+    }
+    if (added.length) {
+      await writeJsonAtomic(MISSED_PATH, [...existing, ...added]);
+    }
+    return added;
+  });
 }
 
 /** Full daily mover sweep across chains: classify + persist misses. */
