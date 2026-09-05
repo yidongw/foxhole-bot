@@ -1,21 +1,26 @@
 /**
- * 永续仓位存储。刻意与现货 data/positions.json 分开——永续的字段(方向、杠杆、
- * 保证金、强平价、资金费)和现货 Position 差异太大,硬塞进去会污染现货引擎。
- * 独立 data/perp-positions.json,原子写。
+ * 永续仓位存储。刻意与现货分开——永续的字段(方向、杠杆、保证金、强平价、资金费)
+ * 和现货 Position 差异太大,硬塞进去会污染现货引擎。存于共享 SQLite 的 perp_positions
+ * 表(此前是无锁的 data/perp-positions.json,monitor 管理 tick 与 hl CLI 之间存在
+ * 未受保护的丢更新竞态——现由 mutatePerpPositions 的写事务消除)。
  */
 
-import { readFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { DatabaseSync } from "node:sqlite";
 
-import { writeJsonAtomic } from "../../lib/atomic-json.js";
+import { dbPath, getDb, transaction } from "../../lib/db.js";
 import type { HlMode } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PERP_POSITIONS_PATH = path.resolve(
-  __dirname,
-  "../../../data/perp-positions.json",
-);
+/** Legacy JSON ledger — import source only; overridable for tests. */
+function legacyPerpPath(): string {
+  return (
+    process.env.PERP_POSITIONS_FILE_PATH ??
+    path.resolve(__dirname, "../../../data/perp-positions.json")
+  );
+}
 
 export type PerpSide = "long" | "short";
 
@@ -70,17 +75,116 @@ export interface PerpPositionsFile {
   positions: PerpPosition[];
 }
 
+const backfilledPaths = new Set<string>();
+function ensureBackfill(db: DatabaseSync): void {
+  const p = dbPath();
+  if (backfilledPaths.has(p)) return;
+  backfilledPaths.add(p);
+  const jsonl = legacyPerpPath();
+  if (!existsSync(jsonl)) return;
+  const count = (db.prepare("SELECT COUNT(*) AS n FROM perp_positions").get() as { n: number }).n;
+  if (count > 0) return;
+  try {
+    const file = JSON.parse(readFileSync(jsonl, "utf8")) as PerpPositionsFile;
+    for (const pos of file.positions ?? []) upsertPerp(db, pos);
+    if (file.lastReportAt) setMeta(db, "perp:lastReportAt", file.lastReportAt);
+  } catch (err) {
+    console.error("perp backfill failed:", (err as Error).message);
+  }
+}
+
+async function ensureBackfilled(): Promise<void> {
+  if (backfilledPaths.has(dbPath())) return;
+  await transaction((db) => ensureBackfill(db));
+}
+
+function upsertPerp(db: DatabaseSync, p: PerpPosition): void {
+  db.prepare(
+    `INSERT INTO perp_positions (id, status, symbol, mode, opened_at, data)
+     VALUES (?,?,?,?,?,?)
+     ON CONFLICT(id) DO UPDATE SET
+       status=excluded.status, symbol=excluded.symbol, mode=excluded.mode,
+       opened_at=excluded.opened_at, data=excluded.data`,
+  ).run(p.id, p.status, p.symbol.toUpperCase(), p.mode, p.openedAt, JSON.stringify(p));
+}
+
+function setMeta(db: DatabaseSync, key: string, value: string): void {
+  db.prepare(
+    `INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+  ).run(key, value);
+}
+
+function readFileFrom(db: DatabaseSync): PerpPositionsFile {
+  const rows = db
+    .prepare("SELECT data FROM perp_positions ORDER BY opened_at")
+    .all() as unknown as { data: string }[];
+  const meta = db.prepare("SELECT value FROM kv WHERE key='perp:lastReportAt'").get() as
+    | { value: string }
+    | undefined;
+  const file: PerpPositionsFile = {
+    version: 1,
+    positions: rows.map((r) => JSON.parse(r.data) as PerpPosition),
+  };
+  if (meta?.value) file.lastReportAt = meta.value;
+  return file;
+}
+
 export async function loadPerpPositions(): Promise<PerpPositionsFile> {
   try {
-    const raw = await readFile(PERP_POSITIONS_PATH, "utf8");
-    return JSON.parse(raw) as PerpPositionsFile;
+    await ensureBackfilled();
+    return readFileFrom(getDb()); // plain lock-free read (WAL)
   } catch {
     return { version: 1, positions: [] };
   }
 }
 
+/** Persist the whole file (upsert every position) atomically. */
 export async function savePerpPositions(file: PerpPositionsFile): Promise<void> {
-  await writeJsonAtomic(PERP_POSITIONS_PATH, file);
+  await ensureBackfilled();
+  await transaction((db) => {
+    for (const p of file.positions) upsertPerp(db, p);
+    if (file.lastReportAt) setMeta(db, "perp:lastReportAt", file.lastReportAt);
+  });
+}
+
+/**
+ * ACID mutate: load FRESH state inside an IMMEDIATE write transaction, apply the
+ * mutation, persist — atomically. Cross-process writers (monitor manage tick vs
+ * `hl` CLI) serialize on SQLite's write lock, closing the previously UNLOCKED
+ * lost-update race the JSON file had. Do slow work (price/live orders) BEFORE
+ * calling this — the mutator must be fast.
+ */
+export async function mutatePerpPositions<T>(
+  mutator: (file: PerpPositionsFile) => T | Promise<T>,
+): Promise<{ file: PerpPositionsFile; result: T }> {
+  await ensureBackfilled();
+  return transaction(async (db) => {
+    const file = readFileFrom(db);
+    const result = await mutator(file);
+    for (const p of file.positions) upsertPerp(db, p);
+    if (file.lastReportAt) setMeta(db, "perp:lastReportAt", file.lastReportAt);
+    return { file, result };
+  });
+}
+
+/**
+ * Merge an exit computed against a SNAPSHOT into the FRESH position under the
+ * ledger lock, clamping to what actually remains (mirrors spot
+ * mergeExitIntoFresh). Returns the applied exit, or undefined if nothing left.
+ */
+export function mergePerpExitIntoFresh(
+  fp: PerpPosition,
+  exit: PerpExit,
+): PerpExit | undefined {
+  const remaining = remainingFraction(fp);
+  if (remaining <= 1e-9 || exit.fraction <= 0) return undefined;
+  const f = Math.min(exit.fraction, remaining);
+  const scaled =
+    f === exit.fraction
+      ? exit
+      : { ...exit, fraction: f, realizedPnlUsd: exit.realizedPnlUsd * (f / exit.fraction) };
+  recordPerpExit(fp, scaled);
+  return scaled;
 }
 
 export function openPerps(file: PerpPositionsFile): PerpPosition[] {

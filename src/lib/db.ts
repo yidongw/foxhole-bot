@@ -74,6 +74,20 @@ const MIGRATIONS: string[] = [
      data     TEXT NOT NULL
    );
    CREATE INDEX IF NOT EXISTS idx_inbox_archived ON inbox(archived, at);`,
+
+  // v4 — Hyperliquid perp ledger (see src/venues/hyperliquid/positions.ts). Same
+  // JSON-blob + indexed-projection shape as spot positions; kept in its own
+  // table because perp fields differ. kv 'perp:lastReportAt' holds its scalar.
+  `CREATE TABLE IF NOT EXISTS perp_positions (
+     id        TEXT PRIMARY KEY,
+     status    TEXT NOT NULL,
+     symbol    TEXT NOT NULL,
+     mode      TEXT NOT NULL,
+     opened_at TEXT NOT NULL,
+     data      TEXT NOT NULL
+   );
+   CREATE INDEX IF NOT EXISTS idx_perp_status ON perp_positions(status);
+   CREATE INDEX IF NOT EXISTS idx_perp_symbol ON perp_positions(symbol);`,
 ];
 
 let cached: { path: string; db: DatabaseSync } | undefined;

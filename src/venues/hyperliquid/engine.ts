@@ -24,12 +24,13 @@ import {
   findOpenPerp,
   isDailyReportDue,
   loadPerpPositions,
+  mutatePerpPositions,
+  mergePerpExitIntoFresh,
   openPerps,
   paperCashUsd,
   realizedPnlUsd,
   recordPerpExit,
   remainingFraction,
-  savePerpPositions,
   shouldWarnLiquidation,
   totalPnlUsd,
   accountPnlUsd,
@@ -240,8 +241,15 @@ export async function openPerp(
     reason: reason.slice(0, 200),
     oid,
   };
-  file.positions.push(position);
-  await savePerpPositions(file);
+  // Persist under a fresh write transaction with an in-lock dup re-check —
+  // checkPerpEntry above ran on a pre-lock snapshot, so two concurrent opens of
+  // the same symbol could both pass it (mirrors the spot aiBuy guard).
+  const { result: dup } = await mutatePerpPositions((fresh) => {
+    if (findOpenPerp(fresh, symbol)) return true;
+    fresh.positions.push(position);
+    return false;
+  });
+  if (dup) return `风控拒绝: 已持有 ${symbol} 永续仓（并发去重）`;
 
   const arrow = side === "long" ? "🟢 开多" : "🔴 开空";
   await notify(
@@ -274,21 +282,26 @@ export async function closePerp(
   if (sellFraction <= 1e-9) return `${symbol} 已无可平仓位`;
 
   const result = await executeClose(p, sellFraction, mark, config);
-  recordPerpExit(p, result.exit);
-  p.bestPriceUsd =
-    p.side === "long"
-      ? Math.max(p.bestPriceUsd, mark)
-      : Math.min(p.bestPriceUsd, mark);
-  await savePerpPositions(file);
+  // Apply to FRESH state under the write lock — clamps to what's actually left
+  // if a concurrent writer already closed part of it (mirrors spot manualExit).
+  const { result: applied } = await mutatePerpPositions((fresh) => {
+    const fp = fresh.positions.find((x) => x.id === p.id);
+    if (!fp || fp.status !== "open") return undefined;
+    mergePerpExitIntoFresh(fp, result.exit);
+    fp.bestPriceUsd =
+      p.side === "long" ? Math.max(fp.bestPriceUsd, mark) : Math.min(fp.bestPriceUsd, mark);
+    return fp;
+  });
+  if (!applied) return `${symbol} 已被并发平仓,跳过记账`;
 
-  const pnl = totalPnlUsd(p, mark);
+  const pnl = totalPnlUsd(applied, mark);
   await notify(
     `${modeTag(config)} 📤 手动平仓 **${symbol}** ${(sellFraction * 100).toFixed(0)}% @ $${result.exit.markPriceUsd.toPrecision(6)}${fdvTag(await fetchPerpFdvUsd(symbol))}\n` +
-      `本次已实现 ${result.exit.realizedPnlUsd >= 0 ? "+" : ""}$${result.exit.realizedPnlUsd.toFixed(2)} · 仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${p.status})`,
+      `本次已实现 ${result.exit.realizedPnlUsd >= 0 ? "+" : ""}$${result.exit.realizedPnlUsd.toFixed(2)} · 仓位盈亏 ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${applied.status})`,
   );
   return (
     `已平 ${(sellFraction * 100).toFixed(0)}% ${symbol} @ $${result.exit.markPriceUsd.toPrecision(6)} → ` +
-    `本次盈亏 ${result.exit.realizedPnlUsd >= 0 ? "+" : ""}$${result.exit.realizedPnlUsd.toFixed(2)} (${p.status})`
+    `本次盈亏 ${result.exit.realizedPnlUsd >= 0 ? "+" : ""}$${result.exit.realizedPnlUsd.toFixed(2)} (${applied.status})`
   );
 }
 
@@ -352,6 +365,9 @@ export async function managePerpPositions(
   const file = await loadPerpPositions();
   const open = openPerps(file);
   if (!open.length) return;
+  // Exit count per position at load — anything appended below is an exit this
+  // tick, merged into fresh state at the end (resurrection-safe apply).
+  const origExitCounts = new Map(open.map((p) => [p.id, p.exits.length]));
 
   // 每 tick 一次性拉全部资金费率,给所有持仓计费(不做 per-仓网络调用)。
   let fundingRates: Record<string, number> = {};
@@ -418,11 +434,26 @@ export async function managePerpPositions(
     await sleep(200);
   }
 
-  // 日 P&L 播报(对齐现货):有持仓且距上次 >24h 时往 Discord 发一次账户快照。
-  const due = isDailyReportDue(file.lastReportAt, file.positions.length > 0);
-  if (due) file.lastReportAt = new Date().toISOString();
-
-  await savePerpPositions(file);
+  // Apply this tick's updates onto FRESH state under the write lock: skip any
+  // position a concurrent `hl close` already closed (no resurrection), and
+  // merge exits computed this tick (clamped to what's actually left).
+  const { result: due } = await mutatePerpPositions((fresh) => {
+    for (const p of open) {
+      const fp = fresh.positions.find((x) => x.id === p.id);
+      if (!fp || fp.status !== "open") continue;
+      fp.bestPriceUsd = p.bestPriceUsd;
+      if (p.fundingPnlUsd !== undefined) fp.fundingPnlUsd = p.fundingPnlUsd;
+      if (p.lastFundingAt) fp.lastFundingAt = p.lastFundingAt;
+      if (p.lastLiqWarnAt) fp.lastLiqWarnAt = p.lastLiqWarnAt;
+      for (const e of p.exits.slice(origExitCounts.get(p.id) ?? 0)) {
+        mergePerpExitIntoFresh(fp, e);
+      }
+    }
+    // 日 P&L 播报(对齐现货):有持仓且距上次 >24h 时发一次账户快照。
+    const d = isDailyReportDue(fresh.lastReportAt, fresh.positions.length > 0);
+    if (d) fresh.lastReportAt = new Date().toISOString();
+    return d;
+  });
 
   if (due) {
     await notify(`📊 **永续 Daily P&L**\n${await formatPerpReport(config)}`);
