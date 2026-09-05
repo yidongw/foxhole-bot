@@ -31,6 +31,7 @@ import {
   appendFilterJournal,
 } from "./filter-journal.js";
 import { reviewOwnTrades, type OwnTradeReview } from "./exits-review.js";
+import { loadPositions } from "../trade/positions.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -144,6 +145,16 @@ export async function runDailyReview(options: {
     (await loadMissedCases()).map((c) => `${c.chain}:${c.address.toLowerCase()}`),
   );
 
+  // Coins we actually TRADED (open or closed) are NOT misses — classifyMover
+  // only checks the alert ledger, so a bought coin whose ledger row aged out of
+  // the 36h window resurfaced as a 🕳️ candidate. FATCOIN (2 trades) and SHROOM
+  // (still open) both got mis-flagged 2026-09-05. Treat any position as capture.
+  const traded = new Set(
+    (await loadPositions()).positions.map(
+      (p) => `${p.chain ?? "robinhood"}:${p.token.toLowerCase()}`,
+    ),
+  );
+
   // Candidates = misses that survived ALL automatic filters (incl. 市值≥$10M)
   // and are not already in the case library.
   const candidates = movers.filter(
@@ -155,6 +166,7 @@ export async function runDailyReview(options: {
       !isStock(m) &&
       !isMalformed(m) &&
       !reviewed.has(`${m.chain}:${m.address.toLowerCase()}`) &&
+      !traded.has(`${m.chain}:${m.address.toLowerCase()}`) &&
       (m.fdvUsd == null || m.fdvUsd >= MOVER_MIN_FDV_USD),
   );
 
@@ -185,9 +197,9 @@ export async function runDailyReview(options: {
     const seen = new Set(candidates.map((m) => `${m.chain}:${m.address.toLowerCase()}`));
     for (const p of prior) {
       const key = `${p.chain}:${p.address.toLowerCase()}`;
-      // Skip anything already reviewed (case library) — e.g. a prior pending
-      // entry the user has since confirmed elsewhere shouldn't linger.
-      if (!seen.has(key) && !reviewed.has(key)) {
+      // Skip anything already reviewed (case library) or since traded — a prior
+      // pending entry the user confirmed / we bought shouldn't linger.
+      if (!seen.has(key) && !reviewed.has(key) && !traded.has(key)) {
         candidates.push(p);
         seen.add(key);
       }
