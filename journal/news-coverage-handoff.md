@@ -3,7 +3,23 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
-## 2026-09-05 03:0x UTC 第 24 轮(ultrathink:R3 junk 闭环完成 + 胜率无衰减,全绿)
+## 2026-09-05 05:0x UTC 第 25 轮(ultrathink:全量 hotSymbol 碰撞审计,全绿无改动)
+
+系统成熟,本轮做了全量碰撞审计,确认无新噪音、无新 junk,不改。
+
+- ① 新闻:**hotSymbols(32) 全量碰撞审计**——只有 GLM/BGBTC/Stonks 撞到非-wake 标题,且都被
+  正确处理:GLM/BGBTC 已停用词挡住;**「BNB Stonks Szn 奖池400万」促销**(用 Stonks 命名的活动)
+  被正文里的"奖池"触发 SAVINGS_PROMO veto → **正确 note 不 wake**(R1 promo-veto 生效实例)。
+  48 wake **0 纯 junk-symbol 噪音**。无新漏。
+- ② 覆盖率 + 哑弹:robinhood ≥100% 干净(5 mover 全在册,**1965 币**)。clean **胜率 67%** 稳定无衰减。
+- ③ 安全:src/news 无泄漏(自 R22 无 news 代码改动)。④ 健康:tsc 干净、npm test **309 passed**、
+  monitor 存活(pid 9996,已重启)、BN 未复现、0 uncaught。
+- 附:上一条用户问的 **18932** 已查清——robinhood 币股 degen meme(18932/SPCX),+825% 后崩 -74%;
+  我们 decider 早期小额买入、+26%/+$18 崩盘前 trail 出场(赢),后期二次警报正确标 post_pump 没追。
+  策略赚钱实例。
+
+**下轮重点:** ① 18932/GLM/BSC 约 09-06 TTL 到期复查清零。② labeled 新激进 wake 成熟后复看胜率。
+③ 促销活动命名 meme(X Szn/X 活动)若正文无"奖池/活动"关键词而漏进 wake,再补 promo 词。④ 守 robinhood 覆盖。
 
 无新代码改动;系统成熟健康,两个里程碑确认。
 
