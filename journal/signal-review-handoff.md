@@ -5,6 +5,11 @@
 
 ---
 
+## 2026-09-05 ~14:00 (loop: signal-review)
+**本轮做了:** Phase 1 干净(0 候选/0 假警报/0 报了没买;15 刷单无数据 + 10 低市值已自动过滤)。worktree 同步到 118b158(并发 R30 修了 deploy.sh flock→mkdir、救回 2 个 RB winner)。无新工作。
+**挂账:** 同上轮未变 —— decider MarsCoin 出场规则(`b11f689`)属仓位 loop 地盘、需重启生效(R30 动过 deploy.sh 可能已部署重启,待确认是否 live);SLINK 2 钱包跨1 无 soloTrigger;confirm 写 missed.json 未提交的结构性 TODO;pre-pump/社媒大工程 TODO。
+**下轮重点:** 只报没警报/没复盘的真候选;★C 仅碰入场/风控门槛。
+
 ## 2026-09-05 ~13:00 (loop: signal-review)
 **本轮做了:** Phase 1 干净(0 候选/0 假警报,报了没买全是无警报价噪声)。承接前几轮的大清账:修了 5 个 loop 质量 bug 全在 main —— ①gmgn 链名别名(solana/eth find2 曾 100% 死,normChain)②pending-movers 跨轮合并 ③已复盘的币(missed.json)不再当候选 ④已交易的币(positions.json)不再误标漏币 ⑤saveMissedCases 加 withFileLock+原子写(防并发丢更新)。ZCAT/FATCOIN/SHROOM 已**提交**进 missed.json(之前只写工作区被并发 reset --hard 还原,反复复活)。用户给的 SLINK(robinhood 0xfa89ed…)挖出 2 个盈利钱包已入追踪(S:0x1d4f6f…realized$366k / A:0x750e8f…$40k)。
 
