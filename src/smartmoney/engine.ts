@@ -5,7 +5,7 @@ import { ensureSignalThread } from "../notify/signal-threads.js";
 import { canonicalChain } from "../chains/robinhood/smart-money.js";
 import { appendSmLog } from "./log.js";
 import { resolveFilter, type SmartMoneyFilter } from "./config.js";
-import { fdvTag, tokenLinks } from "../lib/format.js";
+import { fdvTag, formatSignalCard } from "../lib/format.js";
 
 /** Best-liquidity market snapshot for a token (DexScreener), or undefined. */
 async function fetchTokenMarket(
@@ -282,20 +282,25 @@ export class SmartMoneyEngine {
 
     const style = chainStyle(buy.chain);
     const usdStr = buy.usd ? ` (~$${Math.round(buy.usd).toLocaleString()})` : "";
-    const priceStr = mkt?.priceUsd ? `$${mkt.priceUsd.toPrecision(4)}` : "?";
-    const liqStr = `$${Math.round((mkt?.liquidityUsd ?? 0) / 1e3)}K`;
 
-    // 1) Trade signal → the chain's signal channel — unified with the standard
-    //    signal card (same link row + price/liquidity/FDV line).
-    const signal = [
-      `🎯 **交易信号 / TRADE SIGNAL** · ${style.emoji} ${style.name} — 🐳 聪明钱`,
-      `**$${buy.symbol}** — 窗口内 **${distinct}** 个追踪钱包买入${usdStr}`,
-      `最近:\`${buy.walletLabel}\``,
-      `CA: \`${buy.token}\``,
-      tokenLinks(buy.chain, buy.token, mkt?.pairAddress),
-      `最新: ${priceStr} · 流动性 ${liqStr}${fdvTag(mkt?.fdvUsd)}`,
-      `🤖 已唤醒 AI 决策 —— 待定买入/跳过`,
-    ].join("\n");
+    // 1) Trade signal → the chain's signal channel via the SHARED canonical card
+    //    (same skeleton/links/最新 line as monitor & news); smart-money flavour
+    //    lives in the badge + extra lines + AI status line only.
+    const signal = formatSignalCard({
+      chain: buy.chain,
+      symbol: buy.symbol,
+      address: buy.token,
+      primaryPairAddress: mkt?.pairAddress,
+      priceUsd: mkt?.priceUsd,
+      liquidityUsd: mkt?.liquidityUsd,
+      fdvUsd: mkt?.fdvUsd,
+      badge: "🐳 聪明钱",
+      extraLines: [
+        `窗口内 **${distinct}** 个追踪钱包买入${usdStr}`,
+        `最近:\`${buy.walletLabel}\``,
+      ],
+      statusLine: "🤖 已唤醒 AI 决策 —— 待定买入/跳过",
+    });
     // Create/post the per-token thread so the AI decider's note has somewhere
     // to land; fall back to a flat message if threads aren't available here.
     const threaded = await ensureSignalThread(

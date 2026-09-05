@@ -66,3 +66,81 @@ export function tokenLinks(chain: string, token: string, pairAddress?: string): 
   }
   return links.join(" · ");
 }
+
+/** Discord dynamic-timestamp token (<t:unix:style>) from an ISO string. */
+function discordTs(iso: string, style: "R" | "f" = "R"): string {
+  return `<t:${Math.floor(new Date(iso).getTime() / 1000)}:${style}>`;
+}
+
+/**
+ * One trade signal, source-agnostic. Every source posting into the trade-signal
+ * channel (monitor, news, smart-money, and any future source) fills this and
+ * renders through {@link formatSignalCard} so the cards look identical. Source
+ * flavour goes in `badge` (header suffix), `extraLines` (after the links row)
+ * and `statusLine` (bottom) — the skeleton stays the same.
+ */
+export interface SignalCardModel {
+  chain: string;
+  symbol?: string;
+  address: string;
+  primaryPair?: string;
+  primaryPairAddress?: string;
+  priceUsd?: number;
+  liquidityUsd?: number;
+  fdvUsd?: number;
+  /** ISO — token launch time (发射 line). */
+  launchAt?: string;
+  /** ISO — first-trigger time (首次触发 line). */
+  firstAt?: string;
+  /** repeat-trigger count; >1 renders the 🔁 第 N 次 badge with `lastAt`. */
+  repeatCount?: number;
+  /** ISO — most recent trigger time (for the 🔁 repeat badge). */
+  lastAt?: string;
+  /** trigger tags (触发器 …), first 3 shown. */
+  triggers?: string[];
+  /** header suffix, e.g. "🐳 聪明钱" / "📰 新闻". */
+  badge?: string;
+  /** source-specific lines inserted after the links / 首次触发 block. */
+  extraLines?: string[];
+  /** bottom status line, e.g. "🤖 已唤醒 AI 决策 —— 待定买入/跳过". */
+  statusLine?: string;
+}
+
+/**
+ * Canonical trade-signal card shared by ALL sources — keep every trade-signal
+ * channel post rendering through here so they stay visually aligned.
+ */
+export function formatSignalCard(m: SignalCardModel): string {
+  const lines = [
+    `🎯 **${m.symbol ?? "?"}** [${m.chain.toUpperCase()}]` +
+      (m.primaryPair ? ` — ${m.primaryPair}` : "") +
+      (m.badge ? ` · ${m.badge}` : ""),
+    `CA: \`${m.address}\``,
+    tokenLinks(m.chain, m.address, m.primaryPairAddress),
+  ];
+  if (m.launchAt) lines.push(`发射: ${discordTs(m.launchAt, "f")} (${discordTs(m.launchAt)})`);
+  if (m.firstAt)
+    lines.push(
+      `首次触发: ${discordTs(m.firstAt)}` +
+        (m.repeatCount && m.repeatCount > 1 && m.lastAt
+          ? ` · 🔁 **第 ${m.repeatCount} 次触发** ${discordTs(m.lastAt)}`
+          : ""),
+    );
+  for (const l of m.extraLines ?? []) if (l) lines.push(l);
+  // 最新 line only when there's actually market data / triggers to show — a
+  // news-only card (no price/liq) omits it instead of printing "最新: ? · 流动性 $0K".
+  const hasMarket =
+    m.priceUsd != null ||
+    m.liquidityUsd != null ||
+    m.fdvUsd != null ||
+    (m.triggers?.length ?? 0) > 0;
+  if (hasMarket) {
+    const price = m.priceUsd != null ? `$${m.priceUsd.toPrecision(4)}` : "?";
+    const liq = `$${Math.round((m.liquidityUsd ?? 0) / 1e3)}K`;
+    const trig =
+      m.triggers && m.triggers.length ? ` · 触发器 ${m.triggers.slice(0, 3).join(",")}` : "";
+    lines.push(`最新: ${price} · 流动性 ${liq}${fdvTag(m.fdvUsd)}${trig}`);
+  }
+  if (m.statusLine) lines.push(m.statusLine);
+  return lines.join("\n");
+}

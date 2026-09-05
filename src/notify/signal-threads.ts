@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import type { SignalEvaluation } from "../signals/types.js";
 import { resolveWebhook } from "./routes.js";
-import { fdvTag, GMGN_SLUG as GMGN_CHAIN } from "../lib/format.js";
+import { fdvTag, formatSignalCard, GMGN_SLUG as GMGN_CHAIN } from "../lib/format.js";
 import { fetchTokenPairs, selectDeepestBasePair } from "../dex/dexscreener.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -58,41 +58,25 @@ function ts(iso: string, style: "R" | "f" = "R"): string {
   return `<t:${Math.floor(new Date(iso).getTime() / 1000)}:${style}>`;
 }
 
-/** Static card + editable status line. */
+/** Static card + editable status line. Renders through the shared canonical
+ * formatter so monitor/news/smart-money cards stay byte-for-byte aligned. */
 function formatCard(ev: SignalEvaluation, entry: ThreadEntry): string {
   const i = ev.input;
-  const chain = i.chain ?? "robinhood";
-  const links = [
-    `[📈 DexScreener](https://dexscreener.com/${chain}/${i.primaryPairAddress ?? i.address})`,
-  ];
-  if (GMGN_CHAIN[chain]) {
-    links.push(`[🔍 GMGN](https://gmgn.ai/${GMGN_CHAIN[chain]}/token/${i.address})`);
-  }
-  if (i.primaryPairAddress) {
-    links.push(
-      `[🦎 GT](https://www.geckoterminal.com/${chain === "ethereum" ? "eth" : chain}/pools/${i.primaryPairAddress})`,
-    );
-  }
-  if (chain === "robinhood") {
-    links.push(
-      `[🔗 Explorer](https://robinhoodchain.blockscout.com/token/${i.address})`,
-      `[🏠 Long](https://app.long.xyz/tokens/${i.address})`,
-    );
-  }
-  const lines = [
-    `🎯 **${i.symbol ?? "?"}** [${chain.toUpperCase()}] — ${i.primaryPair ?? ""}`,
-    `CA: \`${i.address}\``,
-    links.join(" · "),
-  ];
-  if (i.launchAt) lines.push(`发射: ${ts(i.launchAt, "f")} (${ts(i.launchAt)})`);
-  lines.push(
-    `首次触发: ${ts(entry.firstAt)}` +
-      (entry.count > 1 ? ` · 🔁 **第 ${entry.count} 次触发** ${ts(entry.lastAt)}` : ""),
-  );
-  lines.push(
-    `最新: $${i.priceUsd?.toPrecision(4) ?? "?"} · 流动性 $${((i.liquidityUsd ?? 0) / 1e3).toFixed(0)}K${fdvTag(i.fdvUsd)} · 触发器 ${ev.triggers.slice(0, 3).join(",")}`,
-  );
-  return lines.join("\n");
+  return formatSignalCard({
+    chain: i.chain ?? "robinhood",
+    symbol: i.symbol,
+    address: i.address,
+    primaryPair: i.primaryPair ?? "",
+    primaryPairAddress: i.primaryPairAddress,
+    priceUsd: i.priceUsd,
+    liquidityUsd: i.liquidityUsd,
+    fdvUsd: i.fdvUsd,
+    launchAt: i.launchAt,
+    firstAt: entry.firstAt,
+    repeatCount: entry.count,
+    lastAt: entry.lastAt,
+    triggers: ev.triggers,
+  });
 }
 
 /** Per-trigger detail for the thread. */
@@ -247,29 +231,21 @@ export async function findSignalThreadBySymbol(
   return undefined;
 }
 
-/** 新闻来源卡片（无链上评分，只有 token 身份 + 首条新闻）。 */
+/** 新闻来源卡片（无链上评分，只有 token 身份 + 首条新闻）。 Renders through the
+ * shared canonical card so it aligns with monitor/smart-money; news flavour =
+ * the 📰 badge + the 首条新闻 line, and the 最新 market line is auto-omitted. */
 function formatNewsCard(
   ref: { chain: string; address: string; symbol?: string },
   entry: ThreadEntry,
   headline: string,
 ): string {
-  const { chain, address } = ref;
-  const links = [`[📈 DexScreener](https://dexscreener.com/${chain}/${address})`];
-  if (GMGN_CHAIN[chain]) {
-    links.push(`[🔍 GMGN](https://gmgn.ai/${GMGN_CHAIN[chain]}/token/${address})`);
-  }
-  if (chain === "robinhood") {
-    links.push(
-      `[🔗 Explorer](https://robinhoodchain.blockscout.com/token/${address})`,
-      `[🏠 Long](https://app.long.xyz/tokens/${address})`,
-    );
-  }
-  return [
-    `📰 **${ref.symbol ?? "?"}** [${chain.toUpperCase()}] — 新闻来源`,
-    `CA: \`${address}\``,
-    links.join(" · "),
-    `首条新闻: ${ts(entry.firstAt)} — ${headline}`,
-  ].join("\n");
+  return formatSignalCard({
+    chain: ref.chain,
+    symbol: ref.symbol,
+    address: ref.address,
+    badge: "📰 新闻",
+    extraLines: [`首条新闻: ${ts(entry.firstAt)} — ${headline}`],
+  });
 }
 
 /**
