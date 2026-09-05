@@ -3,7 +3,23 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
-## 2026-09-05 01:0x UTC 第 23 轮(ultrathink:验证 R22 措辞放开无噪音,全绿)
+## 2026-09-05 03:0x UTC 第 24 轮(ultrathink:R3 junk 闭环完成 + 胜率无衰减,全绿)
+
+无新代码改动;系统成熟健康,两个里程碑确认。
+
+- ① 新闻:**R3「」junk 闭环完成** ✓——交易赚币/借壳收割 已过 48h TTL,从 hotSymbols
+  **彻底清零**(R3 pure-CJK 修复 + 停用词 + promo-veto 三保险,不再复发)。这是本 thread
+  从第 3 轮追到现在的问题,正式收官。剩余已知 junk(18932/SPY/QQQ/GLM/BSC)全在停用词内被挡,
+  各自 TTL 到期中(SPY/QQQ ~03:56Z、18932/GLM/BSC ~09-06)。回放 52 wake 无新噪音。
+- ② 覆盖率 + 哑弹:robinhood ≥100% 干净(7 mover 全在册,**1890 币**)。**激进策略胜率无衰减**:
+  labeled 仍 22(grading 慢,新激进 wake 未成熟),clean **67% 胜率(10W/1F/4L)** 与前几轮持平——
+  暴涨→wake 放开没拉低胜率。近期 loss 仍集中在 momentum_strong+volume_spike_strong 高方差组合
+  (bibi/BNBCAT/牛来),但样本小 + SOLCAT+9.88 类怪兽抵消,不 tune。
+- ③ 安全:src/news 无私钥/webhook 泄漏。④ 健康:tsc 干净、npm test **309 passed**、
+  monitor 稳定运行 ~4h+(pid 89866)、BN 未复现、0 uncaught、news poll 实时(lastRunAt 03:07Z)。
+
+**下轮重点:** ① 18932/GLM/BSC 约 09-06 TTL 到期后复查清零。② labeled 新激进 wake 一旦成熟,
+复看胜率是否被泛暴涨拉低(现证据:未拉低)。③ 新大币/链名漏进补停用词。④ 守 robinhood 覆盖。
 
 无新代码改动;R22 的 momentum 措辞放开经验证干净。
 
