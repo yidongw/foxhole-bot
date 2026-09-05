@@ -9,15 +9,22 @@ import {
   priorVerdict,
   suppressRewake,
 } from "../src/trade/decisions.js";
+import { resetDbForTest } from "../src/lib/db.js";
 
 let dir: string;
 
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "decisions-"));
-  process.env.DECISIONS_LOG_PATH = path.join(dir, "decisions.jsonl");
+  process.env.FOXHOLE_DB_PATH = path.join(dir, "foxhole.db");
+  // Point the legacy-import source at a non-existent path so backfill is a
+  // no-op (an unset var would fall back to the real data/decisions.jsonl).
+  process.env.DECISIONS_LOG_PATH = path.join(dir, "none.jsonl");
+  resetDbForTest();
 });
 
 afterEach(() => {
+  resetDbForTest();
+  delete process.env.FOXHOLE_DB_PATH;
   delete process.env.DECISIONS_LOG_PATH;
   rmSync(dir, { recursive: true, force: true });
 });
@@ -33,10 +40,10 @@ describe("decision journal", () => {
 
   it("ignores verdicts older than the window", async () => {
     const old = new Date(Date.now() - 72 * 60 * 60_000).toISOString(); // 72h ago
-    writeFileSync(
-      process.env.DECISIONS_LOG_PATH!,
-      JSON.stringify({ at: old, verdict: "skip", chain: "bsc", token: "0x1", reason: "old" }) + "\n",
-    );
+    await appendDecision({ verdict: "skip", chain: "bsc", token: "0x1", reason: "fresh" });
+    // Overwrite the just-inserted row's timestamp to be old (direct sqlite).
+    const { getDb } = await import("../src/lib/db.js");
+    getDb().prepare("UPDATE decisions SET at=? WHERE token=?").run(old, "0x1");
     expect(await priorVerdict("bsc", "0x1")).toBeUndefined(); // default 48h window
   });
 
@@ -44,28 +51,29 @@ describe("decision journal", () => {
     await appendDecision({ verdict: "buy", chain: "bsc", token: "0xaaa", reason: "买了" });
     expect(await priorVerdict("bsc", "0xbbb")).toBeUndefined();
   });
+
+  it("imports a legacy decisions.jsonl once on first use", async () => {
+    const jsonl = path.join(dir, "decisions.jsonl");
+    writeFileSync(
+      jsonl,
+      JSON.stringify({ at: new Date().toISOString(), verdict: "skip", chain: "BSC", token: "0xLEG", reason: "legacy", snap: { price: 5 } }) + "\n",
+    );
+    process.env.DECISIONS_LOG_PATH = jsonl;
+    resetDbForTest();
+    const prior = await priorVerdict("bsc", "0xleg"); // matches lowercased import
+    expect(prior?.reason).toBe("legacy");
+    expect(prior?.snap?.price).toBe(5);
+  });
 });
 
 describe("suppressRewake", () => {
   it("suppresses a re-wake when recently skipped and price barely moved", async () => {
-    await appendDecision({
-      verdict: "skip",
-      chain: "robinhood",
-      token: "0x9",
-      reason: "太早",
-      snap: { price: 100 },
-    });
+    await appendDecision({ verdict: "skip", chain: "robinhood", token: "0x9", reason: "太早", snap: { price: 100 } });
     expect(await suppressRewake("robinhood", "0x9", { price: 105 })).toBe(true); // +5%
   });
 
   it("does NOT suppress when price moved materially", async () => {
-    await appendDecision({
-      verdict: "skip",
-      chain: "robinhood",
-      token: "0x9",
-      reason: "太早",
-      snap: { price: 100 },
-    });
+    await appendDecision({ verdict: "skip", chain: "robinhood", token: "0x9", reason: "太早", snap: { price: 100 } });
     expect(await suppressRewake("robinhood", "0x9", { price: 130 })).toBe(false); // +30%
   });
 
@@ -75,13 +83,7 @@ describe("suppressRewake", () => {
   });
 
   it("does NOT suppress a prior BUY (only skips gate re-wakes)", async () => {
-    await appendDecision({
-      verdict: "buy",
-      chain: "robinhood",
-      token: "0x9",
-      reason: "买了",
-      snap: { price: 100 },
-    });
+    await appendDecision({ verdict: "buy", chain: "robinhood", token: "0x9", reason: "买了", snap: { price: 100 } });
     expect(await suppressRewake("robinhood", "0x9", { price: 101 })).toBe(false);
   });
 });
@@ -89,14 +91,7 @@ describe("suppressRewake", () => {
 describe("formatRecentDecisions", () => {
   it("is empty when nothing recent, and renders skips with revisit", async () => {
     expect(await formatRecentDecisions()).toBe("");
-    await appendDecision({
-      verdict: "skip",
-      chain: "bsc",
-      token: "0x1",
-      symbol: "FOO",
-      reason: "无量",
-      revisit: "放量再看",
-    });
+    await appendDecision({ verdict: "skip", chain: "bsc", token: "0x1", symbol: "FOO", reason: "无量", revisit: "放量再看" });
     const out = await formatRecentDecisions();
     expect(out).toContain("FOO");
     expect(out).toContain("放量再看");

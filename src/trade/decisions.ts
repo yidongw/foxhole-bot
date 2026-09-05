@@ -1,32 +1,29 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { dbPath, getDb } from "../lib/db.js";
 
 /**
  * Decision journal — the decider is a fresh headless `claude -p` each wake with
  * NO session memory, so its only continuity is what the file layer surfaces
- * back into its three read faces (inbox / status). Before this, a `skip` was
- * not even a first-class decision: the decider just didn't buy and posted a
- * Discord note it could never read again. So the SAME token re-entering the
- * inbox got re-analysed from scratch — wasting the scarce single-decider window
- * and letting two passes reach opposite verdicts on identical data.
+ * back into its read faces (inbox / status). Before this, a `skip` was not even
+ * a first-class decision: the decider just didn't buy and posted a Discord note
+ * it could never read again, so the SAME token re-entering the inbox got
+ * re-analysed from scratch — wasting the scarce single-decider window and
+ * letting two passes reach opposite verdicts on identical data.
  *
- * This module persists every buy / sell / skip as a structured line with a
- * decision-time snapshot, so a later pass can see "you already skipped this
- * 25min ago: reason R (revisit: reclaim $X)" inline on the inbox item and
- * fast-path instead of redoing the work. It is soft context, never a hard
- * block (denylist already does hard blocks) — the decider may override a prior
- * verdict when the data genuinely changed, but must say why.
+ * Persists every buy / sell / skip with a decision-time snapshot so a later
+ * pass sees "you already skipped this 25min ago: R (revisit $X)" inline on
+ * inbox re-entry and fast-paths instead of redoing the work. Soft context,
+ * never a hard block (denylist does hard blocks) — a prior verdict may be
+ * overridden when the data genuinely changed, but the decider must say why.
+ *
+ * Backed by SQLite (indexed lookups by token/time instead of O(n) jsonl scans);
+ * an existing data/decisions.jsonl is imported once on first use.
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-/** Overridable (DECISIONS_LOG_PATH) so tests can isolate the journal. */
-function decisionsPath(): string {
-  return (
-    process.env.DECISIONS_LOG_PATH ??
-    path.resolve(__dirname, "../../data/decisions.jsonl")
-  );
-}
 
 /** How far back a prior verdict is considered relevant for inbox annotation. */
 export const PRIOR_WINDOW_MS = 48 * 60 * 60_000;
@@ -58,21 +55,123 @@ export interface Decision {
   source?: string;
 }
 
-function key(chain: string, token: string): string {
-  return `${chain.toLowerCase()}:${token.toLowerCase()}`;
+interface Row {
+  at: string;
+  verdict: string;
+  chain: string;
+  token: string;
+  symbol: string | null;
+  reason: string;
+  revisit: string | null;
+  snap_price: number | null;
+  snap_liq: number | null;
+  snap_mcap: number | null;
+  source: string | null;
+}
+
+function rowToDecision(r: Row): Decision {
+  const snap: DecisionSnap = {};
+  if (r.snap_price != null) snap.price = r.snap_price;
+  if (r.snap_liq != null) snap.liq = r.snap_liq;
+  if (r.snap_mcap != null) snap.mcap = r.snap_mcap;
+  const d: Decision = {
+    at: r.at,
+    verdict: r.verdict as Verdict,
+    chain: r.chain,
+    token: r.token,
+    reason: r.reason,
+  };
+  if (r.symbol != null) d.symbol = r.symbol;
+  if (r.revisit != null) d.revisit = r.revisit;
+  if (r.source != null) d.source = r.source;
+  if (Object.keys(snap).length) d.snap = snap;
+  return d;
+}
+
+/** Legacy jsonl location (import source); overridable for tests. */
+function legacyJsonlPath(): string {
+  return (
+    process.env.DECISIONS_LOG_PATH ??
+    path.resolve(__dirname, "../../data/decisions.jsonl")
+  );
+}
+
+const backfilledPaths = new Set<string>();
+/**
+ * One-time import of the pre-SQLite data/decisions.jsonl. Guarded by an
+ * IMMEDIATE transaction + empty-table check so concurrent processes (monitor +
+ * a one-shot CLI) can't double-import: SQLite serializes the writers, and the
+ * second sees a non-empty table and skips. Memoised per db path.
+ */
+function ensureBackfill(): void {
+  const p = dbPath();
+  if (backfilledPaths.has(p)) return;
+  backfilledPaths.add(p);
+  const db = getDb();
+  const jsonl = legacyJsonlPath();
+  if (!existsSync(jsonl)) return;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const count = (db.prepare("SELECT COUNT(*) AS n FROM decisions").get() as { n: number }).n;
+    if (count === 0) {
+      const raw = readFileSync(jsonl, "utf8");
+      const insert = db.prepare(
+        `INSERT INTO decisions (at, verdict, chain, token, symbol, reason, revisit, snap_price, snap_liq, snap_mcap, source)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      );
+      for (const line of raw.split("\n").filter(Boolean)) {
+        try {
+          const d = JSON.parse(line) as Decision;
+          insert.run(
+            d.at,
+            d.verdict,
+            String(d.chain).toLowerCase(),
+            String(d.token).toLowerCase(),
+            d.symbol ?? null,
+            d.reason,
+            d.revisit ?? null,
+            d.snap?.price ?? null,
+            d.snap?.liq ?? null,
+            d.snap?.mcap ?? null,
+            d.source ?? null,
+          );
+        } catch {
+          // skip a corrupt line rather than abort the whole import
+        }
+      }
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    console.error("decisions backfill failed:", (err as Error).message);
+  }
+}
+
+function db() {
+  ensureBackfill();
+  return getDb();
 }
 
 export async function appendDecision(d: Omit<Decision, "at">): Promise<void> {
-  const line: Decision = {
-    at: new Date().toISOString(),
-    ...d,
-    reason: d.reason.slice(0, 240),
-    revisit: d.revisit?.slice(0, 160),
-  };
   try {
-    const p = decisionsPath();
-    await mkdir(path.dirname(p), { recursive: true });
-    await appendFile(p, JSON.stringify(line) + "\n", "utf8");
+    db()
+      .prepare(
+        `INSERT INTO decisions (at, verdict, chain, token, symbol, reason, revisit, snap_price, snap_liq, snap_mcap, source)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        new Date().toISOString(),
+        d.verdict,
+        d.chain.toLowerCase(),
+        d.token.toLowerCase(),
+        d.symbol ?? null,
+        d.reason.slice(0, 240),
+        d.revisit?.slice(0, 160) ?? null,
+        d.snap?.price ?? null,
+        d.snap?.liq ?? null,
+        d.snap?.mcap ?? null,
+        d.source ?? null,
+      );
   } catch (err) {
     // A decision-log write must never break a trade or a wake.
     console.error("decision log write failed:", (err as Error).message);
@@ -81,11 +180,8 @@ export async function appendDecision(d: Omit<Decision, "at">): Promise<void> {
 
 export async function readDecisions(): Promise<Decision[]> {
   try {
-    const raw = await readFile(decisionsPath(), "utf8");
-    return raw
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => JSON.parse(l) as Decision);
+    const rows = db().prepare("SELECT * FROM decisions ORDER BY at").all() as unknown as Row[];
+    return rows.map(rowToDecision);
   } catch {
     return [];
   }
@@ -97,16 +193,19 @@ export async function priorVerdict(
   token: string,
   withinMs = PRIOR_WINDOW_MS,
 ): Promise<Decision | undefined> {
-  const k = key(chain, token);
-  const cutoff = Date.now() - withinMs;
-  const all = await readDecisions();
-  let latest: Decision | undefined;
-  for (const d of all) {
-    if (key(d.chain, d.token) !== k) continue;
-    if (new Date(d.at).getTime() < cutoff) continue;
-    if (!latest || new Date(d.at) > new Date(latest.at)) latest = d;
+  try {
+    const cutoff = new Date(Date.now() - withinMs).toISOString();
+    const row = db()
+      .prepare(
+        `SELECT * FROM decisions
+         WHERE chain=? AND token=? AND at>=?
+         ORDER BY at DESC LIMIT 1`,
+      )
+      .get(chain.toLowerCase(), token.toLowerCase(), cutoff) as Row | undefined;
+    return row ? rowToDecision(row) : undefined;
+  } catch {
+    return undefined;
   }
-  return latest;
 }
 
 /** One-line human/AI annotation of a prior verdict for inbox/status display. */
@@ -146,19 +245,23 @@ export async function suppressRewake(
  * they're the ones with no other read surface). Empty string when nothing recent.
  */
 export async function formatRecentDecisions(withinMs = 12 * 60 * 60_000): Promise<string> {
-  const cutoff = Date.now() - withinMs;
-  const recent = (await readDecisions())
-    .filter((d) => new Date(d.at).getTime() >= cutoff)
-    .slice(-40);
+  let recent: Decision[];
+  try {
+    const cutoff = new Date(Date.now() - withinMs).toISOString();
+    const rows = db()
+      .prepare("SELECT * FROM decisions WHERE at>=? ORDER BY at DESC LIMIT 15")
+      .all(cutoff) as unknown as Row[];
+    recent = rows.map(rowToDecision).reverse(); // back to chronological
+  } catch {
+    return "";
+  }
   if (!recent.length) return "";
   const tag = { buy: "🟢买", sell: "🔴卖", skip: "⚪skip" } as const;
-  const lines = recent
-    .slice(-15)
-    .map((d) => {
-      const who = d.symbol ?? d.token.slice(0, 8);
-      const revisit = d.revisit ? ` ⟳${d.revisit}` : "";
-      return `${tag[d.verdict]} ${who} [${d.chain}] ${d.reason.slice(0, 80)}${revisit} (${d.at.slice(5, 16)})`;
-    });
+  const lines = recent.map((d) => {
+    const who = d.symbol ?? d.token.slice(0, 8);
+    const revisit = d.revisit ? ` ⟳${d.revisit}` : "";
+    return `${tag[d.verdict]} ${who} [${d.chain}] ${d.reason.slice(0, 80)}${revisit} (${d.at.slice(5, 16)})`;
+  });
   return [
     "=== 🗒️ 近期决策(含skip, 12h)===",
     ...lines,

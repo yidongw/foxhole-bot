@@ -41,6 +41,9 @@ data/outcomes/exit-review-state.json
 *.bak.*
 
 # --- per-machine runtime state (siblings of the data/ files ignored above) ---
+data/foxhole.db
+data/foxhole.db-wal
+data/foxhole.db-shm
 data/decisions.jsonl
 data/perp-positions.json
 data/news-state.json
