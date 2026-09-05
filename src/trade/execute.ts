@@ -25,11 +25,11 @@ export interface TradeFill {
  *
  * - `hoodchain`: hoodchain only (primary ignored).
  * - `okx` / `lifi`: that aggregator only, no fallback.
- * - `okx_hood` / `lifi_hood` (any `_hood` suffix): try the primary aggregator;
- *   fall back to hoodchain **only** on a `RouteError` (the primary failed
- *   before broadcasting the swap — no fill happened, so retrying elsewhere is
- *   safe). Errors thrown after the swap is broadcast propagate unchanged, so
- *   we never risk a double fill.
+ * - `okx_hood` / `lifi_hood` / `lifi_okx_hood` (any `_hood` suffix): try the
+ *   router's aggregator chain (see `primarySwap`); fall back to hoodchain
+ *   **only** on a `RouteError` (the aggregators failed before broadcasting the
+ *   swap — no fill happened, so retrying elsewhere is safe). Errors thrown after
+ *   the swap is broadcast propagate unchanged, so we never risk a double fill.
  *
  * Exported for unit testing the routing/fallback decision without live swaps.
  */
@@ -51,17 +51,57 @@ export async function runWithFallback<T>(
   }
 }
 
-/** Pick the aggregator swap fn for a router; hoodchain routers never reach here. */
+/** Ordered aggregators to attempt for a router, before any hoodchain fallback. */
+function aggChain(router: TradeRouter): ("lifi" | "okx")[] {
+  if (router.startsWith("lifi_okx")) return ["lifi", "okx"];
+  if (router.startsWith("okx_lifi")) return ["okx", "lifi"];
+  return router.startsWith("lifi") ? ["lifi"] : ["okx"];
+}
+
+/**
+ * Build a swap fn that walks the router's aggregator chain in order, moving to
+ * the next aggregator on a `RouteError` (pre-broadcast failure — no fill, safe
+ * to retry). A post-broadcast error propagates immediately (never a double
+ * fill). If every aggregator `RouteError`s, the last one is rethrown so the
+ * caller's hoodchain fallback (via `runWithFallback`) can take over.
+ *
+ * The OKX leg exists to cover v4 pools LI.FI won't route (e.g. UFG's v4/native
+ * pool — quote-only on LI.FI, buyable on OKX). Those are fresh, hyper-volatile
+ * launches, so a *fallback* OKX leg (LI.FI already declined) uses the wider
+ * `fallbackSlippageBps` floor — the tight primary slippage makes OKX revert
+ * "Min return not reached" on exactly the tokens it's there to rescue.
+ */
 function primarySwap(
   router: TradeRouter,
   aggAmountIn: bigint,
   fromToken: Address,
   toToken: Address,
   slippageBps: number,
+  fallbackSlippageBps: number,
 ) {
-  const okx = () => okxSwap(fromToken, toToken, aggAmountIn, slippageBps);
-  const lifi = () => lifiSwap(fromToken, toToken, aggAmountIn, slippageBps);
-  return router.startsWith("lifi") ? lifi : okx;
+  const chain = aggChain(router);
+  return async () => {
+    let lastErr: unknown;
+    for (let i = 0; i < chain.length; i++) {
+      const kind = chain[i];
+      const slip =
+        kind === "okx" && i > 0
+          ? Math.max(slippageBps, fallbackSlippageBps)
+          : slippageBps;
+      try {
+        return kind === "lifi"
+          ? await lifiSwap(fromToken, toToken, aggAmountIn, slip)
+          : await okxSwap(fromToken, toToken, aggAmountIn, slip);
+      } catch (err) {
+        if (err instanceof RouteError) {
+          lastErr = err;
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastErr ?? new RouteError("no aggregator route available");
+  };
 }
 
 async function buyViaAgg(
@@ -76,6 +116,7 @@ async function buyViaAgg(
     MAINNET_ADDRESSES.usdg as Address,
     token,
     config.slippageBps,
+    config.aggFallbackSlippageBps,
   );
   const { amountOutBase, toDecimals, txHash } = await swap();
   const amountTokens = Number(formatUnits(amountOutBase, toDecimals));
@@ -148,6 +189,7 @@ async function sellViaAgg(
     position.token as Address,
     MAINNET_ADDRESSES.usdg as Address,
     config.slippageBps,
+    config.aggFallbackSlippageBps,
   );
   const { amountOutBase, toDecimals, txHash } = await swap();
   const proceedsUsd = Number(formatUnits(amountOutBase, toDecimals));

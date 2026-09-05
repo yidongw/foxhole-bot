@@ -13,7 +13,10 @@ export type TradeRouter =
   | "okx"
   | "okx_hood"
   | "lifi"
-  | "lifi_hood";
+  | "lifi_hood"
+  // LI.FI primary → OKX (covers v4 pools LI.FI won't route, e.g. native-paired
+  // launches like UFG: quote-only on LI.FI, buyable on OKX) → hoodchain (v3).
+  | "lifi_okx_hood";
 
 export interface TakeProfitTier {
   /** Price multiple of entry that arms this tier. */
@@ -71,6 +74,13 @@ export interface TradeConfig {
    */
   minEntryLiquidityMomentumUsd: number;
   slippageBps: number;
+  /**
+   * Slippage floor for a *fallback* OKX leg (LI.FI already declined the route).
+   * Those are the fresh, hyper-volatile v4 launches OKX exists to rescue here;
+   * the tight primary `slippageBps` makes OKX revert "Min return not reached" on
+   * exactly those tokens, so the fallback leg gets a wider floor.
+   */
+  aggFallbackSlippageBps: number;
   /** Exit remaining position when price falls this fraction from its high-water mark. */
   trailStopPct: number;
   /**
@@ -131,7 +141,7 @@ export function loadTradeConfig(): TradeConfig {
     mode: ["off", "paper", "live"].includes(mode) ? mode : "off",
     chainModes,
     router: (
-      ["hoodchain", "okx", "okx_hood", "lifi", "lifi_hood"] as const
+      ["hoodchain", "okx", "okx_hood", "lifi", "lifi_hood", "lifi_okx_hood"] as const
     ).includes(router)
       ? router
       : "hoodchain",
@@ -150,6 +160,7 @@ export function loadTradeConfig(): TradeConfig {
     minEntryLiquiditySmartMoneyUsd: num("TRADE_MIN_LIQUIDITY_SMART_MONEY_USD", 15_000),
     minEntryLiquidityMomentumUsd: num("TRADE_MIN_LIQUIDITY_MOMENTUM_USD", 100_000),
     slippageBps: num("TRADE_SLIPPAGE_BPS", 100),
+    aggFallbackSlippageBps: num("TRADE_AGG_FALLBACK_SLIPPAGE_BPS", 800),
     trailStopPct: num("TRADE_TRAIL_STOP_PCT", 0.25),
     trailArmMultiple: num("TRADE_TRAIL_ARM_MULT", 1.5),
     hardStopPct: num("TRADE_HARD_STOP_PCT", 0.35),
