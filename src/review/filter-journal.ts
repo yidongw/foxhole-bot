@@ -1,21 +1,11 @@
-import { appendFile, mkdir } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
+import { appendJournal } from "./journal-store.js";
 import type { ClassifiedMover } from "./movers.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FILTERS_DIR = path.resolve(__dirname, "../../journal/filters");
-
 /**
- * 过滤日志 — one markdown file per day recording EVERY mover judgment
- * (kept and filtered alike, with the numbers behind each verdict) so
- * filter quality is auditable: false filters and leaked garbage both show.
+ * 过滤日志 — records EVERY mover judgment (kept and filtered alike, with the
+ * numbers behind each verdict) so filter quality is auditable. Now rows in the
+ * SQLite journal table (kind=filter), not per-day markdown files.
  */
-
-function todayFile(): string {
-  return path.join(FILTERS_DIR, `${new Date().toISOString().slice(0, 10)}.md`);
-}
 
 export function moverVerdict(m: ClassifiedMover): { verdict: string; reason: string } {
   if (m.kind === "alerted") return { verdict: "已报警", reason: "我们提前发过警报" };
@@ -46,7 +36,6 @@ export async function appendFilterJournal(
   title: string,
   movers: ClassifiedMover[],
 ): Promise<void> {
-  await mkdir(FILTERS_DIR, { recursive: true });
   const lines = [
     `## ${new Date().toISOString().slice(11, 16)} UTC — ${title}`,
     "",
@@ -60,7 +49,7 @@ export async function appendFilterJournal(
     );
     lines.push(`| | | | | | | \`${m.address}\` |`);
   }
-  await appendFile(todayFile(), lines.join("\n") + "\n\n", "utf8");
+  appendJournal("filter", lines.join("\n"));
 }
 
 /** Record the human's phase-2 decisions in the same day file. */
@@ -68,12 +57,11 @@ export async function appendFilterDecisions(
   confirmed: ClassifiedMover[],
   excluded: ClassifiedMover[],
 ): Promise<void> {
-  await mkdir(FILTERS_DIR, { recursive: true });
   const lines = [
     `## ${new Date().toISOString().slice(11, 16)} UTC — 人工确认`,
     ...confirmed.map((m) => `- ✅ 确认 ${m.symbol} [${m.chain}] → 进案例库`),
     ...excluded.map((m) => `- 🚫 剔除 ${m.symbol} [${m.chain}] → 永久黑名单 \`${m.address}\``),
   ];
   if (!confirmed.length && !excluded.length) lines.push("- (空清单)");
-  await appendFile(todayFile(), lines.join("\n") + "\n\n", "utf8");
+  appendJournal("filter", lines.join("\n"));
 }

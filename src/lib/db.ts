@@ -165,6 +165,13 @@ const MIGRATIONS: string[] = [
      at TEXT, enabled INTEGER NOT NULL DEFAULT 1, ord INTEGER NOT NULL DEFAULT 0,
      text TEXT NOT NULL
    );` + auditSql("decider_notes", ["id", "at", "enabled", "ord", "text"]),
+
+  // v10 — journals (REVIEW-LOG.md, journal/filters, journal/trades) as one
+  // append-only table. Append-only = its own history, so not audited.
+  `CREATE TABLE IF NOT EXISTS journal (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, kind TEXT, text TEXT NOT NULL
+   );
+   CREATE INDEX IF NOT EXISTS idx_journal_kind ON journal(kind, at);`,
 ];
 
 let cached: { path: string; db: DatabaseSync } | undefined;

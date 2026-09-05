@@ -1,18 +1,13 @@
-import { appendFile, mkdir } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const JOURNAL_PATH = path.resolve(__dirname, "../../REVIEW-LOG.md");
+import { appendJournal } from "./journal-store.js";
 
 /**
- * Append-only markdown journal of every review-loop run: what movers were
- * found, what the human confirmed/excluded, what the tuner changed, what
- * backtests gated it. The repo's institutional memory of the loop.
+ * Append-only journal of every review-loop run: what movers were found, what
+ * the human confirmed/excluded, what the tuner changed, what backtests gated
+ * it. The institutional memory of the loop — now in SQLite (journal table),
+ * not a git-tracked REVIEW-LOG.md.
  */
 export async function appendReviewJournal(section: string): Promise<void> {
-  await mkdir(path.dirname(JOURNAL_PATH), { recursive: true });
-  await appendFile(JOURNAL_PATH, section.trimEnd() + "\n\n", "utf8");
+  appendJournal("review", section.trimEnd());
 }
 
 export function journalHeader(title: string): string {
