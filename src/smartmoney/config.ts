@@ -1,8 +1,8 @@
-import { readFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { writeJsonAtomic } from "../lib/atomic-json.js";
+import { kvGet, kvSet } from "../lib/db.js";
 
 /**
  * Per-chain and per-wallet smart-money filter config, hot-reloaded from
@@ -18,7 +18,11 @@ import { writeJsonAtomic } from "../lib/atomic-json.js";
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = path.resolve(__dirname, "../../data/smart-money-config.json");
+const KV_KEY = "smartmoney:config";
+/** Legacy JSON import source (pre-SQLite); overridable for tests. */
+function legacyConfigPath(): string {
+  return process.env.SMART_MONEY_CONFIG_PATH ?? path.resolve(__dirname, "../../data/smart-money-config.json");
+}
 
 export interface SmartMoneyFilter {
   alertMinUsd: number;
@@ -97,9 +101,19 @@ export async function loadConfig(): Promise<SmartMoneyConfig> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.config;
   let file: Partial<SmartMoneyConfig> = {};
   try {
-    file = JSON.parse(await readFile(CONFIG_PATH, "utf8")) as SmartMoneyConfig;
+    const raw = kvGet(KV_KEY);
+    if (raw) {
+      file = JSON.parse(raw) as SmartMoneyConfig;
+    } else {
+      // One-time import of the pre-SQLite JSON, then persist to kv.
+      const legacy = legacyConfigPath();
+      if (existsSync(legacy)) {
+        file = JSON.parse(readFileSync(legacy, "utf8")) as SmartMoneyConfig;
+        kvSet(KV_KEY, JSON.stringify(file));
+      }
+    }
   } catch {
-    // no file yet → built-in defaults only
+    // no config yet → built-in defaults only
   }
   const config: SmartMoneyConfig = {
     defaults: file.defaults ?? {},
@@ -111,7 +125,7 @@ export async function loadConfig(): Promise<SmartMoneyConfig> {
 }
 
 export async function saveConfig(config: SmartMoneyConfig): Promise<void> {
-  await writeJsonAtomic(CONFIG_PATH, config);
+  kvSet(KV_KEY, JSON.stringify(config));
   cache = { at: Date.now(), config };
 }
 

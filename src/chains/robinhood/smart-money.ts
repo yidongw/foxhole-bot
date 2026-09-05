@@ -1,6 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { DatabaseSync } from "node:sqlite";
 import {
   decodeEventLog,
   getAddress,
@@ -10,6 +11,7 @@ import {
 } from "viem";
 
 import { writeJsonAtomic } from "../../lib/atomic-json.js";
+import { dbPath, getDb, transaction } from "../../lib/db.js";
 import type { RawLog } from "../evm/log-watcher.js";
 
 /**
@@ -28,7 +30,11 @@ import type { RawLog } from "../evm/log-watcher.js";
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BOOK_PATH = path.resolve(__dirname, "../../../data/smart-money.json");
+/** Git-tracked JSON mirror of the wallet book (DB is the source of truth). Also
+ *  the one-time backfill source. Overridable for tests. */
+function bookMirrorPath(): string {
+  return process.env.SMART_MONEY_BOOK_PATH ?? path.resolve(__dirname, "../../../data/smart-money.json");
+}
 
 /** Uniswap v4 singleton PoolManager on RB — every swap flows through it. */
 export const RB_V4_POOL_MANAGER = getAddress(
@@ -113,9 +119,38 @@ export function canonicalChain(c: string): string {
   return s;
 }
 
+const backfilledPaths = new Set<string>();
+function backfillInTx(db: DatabaseSync): void {
+  const p = dbPath();
+  if (backfilledPaths.has(p)) return;
+  backfilledPaths.add(p);
+  const has = (db.prepare("SELECT COUNT(*) AS n FROM sm_wallets").get() as { n: number }).n;
+  if (has > 0) return;
+  const file = bookMirrorPath();
+  if (!existsSync(file)) return;
+  try {
+    const { wallets } = JSON.parse(readFileSync(file, "utf8")) as BookFile;
+    for (const w of wallets ?? []) insertWallet(db, w);
+  } catch (err) {
+    console.error("wallet book backfill failed:", (err as Error).message);
+  }
+}
+async function ensureBackfilled(): Promise<void> {
+  if (backfilledPaths.has(dbPath())) return;
+  await transaction((db) => backfillInTx(db));
+}
+function insertWallet(db: DatabaseSync, w: TrackedWallet): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO sm_wallets (address, chain, disabled, added_at, data) VALUES (?,?,?,?,?)`,
+  ).run(w.address.toLowerCase(), walletChain(w), w.disabled ? 1 : 0, w.addedAt ?? "", JSON.stringify(w));
+}
+
 export async function loadTrackedWallets(): Promise<TrackedWallet[]> {
   try {
-    return (JSON.parse(await readFile(BOOK_PATH, "utf8")) as BookFile).wallets;
+    await ensureBackfilled();
+    return (getDb().prepare("SELECT data FROM sm_wallets ORDER BY added_at").all() as unknown as {
+      data: string;
+    }[]).map((r) => JSON.parse(r.data) as TrackedWallet);
   } catch {
     return [];
   }
@@ -158,7 +193,14 @@ export async function enableWallet(
 }
 
 export async function saveTrackedWallets(wallets: TrackedWallet[]): Promise<void> {
-  await writeJsonAtomic(BOOK_PATH, { wallets });
+  // DB is the source of truth: replace the whole book atomically (mutations here
+  // are whole-book writes). Then mirror to the git-tracked JSON for audit.
+  await ensureBackfilled();
+  await transaction((db) => {
+    db.prepare("DELETE FROM sm_wallets").run();
+    for (const w of wallets) insertWallet(db, w);
+  });
+  await writeJsonAtomic(bookMirrorPath(), { wallets });
 }
 
 export async function addTrackedWallet(

@@ -105,6 +105,17 @@ const MIGRATIONS: string[] = [
    CREATE TABLE IF NOT EXISTS outcomes_missed (
      key TEXT PRIMARY KEY, chain TEXT, address TEXT, detected_at TEXT, data TEXT NOT NULL
    );`,
+
+  // v6 — smart-money tracked-wallet book (see src/chains/robinhood/smart-money.ts).
+  // Source of truth; a git-tracked data/smart-money.json mirror is still written
+  // for audit. The per-wallet/chain signal filters live in kv ('smartmoney:config').
+  `CREATE TABLE IF NOT EXISTS sm_wallets (
+     address  TEXT PRIMARY KEY,
+     chain    TEXT,
+     disabled INTEGER NOT NULL DEFAULT 0,
+     added_at TEXT,
+     data     TEXT NOT NULL
+   );`,
 ];
 
 let cached: { path: string; db: DatabaseSync } | undefined;
