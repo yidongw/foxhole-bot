@@ -1,8 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { writeJsonAtomic } from "../lib/atomic-json.js";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { DatabaseSync } from "node:sqlite";
 
+import { dbPath, getDb, transaction } from "../lib/db.js";
 import { fetchPoolOhlcv, type OhlcvCandle } from "../dex/dexpaprika.js";
 import { fetchDexJson } from "../dex/dexscreener.js";
 import { TRUSTED_QUOTE } from "../chains/generic-analysis.js";
@@ -32,8 +33,13 @@ export async function isJunkQuoteAlert(record: AlertRecord): Promise<boolean> {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTCOMES_DIR = path.resolve(__dirname, "../../data/outcomes");
-const PENDING_PATH = path.join(OUTCOMES_DIR, "pending.json");
-const LABELED_PATH = path.join(OUTCOMES_DIR, "labeled.json");
+/** Legacy JSON import sources (pre-SQLite); overridable for tests. */
+function legacyPendingPath(): string {
+  return process.env.OUTCOMES_PENDING_PATH ?? path.join(OUTCOMES_DIR, "pending.json");
+}
+function legacyLabeledPath(): string {
+  return process.env.OUTCOMES_LABELED_PATH ?? path.join(OUTCOMES_DIR, "labeled.json");
+}
 
 /** Peak return that graduates an alert to a win. */
 export const WIN_RETURN = 0.4;
@@ -76,29 +82,74 @@ export interface LabeledOutcome extends AlertRecord {
   candleCount: number;
 }
 
-async function readJson<T>(file: string, fallback: T): Promise<T> {
-  try {
-    return JSON.parse(await readFile(file, "utf8")) as T;
-  } catch {
-    return fallback;
-  }
+const backfilledPaths = new Set<string>();
+function backfillInTx(db: DatabaseSync): void {
+  const p = dbPath();
+  if (backfilledPaths.has(p)) return;
+  backfilledPaths.add(p);
+  const importArr = (
+    file: string,
+    table: "outcomes_pending" | "outcomes_labeled",
+  ) => {
+    if (!existsSync(file)) return;
+    const has = (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+    if (has > 0) return;
+    try {
+      const arr = JSON.parse(readFileSync(file, "utf8")) as AlertRecord[] | LabeledOutcome[];
+      for (const r of arr) {
+        if (table === "outcomes_pending") insertPending(db, r as AlertRecord);
+        else insertLabeled(db, r as LabeledOutcome);
+      }
+    } catch (err) {
+      console.error(`${table} backfill failed:`, (err as Error).message);
+    }
+  };
+  importArr(legacyPendingPath(), "outcomes_pending");
+  importArr(legacyLabeledPath(), "outcomes_labeled");
+}
+async function ensureBackfilled(): Promise<void> {
+  if (backfilledPaths.has(dbPath())) return;
+  await transaction((db) => backfillInTx(db));
 }
 
-async function writeJson(file: string, value: unknown): Promise<void> {
-  await writeJsonAtomic(file, value);
+function insertPending(db: DatabaseSync, r: AlertRecord): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO outcomes_pending (id, chain, address, at, data) VALUES (?,?,?,?,?)`,
+  ).run(r.id, r.chain, r.address.toLowerCase(), r.at, JSON.stringify(r));
+}
+function insertLabeled(db: DatabaseSync, r: LabeledOutcome): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO outcomes_labeled (id, chain, address, at, graded_at, data) VALUES (?,?,?,?,?,?)`,
+  ).run(r.id, r.chain, r.address.toLowerCase(), r.at, r.gradedAt, JSON.stringify(r));
 }
 
 export async function loadPendingOutcomes(): Promise<AlertRecord[]> {
-  return readJson<AlertRecord[]>(PENDING_PATH, []);
+  try {
+    await ensureBackfilled();
+    return (getDb().prepare("SELECT data FROM outcomes_pending ORDER BY at").all() as unknown as {
+      data: string;
+    }[]).map((x) => JSON.parse(x.data) as AlertRecord);
+  } catch {
+    return [];
+  }
 }
 
 export async function loadLabeledOutcomes(): Promise<LabeledOutcome[]> {
-  return readJson<LabeledOutcome[]>(LABELED_PATH, []);
+  try {
+    await ensureBackfilled();
+    return (getDb().prepare("SELECT data FROM outcomes_labeled ORDER BY at").all() as unknown as {
+      data: string;
+    }[]).map((x) => JSON.parse(x.data) as LabeledOutcome);
+  } catch {
+    return [];
+  }
 }
 
 /**
  * Record an alert-level evaluation for later grading. One record per token
- * per 24h — repeated alerts on the same move grade once.
+ * per 24h — repeated alerts on the same move grade once. The dedup + insert run
+ * in one write transaction, closing the old unlocked load→push→save race
+ * (recordAlertOutcome fires un-awaited from the scan loop).
  */
 export async function recordAlertOutcome(
   analysis: TokenAnalysis,
@@ -106,39 +157,34 @@ export async function recordAlertOutcome(
 ): Promise<void> {
   if (LEVEL_RANK[evaluation.level] < LEVEL_RANK.alert) return;
   const chain = analysis.chain ?? "robinhood";
-  const key = `${chain}:${analysis.address.toLowerCase()}`;
+  const addr = analysis.address.toLowerCase();
   const now = Date.now();
-
-  const pending = await loadPendingOutcomes();
-  const recent = pending.find(
-    (r) =>
-      `${r.chain}:${r.address.toLowerCase()}` === key &&
-      now - new Date(r.at).getTime() < GRADE_AFTER_MS,
-  );
-  if (recent) return;
-  const labeled = await loadLabeledOutcomes();
-  const recentLabeled = labeled.find(
-    (r) =>
-      `${r.chain}:${r.address.toLowerCase()}` === key &&
-      now - new Date(r.at).getTime() < GRADE_AFTER_MS,
-  );
-  if (recentLabeled) return;
-
-  pending.push({
-    id: `${key}:${new Date(now).toISOString().slice(0, 13)}`,
-    chain,
-    address: analysis.address,
-    symbol: analysis.symbol?.slice(0, MAX_SYMBOL_LEN),
-    at: new Date(now).toISOString(),
-    level: evaluation.level,
-    score: evaluation.score,
-    triggers: evaluation.triggers,
-    priceUsd: analysis.priceUsd,
-    volume24hUsd: analysis.volume24hUsd ?? 0,
-    liquidityUsd: analysis.liquidityUsd ?? 0,
-    poolId: analysis.primaryPairAddress,
+  const cutoff = new Date(now - GRADE_AFTER_MS).toISOString();
+  await ensureBackfilled();
+  await transaction((db) => {
+    const dupPending = db
+      .prepare("SELECT 1 FROM outcomes_pending WHERE chain=? AND address=? AND at>=? LIMIT 1")
+      .get(chain, addr, cutoff);
+    const dupLabeled = db
+      .prepare("SELECT 1 FROM outcomes_labeled WHERE chain=? AND address=? AND at>=? LIMIT 1")
+      .get(chain, addr, cutoff);
+    if (dupPending || dupLabeled) return;
+    const record: AlertRecord = {
+      id: `${chain}:${addr}:${new Date(now).toISOString().slice(0, 13)}`,
+      chain,
+      address: analysis.address,
+      symbol: analysis.symbol?.slice(0, MAX_SYMBOL_LEN),
+      at: new Date(now).toISOString(),
+      level: evaluation.level,
+      score: evaluation.score,
+      triggers: evaluation.triggers,
+      priceUsd: analysis.priceUsd,
+      volume24hUsd: analysis.volume24hUsd ?? 0,
+      liquidityUsd: analysis.liquidityUsd ?? 0,
+      poolId: analysis.primaryPairAddress,
+    };
+    insertPending(db, record);
   });
-  await writeJson(PENDING_PATH, pending);
 }
 
 /** Pure grading from post-alert candles — exported for tests. */
@@ -215,14 +261,12 @@ export async function gradePendingOutcomes(
     graded.push({ ...record, ...grade, gradedAt: new Date().toISOString() });
   }
 
-  if (graded.length) {
-    labeled.push(...graded);
-    await writeJson(LABELED_PATH, labeled);
-  }
-  // Remove ALL due records from pending (graded, dropped, or dup-skipped).
-  await writeJson(
-    PENDING_PATH,
-    pending.filter((r) => !due.includes(r)),
-  );
+  // Commit labels + clear ALL due records from pending (graded, dropped, or
+  // dup-skipped) in one transaction.
+  await transaction((db) => {
+    for (const g of graded) insertLabeled(db, g);
+    const del = db.prepare("DELETE FROM outcomes_pending WHERE id=?");
+    for (const r of due) del.run(r.id);
+  });
   return graded;
 }

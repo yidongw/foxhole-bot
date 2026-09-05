@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -32,16 +33,60 @@ import {
 } from "./filter-journal.js";
 import { reviewOwnTrades, type OwnTradeReview } from "./exits-review.js";
 import { loadPositions } from "../trade/positions.js";
+import { kvDel, kvGet, kvSet } from "../lib/db.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../..");
 const REVIEW_WEB_PATH = path.join(ROOT, "web/data/review.json");
-const PENDING_MOVERS_PATH = path.join(ROOT, "data/outcomes/pending-movers.json");
+const OUTCOMES_DIR = path.join(ROOT, "data/outcomes");
+/** Transient checklist — now DB-only (kv); a legacy JSON file is imported once. */
+const PENDING_MOVERS_KV = "outcomes:pendingMovers";
+const LEGACY_PENDING_MOVERS = path.join(OUTCOMES_DIR, "pending-movers.json");
 
 interface PendingMovers {
   createdAt: string;
   movers: ClassifiedMover[];
+}
+
+function loadPendingMovers(): PendingMovers | null {
+  const raw = kvGet(PENDING_MOVERS_KV);
+  if (raw) return JSON.parse(raw) as PendingMovers;
+  if (existsSync(LEGACY_PENDING_MOVERS)) {
+    try {
+      const legacy = JSON.parse(readFileSync(LEGACY_PENDING_MOVERS, "utf8")) as PendingMovers;
+      kvSet(PENDING_MOVERS_KV, JSON.stringify(legacy));
+      return legacy;
+    } catch {
+      /* corrupt legacy file — treat as none */
+    }
+  }
+  return null;
+}
+function savePendingMovers(pm: PendingMovers): void {
+  kvSet(PENDING_MOVERS_KV, JSON.stringify(pm));
+}
+function clearPendingMovers(): void {
+  kvDel(PENDING_MOVERS_KV);
+}
+
+/**
+ * Export the learning tables (labeled outcomes + confirmed miss cases) back to
+ * git-tracked JSON so the auto-push audit trail survives the move to SQLite.
+ * The DB is the source of truth; these are derived snapshots for git history.
+ */
+async function exportReviewAudit(): Promise<void> {
+  await mkdir(OUTCOMES_DIR, { recursive: true });
+  await writeFile(
+    path.join(OUTCOMES_DIR, "labeled.json"),
+    JSON.stringify(await loadLabeledOutcomes(), null, 2),
+    "utf8",
+  );
+  await writeFile(
+    path.join(OUTCOMES_DIR, "missed.json"),
+    JSON.stringify(await loadMissedCases(), null, 2),
+    "utf8",
+  );
 }
 
 async function deliver(
@@ -191,32 +236,18 @@ export async function runDailyReview(options: {
   // 2026-09-05 sat un-confirmed ~6 rounds, got wiped, and Phase 2 confirmed 0.
   // Fresh scan wins on dup (newest price/mcap); confirmMovers() rm's the file,
   // so entries clear the moment the user confirms or excludes them.
-  try {
-    const prior = (JSON.parse(await readFile(PENDING_MOVERS_PATH, "utf8")) as PendingMovers)
-      .movers ?? [];
-    const seen = new Set(candidates.map((m) => `${m.chain}:${m.address.toLowerCase()}`));
-    for (const p of prior) {
-      const key = `${p.chain}:${p.address.toLowerCase()}`;
-      // Skip anything already reviewed (case library) or since traded — a prior
-      // pending entry the user confirmed / we bought shouldn't linger.
-      if (!seen.has(key) && !reviewed.has(key) && !traded.has(key)) {
-        candidates.push(p);
-        seen.add(key);
-      }
+  const prior = loadPendingMovers()?.movers ?? [];
+  const seen = new Set(candidates.map((m) => `${m.chain}:${m.address.toLowerCase()}`));
+  for (const p of prior) {
+    const key = `${p.chain}:${p.address.toLowerCase()}`;
+    // Skip anything already reviewed (case library) or since traded — a prior
+    // pending entry the user confirmed / we bought shouldn't linger.
+    if (!seen.has(key) && !reviewed.has(key) && !traded.has(key)) {
+      candidates.push(p);
+      seen.add(key);
     }
-  } catch {
-    // no prior file (first run) — nothing to merge
   }
-  await mkdir(path.dirname(PENDING_MOVERS_PATH), { recursive: true });
-  await writeFile(
-    PENDING_MOVERS_PATH,
-    JSON.stringify(
-      { createdAt: new Date().toISOString(), movers: candidates } satisfies PendingMovers,
-      null,
-      2,
-    ),
-    "utf8",
-  );
+  savePendingMovers({ createdAt: new Date().toISOString(), movers: candidates });
 
   const wins = graded.filter((g) => g.outcome === "win");
   const losses = graded.filter((g) => g.outcome === "loss");
@@ -321,10 +352,8 @@ export async function confirmMovers(
   excludeIndices: number[] = [],
   options: { dryRun?: boolean; webhookUrl?: string } = {},
 ): Promise<ConfirmResult | { error: string }> {
-  let pending: PendingMovers;
-  try {
-    pending = JSON.parse(await readFile(PENDING_MOVERS_PATH, "utf8")) as PendingMovers;
-  } catch {
+  const pending = loadPendingMovers();
+  if (!pending) {
     return { error: "没有待确认的清单 — 先跑 npm run review" };
   }
 
@@ -346,7 +375,7 @@ export async function confirmMovers(
     );
   }
   if (confirmed.length) await saveMissedCases(confirmed);
-  await rm(PENDING_MOVERS_PATH, { force: true });
+  clearPendingMovers();
   await appendFilterDecisions(confirmed, excluded).catch((err) =>
     console.error("filter journal failed:", (err as Error).message),
   );
@@ -411,12 +440,18 @@ export async function confirmMovers(
 async function autoPush(tune: TuneResult): Promise<boolean> {
   if (!tune.adopted || process.env.AUTO_TUNE_PUSH !== "1") return false;
   try {
+    // Snapshot the learning tables (now in SQLite) back to git-tracked JSON so
+    // the audit trail survives the migration.
+    await exportReviewAudit().catch((err) =>
+      console.error("review audit export failed:", (err as Error).message),
+    );
     await execFileAsync(
       "git",
       [
         "add",
         "data/signal-overrides.json",
-        "data/outcomes",
+        "data/outcomes/labeled.json",
+        "data/outcomes/missed.json",
         "data/review-denylist.json",
         "REVIEW-LOG.md",
         "journal",

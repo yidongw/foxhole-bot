@@ -1,7 +1,9 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { DatabaseSync } from "node:sqlite";
 
+import { dbPath, getDb, transaction } from "../lib/db.js";
 import { fetchDexJson } from "../dex/dexscreener.js";
 import { fetchPoolOhlcv } from "../dex/dexpaprika.js";
 import { fetchGtOhlcv, fetchGtTrendingPools } from "../dex/geckoterminal.js";
@@ -9,14 +11,15 @@ import { detectLadderPump } from "../signals/ladder.js";
 import { loadDenylist } from "./denylist.js";
 import { checkTokenSafety } from "../trade/safety.js";
 import { sleep } from "../lib/utils.js";
-import { withFileLock } from "../lib/file-lock.js";
-import { writeJsonAtomic } from "../lib/atomic-json.js";
 import type { MonitorState } from "../monitor/state.js";
 import type { DexPair } from "../types.js";
 import type { AlertRecord, LabeledOutcome } from "./ledger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MISSED_PATH = path.resolve(__dirname, "../../data/outcomes/missed.json");
+/** Legacy JSON import source (pre-SQLite); overridable for tests. */
+function legacyMissedPath(): string {
+  return process.env.OUTCOMES_MISSED_PATH ?? path.resolve(__dirname, "../../data/outcomes/missed.json");
+}
 
 /** A pump has to at least double to count as 暴涨. */
 export const MOVER_MIN_CHANGE_PCT = 100;
@@ -254,9 +257,38 @@ export function classifyMover(
   return state.tokens[stateKey] ? "threshold_miss" : "coverage_miss";
 }
 
+const missedBackfilled = new Set<string>();
+function missedBackfillInTx(db: DatabaseSync): void {
+  const p = dbPath();
+  if (missedBackfilled.has(p)) return;
+  missedBackfilled.add(p);
+  const file = legacyMissedPath();
+  if (!existsSync(file)) return;
+  const has = (db.prepare("SELECT COUNT(*) AS n FROM outcomes_missed").get() as { n: number }).n;
+  if (has > 0) return;
+  try {
+    for (const m of JSON.parse(readFileSync(file, "utf8")) as MissedCase[]) {
+      insertMissed(db, m);
+    }
+  } catch (err) {
+    console.error("missed backfill failed:", (err as Error).message);
+  }
+}
+function insertMissed(db: DatabaseSync, m: MissedCase): void {
+  const key = `${m.chain}:${m.address.toLowerCase()}:${m.detectedAt.slice(0, 10)}`;
+  db.prepare(
+    `INSERT OR IGNORE INTO outcomes_missed (key, chain, address, detected_at, data) VALUES (?,?,?,?,?)`,
+  ).run(key, m.chain, m.address.toLowerCase(), m.detectedAt, JSON.stringify(m));
+}
+
 export async function loadMissedCases(): Promise<MissedCase[]> {
   try {
-    return JSON.parse(await readFile(MISSED_PATH, "utf8")) as MissedCase[];
+    return await transaction((db) => {
+      missedBackfillInTx(db);
+      return (db.prepare("SELECT data FROM outcomes_missed ORDER BY detected_at").all() as unknown as {
+        data: string;
+      }[]).map((x) => JSON.parse(x.data) as MissedCase);
+    });
   } catch {
     return [];
   }
@@ -265,34 +297,25 @@ export async function loadMissedCases(): Promise<MissedCase[]> {
 export async function saveMissedCases(
   fresh: ClassifiedMover[],
 ): Promise<MissedCase[]> {
-  await mkdir(path.dirname(MISSED_PATH), { recursive: true });
-  // Cross-process lock + atomic write: the load→append→write was racy and a
-  // concurrent writer (hourly review vs. a manual confirm) clobbered it with a
-  // stale copy, silently dropping a just-confirmed case — ZCAT 2026-09-05 was
-  // "confirmed" 3× but never persisted, so it re-surfaced every hour. Load
-  // FRESH inside the lock so the append never loses a concurrent one.
-  return withFileLock(MISSED_PATH + ".lock", async () => {
-    const existing = await loadMissedCases();
-    const today = new Date().toISOString().slice(0, 10);
-    const seen = new Set(
-      existing.map((m) => `${m.chain}:${m.address.toLowerCase()}:${m.detectedAt.slice(0, 10)}`),
-    );
+  // One write transaction dedups by chain:address:day and inserts new cases —
+  // the ACID replacement for the withFileLock that stopped the ZCAT 2026-09-05
+  // clobber (a concurrent writer dropped a just-confirmed case). INSERT OR
+  // IGNORE on the natural key makes a concurrent duplicate a no-op, not a loss.
+  const today = new Date().toISOString().slice(0, 10);
+  return transaction((db) => {
+    missedBackfillInTx(db);
     const added: MissedCase[] = [];
     for (const m of fresh) {
       if (m.kind === "alerted") continue;
-      // Ladder pumps are not real misses — training the tuner to capture
-      // wash-painted charts would optimize toward exit-liquidity traps.
-      // No-data pools can't be replayed at all. (Collapsed pumps stay: we
-      // should have alerted before the collapse — that's a real miss.)
+      // Ladder pumps are not real misses; no-data pools can't be replayed.
       if (m.ladder || m.noData) continue;
       if (m.fdvUsd != null && m.fdvUsd < MOVER_MIN_FDV_USD) continue;
       const key = `${m.chain}:${m.address.toLowerCase()}:${today}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      added.push({ ...m, detectedAt: new Date().toISOString() });
-    }
-    if (added.length) {
-      await writeJsonAtomic(MISSED_PATH, [...existing, ...added]);
+      const dup = db.prepare("SELECT 1 FROM outcomes_missed WHERE key=? LIMIT 1").get(key);
+      if (dup) continue;
+      const mc: MissedCase = { ...m, detectedAt: new Date().toISOString() };
+      insertMissed(db, mc);
+      added.push(mc);
     }
     return added;
   });

@@ -44,6 +44,10 @@ data/outcomes/exit-review-state.json
 data/foxhole.db
 data/foxhole.db-wal
 data/foxhole.db-shm
+# Transient review work-queues: now SQLite-only (the learning artifacts
+# labeled.json / missed.json are still git-tracked, exported from the DB).
+data/outcomes/pending.json
+data/outcomes/pending-movers.json
 data/decisions.jsonl
 data/perp-positions.json
 data/news-state.json

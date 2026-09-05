@@ -88,6 +88,23 @@ const MIGRATIONS: string[] = [
    );
    CREATE INDEX IF NOT EXISTS idx_perp_status ON perp_positions(status);
    CREATE INDEX IF NOT EXISTS idx_perp_symbol ON perp_positions(symbol);`,
+
+  // v5 — review outcomes (see src/review/{ledger,movers,daily,exits-review}.ts).
+  // pending/labeled/missed as tables; the two singleton states (pending-movers,
+  // exit-review-state) live in kv. labeled+missed are exported back to
+  // git-tracked JSON by the review auto-push so the learning audit trail
+  // survives; pending + pending-movers are DB-only (transient work queues).
+  `CREATE TABLE IF NOT EXISTS outcomes_pending (
+     id TEXT PRIMARY KEY, chain TEXT, address TEXT, at TEXT, data TEXT NOT NULL
+   );
+   CREATE INDEX IF NOT EXISTS idx_pending_tok ON outcomes_pending(chain, address, at);
+   CREATE TABLE IF NOT EXISTS outcomes_labeled (
+     id TEXT PRIMARY KEY, chain TEXT, address TEXT, at TEXT, graded_at TEXT, data TEXT NOT NULL
+   );
+   CREATE INDEX IF NOT EXISTS idx_labeled_tok ON outcomes_labeled(chain, address, at);
+   CREATE TABLE IF NOT EXISTS outcomes_missed (
+     key TEXT PRIMARY KEY, chain TEXT, address TEXT, detected_at TEXT, data TEXT NOT NULL
+   );`,
 ];
 
 let cached: { path: string; db: DatabaseSync } | undefined;
@@ -162,6 +179,22 @@ export function transaction<T>(fn: (db: DatabaseSync) => T | Promise<T>): Promis
     () => {},
   );
   return run;
+}
+
+/** Generic key→JSON-string store (the `kv` table) for singleton state blobs. */
+export function kvGet(key: string): string | undefined {
+  const row = getDb().prepare("SELECT value FROM kv WHERE key=?").get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value;
+}
+export function kvSet(key: string, value: string): void {
+  getDb()
+    .prepare("INSERT INTO kv (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+    .run(key, value);
+}
+export function kvDel(key: string): void {
+  getDb().prepare("DELETE FROM kv WHERE key=?").run(key);
 }
 
 /** Test helper: drop the cached handle so a new FOXHOLE_DB_PATH takes effect. */

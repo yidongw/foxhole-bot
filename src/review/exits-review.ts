@@ -1,10 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { selectDeepestBasePair } from "../chains/generic-analysis.js";
 import { fetchTokenPairs } from "../dex/dexscreener.js";
-import { writeJsonAtomic } from "../lib/atomic-json.js";
+import { kvGet, kvSet } from "../lib/db.js";
 import { loadPositions, type Position } from "../trade/positions.js";
 import type { ClassifiedMover } from "./movers.js";
 
@@ -22,10 +22,14 @@ import type { ClassifiedMover } from "./movers.js";
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const STATE_PATH = path.resolve(
-  __dirname,
-  "../../data/outcomes/exit-review-state.json",
-);
+const KV_KEY = "outcomes:exitReviewState";
+/** Legacy JSON import source (pre-SQLite); overridable for tests. */
+function legacyStatePath(): string {
+  return (
+    process.env.OUTCOMES_EXIT_REVIEW_PATH ??
+    path.resolve(__dirname, "../../data/outcomes/exit-review-state.json")
+  );
+}
 
 /** Only look back this far — older exits were either flagged already or moot. */
 const WINDOW_MS = 72 * 3_600_000;
@@ -120,10 +124,23 @@ export function exitReasonSummary(position: Position): string[] {
 
 async function loadState(): Promise<ExitReviewState> {
   try {
-    return JSON.parse(await readFile(STATE_PATH, "utf8")) as ExitReviewState;
+    const raw = kvGet(KV_KEY);
+    if (raw) return JSON.parse(raw) as ExitReviewState;
+    // One-time import of the pre-SQLite JSON, then persist to kv.
+    const file = legacyStatePath();
+    if (existsSync(file)) {
+      const legacy = JSON.parse(readFileSync(file, "utf8")) as ExitReviewState;
+      kvSet(KV_KEY, JSON.stringify(legacy));
+      return legacy;
+    }
   } catch {
-    return { flaggedPositions: [], flaggedTokens: [] };
+    // fall through to empty state
   }
+  return { flaggedPositions: [], flaggedTokens: [] };
+}
+
+function saveState(state: ExitReviewState): void {
+  kvSet(KV_KEY, JSON.stringify(state));
 }
 
 /** First alert-time price per token address from the inbox archives, so
@@ -281,7 +298,7 @@ export async function reviewOwnTrades(
       lessonsChanged = true;
     }
   }
-  if (lessonsChanged) await writeJsonAtomic(STATE_PATH, state);
+  if (lessonsChanged) saveState(state);
 
   if (soldTooEarly.length || neverBought.length) {
     const lessons = state.lessons ?? [];
@@ -311,7 +328,7 @@ export async function reviewOwnTrades(
       });
     }
     state.lessons = lessons.slice(-LESSONS_KEPT);
-    await writeJsonAtomic(STATE_PATH, state);
+    saveState(state);
   }
 
   const lines: string[] = [];
