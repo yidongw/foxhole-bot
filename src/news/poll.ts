@@ -33,7 +33,11 @@ const LAUNCHES_PATH = path.resolve(__dirname, "../../data/launches.json");
 
 /** First tick backfills this many flashes so a restart never misses a burst. */
 const FIRST_RUN_BACKFILL = 15;
-const CAP_PER_TICK = 30;
+// 每 tick 最多拉多少条。取 API 单页上限 50(blockbeats 侧 min(cap,50))——一次 tick 若来
+// 超过这么多条,只拉最新的、lastId 直接跳过中间的会永久漏(2026-09-05:实测漏 0/159,
+// 纯潜在风险;提到 50 把突发缺口从 >30/tick 收紧到 >50/tick,news 忙时少漏 RB 快讯)。
+// 残留:>50 条/180s 的极端突发仍会漏中间;真要根治需分页拉到 lastId(见交接棒)。
+const CAP_PER_TICK = 50;
 
 /** 热点币记忆：wake 快讯里提到的 symbol 保留 48h，后续新闻直接命中关注表。 */
 const HOT_SYMBOL_TTL_MS = 48 * 60 * 60 * 1000;
