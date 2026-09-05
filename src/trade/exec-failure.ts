@@ -154,7 +154,8 @@ function repairPrompt(f: ExecFailure): string {
 2. 若确是路由缺口:在**独立 git worktree + 新分支**里(参考 scripts/deploy.sh / 现有 worktree 约定,别在主 checkout 改),给 src/venues 或 src/trade/execute.ts 补一条能覆盖该池型的路由(如接入/启用一个支持 v4 的聚合器,或补 v4 路由参数)。
 3. 跑 \`npm run typecheck\` 和 \`npm test\`,全绿才行。
 4. \`gh pr create\` 开一个 PR 说明缺口 + 修法 + 该失败案例。**不要合并、不要部署、不要动 main。**
-5. 只碰路由/venue 代码,绝不改 positions/风控/decider 逻辑。`;
+5. 只碰路由/venue 代码,绝不改 positions/风控/decider 逻辑。
+6. **全程向用户汇报**(否则你就是个黑箱):用 \`npm run ai --silent -- note-news "🔧 维修工: <消息>"\` 至少发三次——(a)上线时报一句诊断结论;(b)开完 PR 报 PR 链接;(c)判定为临时/不该修时报原因并结束。`;
 }
 
 /**
@@ -206,6 +207,14 @@ export async function dispatchPendingRepairs(): Promise<boolean> {
     child.unref();
     writeFileSync(LOCK, JSON.stringify({ pid: child.pid ?? 0, at: new Date().toISOString() }));
     getDb().prepare("UPDATE exec_failures SET repair_status='dispatched' WHERE id=?").run(row.id);
+    // Make the dispatch visible — a silent headless agent is a black box.
+    const url = resolveWebhook("trade", row.chain);
+    if (url) {
+      await sendDiscordMessage(
+        url,
+        `🔧 **派维修工**(结构性路由缺口)${row.symbol ?? row.token.slice(0, 8)} [${row.chain}]\n${row.reason.slice(0, 240)}\n→ 无头 agent 上线:诊断→改路由→跑测试→开 PR(不部署)。进度看 #news-radar。`,
+      ).catch(() => {});
+    }
     const killer = setTimeout(() => child.kill("SIGKILL"), CHILD_TIMEOUT_MS);
     killer.unref();
     child.on("exit", (code) => {
