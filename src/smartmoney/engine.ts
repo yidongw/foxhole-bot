@@ -3,6 +3,7 @@ import { resolveWebhook } from "../notify/routes.js";
 import { appendAiInboxSmartMoney } from "../notify/ai-inbox.js";
 import { ensureSignalThread } from "../notify/signal-threads.js";
 import { canonicalChain } from "../chains/robinhood/smart-money.js";
+import { fetchStockRegistry } from "../chains/robinhood/stock-registry.js";
 import { appendSmLog } from "./log.js";
 import { resolveFilter, type SmartMoneyFilter } from "./config.js";
 import { fdvTag, formatSignalCard } from "../lib/format.js";
@@ -55,6 +56,18 @@ async function fetchTokenMarket(
     };
   } catch {
     return undefined;
+  }
+}
+
+/** True if `token` is an official RB tokenized stock (par-anchored, no meme
+ * alpha). Fail-open (unknown → false) so a registry hiccup never suppresses a
+ * real meme signal. Registry is cached 6h, so this is effectively free. */
+async function isTokenizedStock(token: string): Promise<boolean> {
+  try {
+    const reg = await fetchStockRegistry();
+    return reg?.addresses.has(token.toLowerCase()) ?? false;
+  } catch {
+    return false;
   }
 }
 
@@ -256,6 +269,27 @@ export class SmartMoneyEngine {
     const key = `${buy.chain.toLowerCase()}:${buy.token.toLowerCase()}`;
     const last = this.escalated.get(key) ?? 0;
     if (buy.ts - last < windowMin * 60_000) return; // one signal per token/window
+
+    // Tokenized stocks (Boeing/BA etc.) are par-anchored — no meme asymmetry, and
+    // they have their own isStockPaired squeeze path. A tracked wallet parking in
+    // one shouldn't wake the AI: it's been skipped 100% of the time and burns
+    // scarce decider quota. Still alerted (fired before escalate), just no AI wake.
+    if (buy.chain === "robinhood" && (await isTokenizedStock(buy.token))) {
+      await appendSmLog({
+        kind: "skipped",
+        chain: buy.chain,
+        wallet: buy.wallet,
+        walletLabel: buy.walletLabel,
+        token: buy.token,
+        symbol: buy.symbol,
+        usd: buy.usd,
+        txHash: buy.txHash,
+        distinct,
+        reason: "tokenized-stock 平价锚定,无 meme alpha — 不唤醒 AI",
+      });
+      console.log(`[smart-money] skip tokenized-stock $${buy.symbol} [${buy.chain}] (no AI wake)`);
+      return;
+    }
 
     // One market fetch, reused for both anti-chase and the card.
     const mkt = await fetchTokenMarket(buy.chain, buy.token);
