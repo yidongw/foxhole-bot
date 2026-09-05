@@ -162,6 +162,27 @@ export async function runDailyReview(options: {
   } catch (err) {
     console.error("news cross-check failed (continuing):", (err as Error).message);
   }
+  // Merge with prior un-confirmed candidates so a mover the user hasn't yet
+  // confirmed/excluded SURVIVES across later scans where it no longer
+  // re-triggers. Without this, every 0-candidate (or different-candidate) scan
+  // blindly overwrote the file and silently dropped the pending list — ZCAT
+  // 2026-09-05 sat un-confirmed ~6 rounds, got wiped, and Phase 2 confirmed 0.
+  // Fresh scan wins on dup (newest price/mcap); confirmMovers() rm's the file,
+  // so entries clear the moment the user confirms or excludes them.
+  try {
+    const prior = (JSON.parse(await readFile(PENDING_MOVERS_PATH, "utf8")) as PendingMovers)
+      .movers ?? [];
+    const seen = new Set(candidates.map((m) => `${m.chain}:${m.address.toLowerCase()}`));
+    for (const p of prior) {
+      const key = `${p.chain}:${p.address.toLowerCase()}`;
+      if (!seen.has(key)) {
+        candidates.push(p);
+        seen.add(key);
+      }
+    }
+  } catch {
+    // no prior file (first run) — nothing to merge
+  }
   await mkdir(path.dirname(PENDING_MOVERS_PATH), { recursive: true });
   await writeFile(
     PENDING_MOVERS_PATH,
