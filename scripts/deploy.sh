@@ -78,10 +78,21 @@ log "main checkout synced to $(git -C "$MAIN" rev-parse --short HEAD)"
 
 # ── 3) Idempotent single-instance restart. Kill any monitor launchd lost track
 #       of (the phantom), then let launchd bring up exactly one. ──
+# kick(): kickstart, and if the service isn't loaded (launchd was booted out —
+# 2026-09-05 this left the monitor dead after pkill because kickstart errored out
+# under `set -e`), bootstrap the plist first. Never let a restart kill-without-revive.
+PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
+kick() {
+  if ! launchctl kickstart -k "gui/${UID_NUM}/${LABEL}" 2>/dev/null; then
+    log "service not loaded — bootstrapping ${PLIST}"
+    launchctl bootstrap "gui/${UID_NUM}" "$PLIST" 2>/dev/null || true
+    launchctl kickstart -k "gui/${UID_NUM}/${LABEL}" 2>/dev/null || true
+  fi
+}
 log "restarting monitor…"
 pkill -f "$MON_MATCH" 2>/dev/null || true
 sleep 1
-launchctl kickstart -k "gui/${UID_NUM}/${LABEL}"
+kick
 sleep 3
 n="$(pgrep -f "$COUNT_MATCH" | wc -l | tr -d ' ')"
 log "monitor instances now: $n"
@@ -89,7 +100,7 @@ if [ "$n" -gt 1 ]; then
   log "WARN: >1 monitor instance detected — killing all and re-kicking once"
   pkill -9 -f "$MON_MATCH" 2>/dev/null || true
   sleep 2
-  launchctl kickstart -k "gui/${UID_NUM}/${LABEL}"
+  kick
   sleep 3
   n="$(pgrep -f "$COUNT_MATCH" | wc -l | tr -d ' ')"
   log "monitor instances now: $n"
