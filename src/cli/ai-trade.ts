@@ -6,6 +6,9 @@ import { formatUnits } from "viem";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 import { aiBuy, formatPortfolioReport, manualExit, setStrategy } from "../trade/engine.js";
+import { loadPositions, remainingFraction } from "../trade/positions.js";
+import { fetchDexJson, selectDeepestBasePair } from "../dex/dexscreener.js";
+import type { DexPair } from "../types.js";
 import type { PositionStrategy } from "../trade/positions.js";
 import { archiveAiInbox, readAiInbox } from "../notify/ai-inbox.js";
 import {
@@ -296,6 +299,66 @@ async function main() {
         if (url) await sendDiscordMessage(url, `🤖🔬 ${symbol}: ${line}`);
       }
       console.log(ok ? "posted to research thread" : "该币无研究 thread(已回落平消息)");
+      break;
+    }
+    case "recal": {
+      // 逐仓校准快照:为 2h 复盘 loop 产出【本轮新鲜行情】的全仓表。
+      // 存在的原因:复盘曾两次引用 status 里其他 loop 的旧读数冒充自拉行情
+      // (用户抓包 2026-09-05)——把校准做成一条命令,忘不掉、也伪造不了时间戳。
+      const file = await loadPositions();
+      const open = file.positions.filter((p) => p.status === "open");
+      if (!open.length) { console.log("无持仓"); break; }
+      const byToken = new Map<string, DexPair[]>();
+      for (let i = 0; i < open.length; i += 25) {
+        const chunk = open.slice(i, i + 25);
+        try {
+          const res = await fetchDexJson<{ pairs?: DexPair[] }>(
+            `/latest/dex/tokens/${chunk.map((p) => p.token).join(",")}`,
+          );
+          for (const pair of res.pairs ?? []) {
+            const k = pair.baseToken?.address?.toLowerCase();
+            if (!k) continue;
+            (byToken.get(k) ?? byToken.set(k, []).get(k)!).push(pair);
+          }
+        } catch {}
+      }
+      console.log(`# recal 快照 @ ${new Date().toISOString()} · ${open.length} 仓 · 行情为本次调用实拉`);
+      for (const p of open) {
+        let pairs = byToken.get(p.token.toLowerCase()) ?? [];
+        if (!pairs.length) {
+          try {
+            const res = await fetchDexJson<{ pairs?: DexPair[] }>(`/latest/dex/tokens/${p.token}`);
+            pairs = (res.pairs ?? []).filter(
+              (x) => x.baseToken?.address?.toLowerCase() === p.token.toLowerCase(),
+            );
+          } catch {}
+        }
+        const q = selectDeepestBasePair(pairs, p.token);
+        if (!q?.priceUsd) { console.log(`${p.symbol}\t无行情(需人工查)`); continue; }
+        const px = Number(q.priceUsd);
+        const chg = (q.priceChange ?? {}) as Record<string, number | undefined>;
+        const t = ((q.txns ?? {}) as Record<string, { buys?: number; sells?: number } | undefined>).h1 ?? {};
+        const s = p.strategy ?? {};
+        const hardStop = s.hardStopPct ?? 0.35;
+        const stopPx = p.entryPriceUsd * (1 - hardStop);
+        const arm = s.trailArmMultiple ?? 1.5;
+        const trailArmed = p.highWaterUsd >= p.entryPriceUsd * arm;
+        const holdH = (Date.now() - new Date(p.openedAt).getTime()) / 3.6e6;
+        console.log(
+          [
+            `${p.symbol}[${p.chain ?? "robinhood"}/${p.mode}]`,
+            `$${px.toPrecision(4)}`,
+            `${((px / p.entryPriceUsd - 1) * 100).toFixed(1)}%`,
+            `m5 ${chg.m5 ?? "?"}% h1 ${chg.h1 ?? "?"}% h6 ${chg.h6 ?? "?"}%`,
+            `b/s ${t.buys ?? "?"}:${t.sells ?? "?"}`,
+            `liq $${Math.round(Number(q.liquidity?.usd ?? 0) / 1e3)}k`,
+            `距硬止损${((px / stopPx - 1) * 100).toFixed(0)}%`,
+            trailArmed ? "trail已武装" : `trail未武装(${arm}x)`,
+            `剩${(remainingFraction(p) * 100).toFixed(0)}%`,
+            `持${holdH.toFixed(1)}h/${s.maxHoldHours ?? "-"}h`,
+          ].join("\t"),
+        );
+      }
       break;
     }
     case "status": {
