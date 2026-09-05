@@ -21,16 +21,36 @@ set -euo pipefail
 MAIN=/Users/xinjuan/git/foxhole-bot
 LOCK=/tmp/foxhole-deploy.lock
 LABEL=bot.foxhole.monitor
-MON_MATCH='tsx src/cli/monitor.ts'
+# Broad match kills the WHOLE tree (npm exec → tsx wrapper → node leaf); the leaf
+# runs as `node --require …/preflight … src/cli/monitor.ts` and is missed by a
+# `tsx src/cli/monitor.ts` match, so it would orphan. COUNT_MATCH is the narrow,
+# one-per-logical-instance line (npm exec) so a healthy single monitor isn't
+# miscounted as a duplicate (that false-positive caused a redundant double-restart).
+MON_MATCH='cli/monitor.ts'
+COUNT_MATCH='npm exec tsx src/cli/monitor.ts'
 WT="${1:-$PWD}"
 UID_NUM="$(id -u)"
 
 log() { echo "[deploy $(date +%H:%M:%S)] $*"; }
 
 # ── Acquire the global deploy lock. Blocks until any other loop's deploy ends. ──
-exec 9>"$LOCK"
+# Portable mutex via atomic mkdir — macOS has no `flock` (util-linux only), which
+# silently broke every loop's deploy. Waits up to ~5min, steals a stale lock whose
+# owner pid is dead, and always releases on exit.
+LOCKDIR="${LOCK}.d"
 log "waiting for deploy lock…"
-flock 9
+acquired=0
+for _ in $(seq 1 300); do
+  if mkdir "$LOCKDIR" 2>/dev/null; then acquired=1; break; fi
+  owner="$(cat "$LOCKDIR/pid" 2>/dev/null || true)"
+  if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+    log "stale lock (pid $owner dead) — reclaiming"; rm -rf "$LOCKDIR"; continue
+  fi
+  sleep 1
+done
+[ "$acquired" -eq 1 ] || { log "ERROR: could not acquire deploy lock after 5min"; exit 1; }
+echo "$$" > "$LOCKDIR/pid"
+trap 'rm -rf "$LOCKDIR"' EXIT
 log "lock acquired; deploying from worktree: $WT"
 
 # ── 1) Push the worktree's committed changes to main, rebasing if another loop
@@ -63,7 +83,7 @@ pkill -f "$MON_MATCH" 2>/dev/null || true
 sleep 1
 launchctl kickstart -k "gui/${UID_NUM}/${LABEL}"
 sleep 3
-n="$(pgrep -f "$MON_MATCH" | wc -l | tr -d ' ')"
+n="$(pgrep -f "$COUNT_MATCH" | wc -l | tr -d ' ')"
 log "monitor instances now: $n"
 if [ "$n" -gt 1 ]; then
   log "WARN: >1 monitor instance detected — killing all and re-kicking once"
@@ -71,7 +91,7 @@ if [ "$n" -gt 1 ]; then
   sleep 2
   launchctl kickstart -k "gui/${UID_NUM}/${LABEL}"
   sleep 3
-  n="$(pgrep -f "$MON_MATCH" | wc -l | tr -d ' ')"
+  n="$(pgrep -f "$COUNT_MATCH" | wc -l | tr -d ' ')"
   log "monitor instances now: $n"
 fi
 [ "$n" -ge 1 ] || { log "ERROR: monitor not running after restart"; exit 1; }

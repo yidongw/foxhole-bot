@@ -88,11 +88,18 @@ function modeTag(config: TradeConfig): string {
 
 const signedUsd = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(2)}`;
 
+/** 代币数量：≥1000 取整加千分位（8万枚不用两位小数），否则保 4 位有效数字。 */
+const fmtQty = (n: number) =>
+  n >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toPrecision(4);
+
 /**
- * 统一成交消息（买卖同构，用户 2026-09-04 定稿）：
- *   头行  <mode> 📥买入/📤卖出 **SYM** [chain] · FDV
- *   成交行
- *   (卖出) 本次实现 ±$ · 仓位盈亏 ±$ (closed / open 剩X%)
+ * 统一成交消息（买卖同构，用户 2026-09-05 修订）：
+ *   头行   <mode> 📥买入/📤卖出 **SYM** [chain] · FDV
+ *   (买入) 建仓 · 均价 $入                      ← 价格锚点，与卖出的「均价」同措辞
+ *          投入 $cost · 持 N 枚                 ← 花了多少 / 持多少
+ *   (卖出) 平X% · 均价 $入 → $出 (±N%)        ← 价格锚点，明确是买入价→卖出价
+ *          收回 $proceeds · 盈亏 ±$            ← 全平/单笔：只一个盈亏数
+ *          收回 $proceeds · 本次实现 ±$ · 仓位盈亏 ±$ (open 剩X%)  ← 分批才拆两数
  *   理由: 本次买/卖的动机
  *   策略/后续: 接下来怎么管（「」内为策略理由）；清仓则注明停止跟踪
  */
@@ -103,7 +110,14 @@ function fillMessage(o: {
   chain: string;
   token: string;
   fdvUsd?: number;
-  fillLine: string;
+  entryPriceUsd?: number;
+  /** 买入侧：投入的美元（记账成本）与拿到的代币数。 */
+  costUsd?: number;
+  amountTokens?: number;
+  /** 卖出侧：本次卖出占原仓的比例（0..1）。 */
+  fraction?: number;
+  exitPriceUsd?: number;
+  proceedsUsd?: number;
   thisRealizedUsd?: number;
   positionPnlUsd?: number;
   statusText?: string;
@@ -113,11 +127,27 @@ function fillMessage(o: {
 }): string {
   const lines = [
     `${o.modeText} ${o.side === "in" ? "📥 买入" : "📤 卖出"} **${o.symbol}** [${o.chain}]${fdvTag(o.fdvUsd)}`,
-    o.fillLine,
   ];
-  if (o.side === "out") {
+  if (o.side === "in") {
+    lines.push(`建仓 · 均价 $${(o.entryPriceUsd ?? 0).toPrecision(4)}`);
     lines.push(
-      `本次实现 ${signedUsd(o.thisRealizedUsd ?? 0)} · 仓位盈亏 ${signedUsd(o.positionPnlUsd ?? 0)} (${o.statusText})`,
+      `投入 $${(o.costUsd ?? 0).toFixed(2)} · 持 ${fmtQty(o.amountTokens ?? 0)} 枚`,
+    );
+  } else {
+    const entry = o.entryPriceUsd ?? 0;
+    const exit = o.exitPriceUsd ?? 0;
+    const movePct = entry > 0 ? (exit / entry - 1) * 100 : 0;
+    const moveTag = entry > 0 ? ` (${movePct >= 0 ? "+" : ""}${movePct.toFixed(0)}%)` : "";
+    lines.push(
+      `平 ${((o.fraction ?? 1) * 100).toFixed(0)}% · 均价 $${entry.toPrecision(4)} → $${exit.toPrecision(4)}${moveTag}`,
+    );
+    // 全平/单笔出场时 本次实现 == 仓位盈亏，合并成一个数；分批(前面吃过TP)才拆开。
+    const single =
+      Math.abs((o.thisRealizedUsd ?? 0) - (o.positionPnlUsd ?? 0)) < 0.005;
+    lines.push(
+      single
+        ? `收回 $${(o.proceedsUsd ?? 0).toFixed(2)} · 盈亏 ${signedUsd(o.positionPnlUsd ?? 0)} (${o.statusText})`
+        : `收回 $${(o.proceedsUsd ?? 0).toFixed(2)} · 本次实现 ${signedUsd(o.thisRealizedUsd ?? 0)} · 仓位盈亏 ${signedUsd(o.positionPnlUsd ?? 0)} (${o.statusText})`,
     );
   }
   lines.push(`理由: ${o.reason}`);
@@ -232,6 +262,43 @@ async function corroboratePrice(
 }
 
 /**
+ * Before a STOP market-sells the whole position, re-confirm the triggering price
+ * against two fresh independent sources. The glitch guard only corroborates
+ * ticks that fall OUTSIDE [hw×0.35, hw×5]; a hard stop set deeper than 35%
+ * therefore fires on a single uncorroborated in-band tick. FARM (2026-09-05,
+ * 1.3-min-old RB pool) was "hard stopped: 45% below entry" on a ~$0.000036 tick
+ * that sat just inside the 35%-off band while the real pool price was $0.000143
+ * (2.2× entry) — the noise tick liquidated a winner. Returns true only if the
+ * HIGHEST fresh independent read still triggers a stop (i.e. every source agrees
+ * price is low): a genuine dump confirms here and exits now, a noise tick is
+ * skipped and re-evaluated next tick.
+ */
+async function confirmStopTriggered(
+  position: Position,
+  chain: ChainId,
+  config: TradeConfig,
+): Promise<boolean> {
+  const [dexRead, paprikaRead] = await Promise.all([
+    fetchTokenPairs(position.token, chain)
+      .then((ps) => Number(selectDeepestBasePair(ps, position.token)?.priceUsd) || undefined)
+      .catch(() => undefined),
+    fetchPaprikaTokenPriceUsd(chain, position.token).catch(() => undefined),
+  ]);
+  const fresh = [dexRead, paprikaRead].filter((v): v is number => v != null && v > 0);
+  if (!fresh.length) return false; // can't confirm → skip; a real dump exits next tick
+  const best = Math.max(...fresh);
+  return evaluateExits(position, best, config).some(isStopAction);
+}
+
+/** A stop is a rail that market-sells on downside; TP/advisor exits are not. */
+function isStopAction(action: ExitAction): boolean {
+  return (
+    action.reason.startsWith("hard stop") ||
+    action.reason.startsWith("trail stop")
+  );
+}
+
+/**
  * Pure decision for an out-of-band price read (exported for tests).
  * - Any source back inside the sane band [hw×0.35, hw×5] wins: the original
  *   read was a glitch; trade on the in-band price.
@@ -333,7 +400,10 @@ export async function manualExit(
         chain,
         token: position.token,
         fdvUsd,
-        fillLine: `平 ${(sellFraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}`,
+        fraction: sellFraction,
+        entryPriceUsd: position.entryPriceUsd,
+        exitPriceUsd: fill.priceUsd,
+        proceedsUsd: fill.proceedsUsd ?? 0,
         thisRealizedUsd: (fill.proceedsUsd ?? 0) - sellFraction * position.costUsd,
         positionPnlUsd: pnl,
         statusText:
@@ -481,7 +551,9 @@ export async function aiBuy(
       chain,
       token: position.token,
       fdvUsd: analysis.fdvUsd,
-      fillLine: `$${clamped.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
+      entryPriceUsd: fill.priceUsd,
+      costUsd: clamped,
+      amountTokens: fill.amountTokens,
       reason,
       follow: `策略: ${strat}`,
       txHash: fill.txHash,
@@ -768,7 +840,9 @@ export async function processSignals(
           chain,
           token: position.token,
           fdvUsd: ev.input.fdvUsd,
-          fillLine: `$${cfg.usdPerTrade.toFixed(2)} @ $${fill.priceUsd.toPrecision(6)} (${fill.amountTokens.toFixed(2)} 枚)`,
+          entryPriceUsd: fill.priceUsd,
+          costUsd: cfg.usdPerTrade,
+          amountTokens: fill.amountTokens,
           reason: `触发 ${position.trigger}`,
           follow: `策略: ${formatStrategy(position.strategy)}`,
           txHash: fill.txHash,
@@ -963,6 +1037,17 @@ export async function managePositions(
 
     for (const action of actions) {
       try {
+        // A full-close stop is destructive and irreversible — confirm the low
+        // price against fresh independent sources before liquidating, so a
+        // single noise tick on a young/thin pool can't market-sell a winner
+        // (see confirmStopTriggered / FARM 2026-09-05).
+        if (isStopAction(action) && !(await confirmStopTriggered(position, chain, config))) {
+          console.error(
+            `stop guard: ${position.symbol} "${action.reason}" not confirmed by fresh ` +
+              `independent read (tick $${price}) — skipping this tick`,
+          );
+          continue;
+        }
         const fill = await executeSell(chain, pcfg, position, action.fraction, price);
         recordExit(position, {
           at: new Date().toISOString(),
@@ -984,7 +1069,10 @@ export async function managePositions(
             chain,
             token: position.token,
             fdvUsd,
-            fillLine: `平 ${(action.fraction * 100).toFixed(0)}% @ $${fill.priceUsd.toPrecision(6)} → $${(fill.proceedsUsd ?? 0).toFixed(2)}`,
+            fraction: action.fraction,
+            entryPriceUsd: position.entryPriceUsd,
+            exitPriceUsd: fill.priceUsd,
+            proceedsUsd: fill.proceedsUsd ?? 0,
             thisRealizedUsd: (fill.proceedsUsd ?? 0) - action.fraction * position.costUsd,
             positionPnlUsd: pnl,
             statusText:

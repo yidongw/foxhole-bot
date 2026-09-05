@@ -77,3 +77,6 @@ REVIEW-LOG.md
 journal/filters/
 journal/trades/
 journal/*-handoff.md
+journal/loss-ledger.md
+journal/supervisor-inbox.md
+journal/supervisor-loop-prompt.md
