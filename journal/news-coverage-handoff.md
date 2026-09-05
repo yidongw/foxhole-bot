@@ -3,7 +3,24 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
-## 2026-09-05 09:0x UTC 第 27 轮(ultrathink:量化截断风险=非问题;两处"发现"皆虚惊,无改动)
+## 2026-09-05 11:0x UTC 第 28 轮(ultrathink:精确健康核查 + OpenNews 复检,全绿无改动)
+
+系统稳态成熟,本轮精确核查确认无真问题。
+
+- ④ 健康(**精确 grep,不撞 token 名**):真 uncaught/unhandled=**0**(R27 那个 1 确认是 meme 币名
+  FATAL 误报)。所谓"2 条 news 管线错误"=OpenNews 瞬时 blip(`news_search HTTP 402` 额度→自动降
+  免费feed;`fetch failed` 网络),已 catch 处理,非真故障。tsc 干净、npm test **319 passed**、
+  monitor 存活(pid 75871)、BN 未复现。
+- ① 新闻:回放 34 wake **0 junk 噪音**,无新漏。**OpenNews/6551 仍活**(30 scored,1 posted/tick;
+  降级计数 13 不涨=authed 搜索在跑,只是出量比 R10 少)。
+- ② 覆盖率:robinhood ≥100% 榜 5 个,1 个"漏"=**VLAD(0xa1b49ff0,R27 那个 rug)**——DexPaprika 仍
+  报陈旧 liq $238k,实际已 rug 到 $0。**非漏报,勿再报**。其余在册,2201 币。clean **胜率 67%** 稳定。
+  (自查:我的覆盖 cross-check 用 DexPaprika liq 会把 rug 当"漏",下轮可补一层 DexScreener 现价过滤,
+  但那是审计脚本的事,bot 本身靠 safety 现价门正确没碰 VLAD。)
+- ③ 安全:src/news 无泄漏。junk(18932/GLM/BGBTC/BSC)~09-06 08-16Z 陆续到期,尚在 TTL 内。
+
+**下轮重点:** ① 09-06 后复查 junk 清零。② labeled 新激进 wake 成熟后胜率。③ VLAD 类 rug 别再当漏报
+(可给覆盖脚本加现价 liq 过滤)。④ 守 robinhood 覆盖。
 
 ### ① 新闻(截断分页**定为不做** — 数据证明多余)
 - R26 挂的"分页根治截断"**用数据否决**:news tick fetched-count 分布——325 次拉 1 条、60 次 2 条、
