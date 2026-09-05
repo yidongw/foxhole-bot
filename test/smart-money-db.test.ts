@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -14,13 +14,11 @@ import { saveConfig } from "../src/smartmoney/config.js";
 import { getDb, resetDbForTest } from "../src/lib/db.js";
 
 let dir: string;
-let mirror: string;
 
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "sm-"));
   process.env.FOXHOLE_DB_PATH = path.join(dir, "foxhole.db");
-  mirror = path.join(dir, "smart-money.json");
-  process.env.SMART_MONEY_BOOK_PATH = mirror; // also the (absent) backfill source
+  process.env.SMART_MONEY_BOOK_PATH = path.join(dir, "none-book.json"); // absent backfill source
   process.env.SMART_MONEY_CONFIG_PATH = path.join(dir, "none-config.json");
   resetDbForTest();
 });
@@ -54,11 +52,19 @@ describe("smart-money wallet book on SQLite", () => {
     expect(await loadTrackedWallets()).toHaveLength(0);
   });
 
-  it("writes the git-tracked JSON mirror on save", async () => {
-    await addTrackedWallet("0x2222222222222222222222222222222222222222", "m", "me", "sol");
-    expect(existsSync(mirror)).toBe(true);
-    const parsed = JSON.parse(readFileSync(mirror, "utf8")) as { wallets: { label: string }[] };
-    expect(parsed.wallets[0].label).toBe("m");
+  it("keeps prior versions in sm_wallets_history on disable + delete", async () => {
+    const addr = "0x3333333333333333333333333333333333333333";
+    await addTrackedWallet(addr, "keep", "me", "bsc");
+    await disableWallet(addr, "revet"); // UPDATE → history row (pre-disable)
+    await removeTrackedWallet(addr); // DELETE → history row (pre-delete)
+    const hist = getDb()
+      .prepare("SELECT _op, data FROM sm_wallets_history WHERE address=? ORDER BY hid")
+      .all(addr.toLowerCase()) as unknown as { _op: string; data: string }[];
+    expect(hist.map((h) => h._op)).toEqual(["update", "delete"]);
+    // The 'update' history row holds the pre-disable version (not yet disabled).
+    expect((JSON.parse(hist[0].data) as { disabled?: boolean }).disabled).toBeUndefined();
+    // The 'delete' history row holds the last (disabled) version.
+    expect((JSON.parse(hist[1].data) as { disabled?: boolean }).disabled).toBe(true);
   });
 });
 

@@ -10,7 +10,6 @@ import {
   type Address,
 } from "viem";
 
-import { writeJsonAtomic } from "../../lib/atomic-json.js";
 import { dbPath, getDb, transaction } from "../../lib/db.js";
 import type { RawLog } from "../evm/log-watcher.js";
 
@@ -130,7 +129,7 @@ function backfillInTx(db: DatabaseSync): void {
   if (!existsSync(file)) return;
   try {
     const { wallets } = JSON.parse(readFileSync(file, "utf8")) as BookFile;
-    for (const w of wallets ?? []) insertWallet(db, w);
+    for (const w of wallets ?? []) upsertWallet(db, w);
   } catch (err) {
     console.error("wallet book backfill failed:", (err as Error).message);
   }
@@ -139,9 +138,13 @@ async function ensureBackfilled(): Promise<void> {
   if (backfilledPaths.has(dbPath())) return;
   await transaction((db) => backfillInTx(db));
 }
-function insertWallet(db: DatabaseSync, w: TrackedWallet): void {
+/** Upsert one wallet row via ON CONFLICT DO UPDATE (fires the history trigger on
+ *  change — never INSERT OR REPLACE, which would bypass it). */
+function upsertWallet(db: DatabaseSync, w: TrackedWallet): void {
   db.prepare(
-    `INSERT OR REPLACE INTO sm_wallets (address, chain, disabled, added_at, data) VALUES (?,?,?,?,?)`,
+    `INSERT INTO sm_wallets (address, chain, disabled, added_at, data) VALUES (?,?,?,?,?)
+     ON CONFLICT(address) DO UPDATE SET
+       chain=excluded.chain, disabled=excluded.disabled, added_at=excluded.added_at, data=excluded.data`,
   ).run(w.address.toLowerCase(), walletChain(w), w.disabled ? 1 : 0, w.addedAt ?? "", JSON.stringify(w));
 }
 
@@ -161,46 +164,60 @@ export async function loadActiveTrackedWallets(): Promise<TrackedWallet[]> {
   return (await loadTrackedWallets()).filter((w) => !w.disabled);
 }
 
+/** Read one wallet's current record (row-level). */
+function getWallet(db: DatabaseSync, address: string): TrackedWallet | undefined {
+  const row = db
+    .prepare("SELECT data FROM sm_wallets WHERE address=?")
+    .get(address.toLowerCase()) as { data: string } | undefined;
+  return row ? (JSON.parse(row.data) as TrackedWallet) : undefined;
+}
+
 /** Disable a wallet (revet filter) — kept on record, not tracked live. */
 export async function disableWallet(
   address: string,
   reason: string,
 ): Promise<{ disabled: boolean }> {
-  const target = address.toLowerCase();
-  const wallets = await loadTrackedWallets();
-  const w = wallets.find((x) => x.address.toLowerCase() === target);
-  if (!w || w.disabled) return { disabled: false };
-  w.disabled = true;
-  w.disabledReason = reason;
-  w.disabledAt = new Date().toISOString();
-  await saveTrackedWallets(wallets);
-  return { disabled: true };
+  await ensureBackfilled();
+  return transaction((db) => {
+    const w = getWallet(db, address);
+    if (!w || w.disabled) return { disabled: false };
+    w.disabled = true;
+    w.disabledReason = reason;
+    w.disabledAt = new Date().toISOString();
+    upsertWallet(db, w); // UPDATE → history captures the pre-disable version
+    return { disabled: true };
+  });
 }
 
 /** Re-enable a previously disabled wallet. */
 export async function enableWallet(
   address: string,
 ): Promise<{ enabled: boolean }> {
-  const target = address.toLowerCase();
-  const wallets = await loadTrackedWallets();
-  const w = wallets.find((x) => x.address.toLowerCase() === target);
-  if (!w || !w.disabled) return { enabled: false };
-  delete w.disabled;
-  delete w.disabledReason;
-  delete w.disabledAt;
-  await saveTrackedWallets(wallets);
-  return { enabled: true };
+  await ensureBackfilled();
+  return transaction((db) => {
+    const w = getWallet(db, address);
+    if (!w || !w.disabled) return { enabled: false };
+    delete w.disabled;
+    delete w.disabledReason;
+    delete w.disabledAt;
+    upsertWallet(db, w);
+    return { enabled: true };
+  });
 }
 
+/** Bulk save (diff): upsert present, delete removed — audit-clean (each real
+ *  change fires a history trigger). Kept for API completeness. */
 export async function saveTrackedWallets(wallets: TrackedWallet[]): Promise<void> {
-  // DB is the source of truth: replace the whole book atomically (mutations here
-  // are whole-book writes). Then mirror to the git-tracked JSON for audit.
   await ensureBackfilled();
   await transaction((db) => {
-    db.prepare("DELETE FROM sm_wallets").run();
-    for (const w of wallets) insertWallet(db, w);
+    const keep = new Set(wallets.map((w) => w.address.toLowerCase()));
+    const current = (db.prepare("SELECT address FROM sm_wallets").all() as unknown as {
+      address: string;
+    }[]).map((r) => r.address);
+    const del = db.prepare("DELETE FROM sm_wallets WHERE address=?");
+    for (const addr of current) if (!keep.has(addr)) del.run(addr);
+    for (const w of wallets) upsertWallet(db, w);
   });
-  await writeJsonAtomic(bookMirrorPath(), { wallets });
 }
 
 export async function addTrackedWallet(
@@ -213,32 +230,32 @@ export async function addTrackedWallet(
 ): Promise<{ added: boolean; wallets: TrackedWallet[] }> {
   // Solana addresses are base58 (not 0x); only checksum EVM-style ones.
   const norm = address.startsWith("0x") ? getAddress(address) : address;
-  const wallets = await loadTrackedWallets();
-  if (wallets.some((w) => w.address.toLowerCase() === norm.toLowerCase())) {
-    return { added: false, wallets };
-  }
-  wallets.push({
-    address: norm,
-    label,
-    chain: chain.toLowerCase(),
-    tier,
-    realizedUsd,
-    addedAt: new Date().toISOString(),
-    addedBy,
+  await ensureBackfilled();
+  const added = await transaction((db) => {
+    if (getWallet(db, norm)) return false;
+    upsertWallet(db, {
+      address: norm,
+      label,
+      chain: chain.toLowerCase(),
+      tier,
+      realizedUsd,
+      addedAt: new Date().toISOString(),
+      addedBy,
+    });
+    return true;
   });
-  await saveTrackedWallets(wallets);
-  return { added: true, wallets };
+  return { added, wallets: await loadTrackedWallets() };
 }
 
 export async function removeTrackedWallet(
   address: string,
 ): Promise<{ removed: boolean; wallets: TrackedWallet[] }> {
-  const target = address.toLowerCase();
-  const wallets = await loadTrackedWallets();
-  const next = wallets.filter((w) => w.address.toLowerCase() !== target);
-  if (next.length === wallets.length) return { removed: false, wallets };
-  await saveTrackedWallets(next);
-  return { removed: true, wallets: next };
+  await ensureBackfilled();
+  const removed = await transaction((db) => {
+    const r = db.prepare("DELETE FROM sm_wallets WHERE address=?").run(address.toLowerCase());
+    return r.changes > 0; // DELETE → history captures the removed wallet
+  });
+  return { removed, wallets: await loadTrackedWallets() };
 }
 
 // --- decoding --------------------------------------------------------------

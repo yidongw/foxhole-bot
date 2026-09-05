@@ -24,6 +24,29 @@ export function dbPath(): string {
   return process.env.FOXHOLE_DB_PATH ?? path.resolve(__dirname, "../../data/foxhole.db");
 }
 
+/**
+ * Traceability: give a table a shadow `<t>_history` + AFTER UPDATE/DELETE
+ * triggers, so every superseded or deleted row is preserved with a timestamp
+ * and op. The live table is always current state; history holds every prior
+ * version. NOTE: writes to an audited table MUST use `ON CONFLICT DO UPDATE`
+ * (fires the UPDATE trigger) — never `INSERT OR REPLACE` (silently bypasses it).
+ */
+export function auditSql(table: string, cols: string[]): string {
+  const colList = cols.join(", ");
+  const oldList = cols.map((c) => `OLD.${c}`).join(", ");
+  const ts = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+  return `
+   CREATE TABLE IF NOT EXISTS ${table}_history (
+     hid INTEGER PRIMARY KEY AUTOINCREMENT, _op TEXT, _at TEXT, ${colList}
+   );
+   CREATE TRIGGER IF NOT EXISTS ${table}_hist_upd AFTER UPDATE ON ${table} BEGIN
+     INSERT INTO ${table}_history(_op,_at,${colList}) VALUES('update',${ts},${oldList});
+   END;
+   CREATE TRIGGER IF NOT EXISTS ${table}_hist_del AFTER DELETE ON ${table} BEGIN
+     INSERT INTO ${table}_history(_op,_at,${colList}) VALUES('delete',${ts},${oldList});
+   END;`;
+}
+
 /** Ordered schema migrations. Append only — never edit a shipped entry. */
 const MIGRATIONS: string[] = [
   // v1 — decision journal (see src/trade/decisions.ts)
@@ -116,6 +139,12 @@ const MIGRATIONS: string[] = [
      added_at TEXT,
      data     TEXT NOT NULL
    );`,
+
+  // v7 — traceability: history shadow + triggers for the editable/curated
+  // tables (see auditSql). Append-only tables (decisions, outcomes_labeled,
+  // outcomes_missed, inbox) are their own history and are not audited.
+  auditSql("sm_wallets", ["address", "chain", "disabled", "added_at", "data"]) +
+    auditSql("kv", ["key", "value"]),
 ];
 
 let cached: { path: string; db: DatabaseSync } | undefined;
