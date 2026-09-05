@@ -417,11 +417,10 @@ export async function confirmMovers(
 }
 
 /**
- * Auto-push removed: review learning (outcomes, denylist, journals) now lives in
- * SQLite, and personalized state must not be committed to a public repo. The
- * tuner still writes its params locally (data/signal-overrides.json, untracked);
- * the DB is backed up out-of-band (litestream / snapshot), not via git. Kept as
- * a no-op so callers/telemetry are unchanged.
+ * Auto-push removed: review learning (outcomes, denylist, journals, tuner
+ * overrides) now lives in SQLite, and personalized state must not be committed
+ * to a public repo. The DB is backed up out-of-band (litestream / snapshot),
+ * not via git. Kept as a no-op so callers/telemetry are unchanged.
  */
 async function autoPush(_tune: TuneResult): Promise<boolean> {
   return false;

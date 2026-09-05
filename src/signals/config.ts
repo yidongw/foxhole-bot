@@ -1,14 +1,17 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { kvGet, kvSet } from "../lib/db.js";
 
 export type SignalConfig = typeof SIGNAL_CONFIG;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const OVERRIDES_PATH = path.resolve(
-  __dirname,
-  "../../data/signal-overrides.json",
-);
+const OVERRIDES_KV = "signals:overrides";
+/** Legacy JSON import source (pre-SQLite); overridable for tests. */
+function legacyOverridesPath(): string {
+  return process.env.SIGNAL_OVERRIDES_PATH ?? path.resolve(__dirname, "../../data/signal-overrides.json");
+}
 
 export interface SignalOverridesFile {
   updated_at: string;
@@ -18,22 +21,40 @@ export interface SignalOverridesFile {
   history?: Array<{ at: string; reason: string; config: Partial<SignalConfig> }>;
 }
 
+/** Auto-tuner overrides — now the kv blob 'signals:overrides' (audited, so tuner
+ *  changes are traceable). Imports a legacy signal-overrides.json once. */
+export function loadOverridesFile(): SignalOverridesFile | undefined {
+  try {
+    const raw = kvGet(OVERRIDES_KV);
+    if (raw) return JSON.parse(raw) as SignalOverridesFile;
+    const f = legacyOverridesPath();
+    if (existsSync(f)) {
+      const legacy = JSON.parse(readFileSync(f, "utf8")) as SignalOverridesFile;
+      kvSet(OVERRIDES_KV, JSON.stringify(legacy));
+      return legacy;
+    }
+  } catch {
+    // no overrides / db unavailable → defaults
+  }
+  return undefined;
+}
+
+export function saveOverridesFile(file: SignalOverridesFile): void {
+  kvSet(OVERRIDES_KV, JSON.stringify(file));
+}
+
 let cached: { config: SignalConfig; at: number } | undefined;
 const CACHE_MS = 60_000;
 
 /**
  * Runtime signal config: compiled defaults merged with the auto-tuner's
- * data/signal-overrides.json (config-as-data — revert by deleting the file).
+ * overrides (config-as-data — revert by clearing the kv row / row history).
  */
 export function loadSignalConfig(): SignalConfig {
   if (cached && Date.now() - cached.at < CACHE_MS) return cached.config;
   let config: SignalConfig = SIGNAL_CONFIG;
-  try {
-    const raw = JSON.parse(readFileSync(OVERRIDES_PATH, "utf8")) as SignalOverridesFile;
-    config = { ...SIGNAL_CONFIG, ...raw.config };
-  } catch {
-    // no overrides — defaults
-  }
+  const ov = loadOverridesFile();
+  if (ov) config = { ...SIGNAL_CONFIG, ...ov.config };
   cached = { config, at: Date.now() };
   return config;
 }

@@ -1,9 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
-
 import {
   loadSignalConfig,
   clearSignalConfigCache,
-  OVERRIDES_PATH,
+  loadOverridesFile,
+  saveOverridesFile,
   SIGNAL_CONFIG,
   type SignalConfig,
   type SignalOverridesFile,
@@ -209,10 +208,7 @@ async function adoptOverrides(
     }
   }
 
-  let existing: SignalOverridesFile | undefined;
-  try {
-    existing = JSON.parse(await readFile(OVERRIDES_PATH, "utf8")) as SignalOverridesFile;
-  } catch {}
+  const existing = loadOverridesFile();
 
   const reason =
     `misses ${before.missesCaptured}→${scores.missesCaptured}, ` +
@@ -227,6 +223,6 @@ async function adoptOverrides(
       { at: new Date().toISOString(), reason, config: changes },
     ].slice(-50),
   };
-  await writeFile(OVERRIDES_PATH, JSON.stringify(file, null, 2), "utf8");
+  saveOverridesFile(file);
   clearSignalConfigCache();
 }

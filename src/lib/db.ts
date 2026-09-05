@@ -172,6 +172,15 @@ const MIGRATIONS: string[] = [
      id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, kind TEXT, text TEXT NOT NULL
    );
    CREATE INDEX IF NOT EXISTS idx_journal_kind ON journal(kind, at);`,
+
+  // v11 — smart-money event log (see src/smartmoney/log.ts). Append-only event
+  // stream aggregated over a 24h window by the dashboard → an at-indexed table
+  // removes the full-file parse per read. Not audited (append-only).
+  `CREATE TABLE IF NOT EXISTS sm_log (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, kind TEXT, chain TEXT,
+     wallet TEXT, token TEXT, data TEXT NOT NULL
+   );
+   CREATE INDEX IF NOT EXISTS idx_sm_log_at ON sm_log(at);`,
 ];
 
 let cached: { path: string; db: DatabaseSync } | undefined;
