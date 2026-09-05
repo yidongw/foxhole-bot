@@ -32,3 +32,18 @@ web/data/smart-money.json
 .signup/
 data/opennews-state.json
 data/outcomes/exit-review-state.json
+
+# --- secrets & backups: NEVER commit (a bare `git add -A` swept .env.bak.* on
+#     2026-09-05; push protection caught it — these patterns stop a repeat) ---
+.env.bak*
+.env.*.bak
+*.bak
+*.bak.*
+
+# --- per-machine runtime state (siblings of the data/ files ignored above) ---
+data/decisions.jsonl
+data/perp-positions.json
+data/news-state.json
+data/signal-threads.json
+data/news/
+data/trading-paused
