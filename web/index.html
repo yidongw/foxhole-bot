@@ -230,12 +230,12 @@
       </div>
       <table id="closedTable">
         <thead><tr>
-          <th>代币</th><th>链</th><th>开仓</th><th>平仓</th><th>成本</th><th>回收</th><th>盈亏</th><th>出场机制</th>
+          <th>时间</th><th>方向</th><th>代币</th><th>链</th><th>价格</th><th>金额</th><th>盈亏</th><th>说明</th>
         </tr></thead>
         <tbody id="closedBody"></tbody>
         <tfoot id="closedFoot"></tfoot>
       </table>
-      <div id="closedEmpty" class="empty" hidden>无已平仓记录</div>
+      <div id="closedEmpty" class="empty" hidden>无交易记录</div>
       <div class="pager" id="closedPager"></div>
     </div>
 
@@ -562,33 +562,62 @@
       return Object.entries(kinds).map(([k, n]) => n > 1 ? `${k} ×${n}` : k).join(', ') || '—';
     }
 
+    /* 交易流水：每笔买入/卖出各一行（含未平仓的买入 + 每次部分卖出），最新在前 */
+    function tradeLedger() {
+      const txs = [];
+      for (const p of filteredPositions()) {
+        txs.push({
+          at: p.opened_at, side: 'buy', symbol: p.symbol, chain: p.chain, mode: p.mode,
+          price: p.entry_price_usd, cash: -(p.cost_usd ?? 0), pnl: null,
+          note: p.trigger || '开仓',
+        });
+        for (const e of p.exits || []) {
+          const cost = (p.cost_usd ?? 0) * (e.fraction ?? 0);
+          txs.push({
+            at: e.at, side: 'sell', symbol: p.symbol, chain: p.chain, mode: p.mode,
+            price: e.price_usd, cash: e.proceeds_usd ?? 0, pnl: (e.proceeds_usd ?? 0) - cost,
+            frac: e.fraction, note: (e.reason || '').trim() || '卖出',
+          });
+        }
+      }
+      txs.sort((a, b) => new Date(b.at) - new Date(a.at));
+      return txs;
+    }
+
     function renderClosed() {
-      const all = filteredPositions().filter(p => p.status === 'closed')
-        .slice().sort((a, b) => new Date(b.closed_at || 0) - new Date(a.closed_at || 0));
+      const all = tradeLedger();
       const pages = Math.max(1, Math.ceil(all.length / PAGE));
       if (closedPage > pages) closedPage = pages;
       const rows = all.slice((closedPage - 1) * PAGE, closedPage * PAGE);
       document.getElementById('closedEmpty').hidden = all.length > 0;
-      document.getElementById('closedBody').innerHTML = rows.map(p => {
-        const pr = proceedsOf(p), pnl = pr - (p.cost_usd ?? 0);
+      document.getElementById('closedBody').innerHTML = rows.map(t => {
+        const buy = t.side === 'buy';
+        const dir = buy
+          ? '<span class="mode-badge" style="background:rgba(91,140,255,.15);color:#9fc0ff;border:1px solid rgba(91,140,255,.4)">📥 买入</span>'
+          : '<span class="mode-badge" style="background:rgba(25,158,112,.15);color:#5fd0a0;border:1px solid rgba(25,158,112,.4)">📤 卖出</span>';
+        const fracTxt = (!buy && t.frac != null && t.frac < 1) ? ` <span class="hint">${(t.frac * 100).toFixed(0)}%</span>` : '';
         return `<tr>
-          <td><strong>${esc(p.symbol || '?')}</strong> ${modeBadge(p)}</td>
-          <td><span class="pair">${esc(p.chain)}</span></td>
-          <td>${fmtShort(p.opened_at)}</td>
-          <td>${p.closed_at ? fmtShort(p.closed_at) : '—'}</td>
-          <td>${fmtUsd(p.cost_usd)}</td>
-          <td>${fmtUsd(pr)}</td>
-          <td><span class="${pnl >= 0 ? 'chg-pos' : 'chg-neg'}">${fmtSigned(pnl)}</span></td>
-          <td class="strat">${esc(exitSummary(p))}</td>
+          <td>${fmtShort(t.at)}</td>
+          <td>${dir}${fracTxt}</td>
+          <td><strong>${esc(t.symbol || '?')}</strong> ${modeBadge(t)}</td>
+          <td><span class="pair">${esc(t.chain)}</span></td>
+          <td>${fmtPrice(t.price)}</td>
+          <td><span class="${t.cash >= 0 ? 'chg-pos' : 'chg-neg'}">${fmtSigned(t.cash)}</span></td>
+          <td>${t.pnl == null ? '—' : `<span class="${t.pnl >= 0 ? 'chg-pos' : 'chg-neg'}">${fmtSigned(t.pnl)}</span>`}</td>
+          <td class="strat">${esc(t.note)}</td>
         </tr>`;
       }).join('');
-      const pnlSum = all.reduce((s, p) => s + proceedsOf(p) - (p.cost_usd ?? 0), 0);
+      const buys = all.filter(t => t.side === 'buy').length, sells = all.length - buys;
+      const cashSum = all.reduce((s, t) => s + t.cash, 0);
+      const pnlSum = all.reduce((s, t) => s + (t.pnl || 0), 0);
       document.getElementById('closedFoot').innerHTML = all.length ? `<tr>
-        <td colspan="6">合计（${all.length} 笔）</td>
+        <td colspan="5">合计（${all.length} 笔：${buys} 买 / ${sells} 卖）</td>
+        <td><span class="${cashSum >= 0 ? 'chg-pos' : 'chg-neg'}">${fmtSigned(cashSum)}</span></td>
         <td><span class="${pnlSum >= 0 ? 'chg-pos' : 'chg-neg'}">${fmtSigned(pnlSum)}</span></td><td></td>
       </tr>` : '';
       renderPager(document.getElementById('closedPager'), closedPage, pages, (g) => { closedPage = g; renderClosed(); });
-      renderPnlChart(all.slice().reverse()); // chart in chronological order (all filtered rows)
+      renderPnlChart(filteredPositions().filter(p => p.status === 'closed').slice()
+        .sort((a, b) => new Date(a.closed_at || 0) - new Date(b.closed_at || 0)));
     }
 
     /* per-trade P&L bars — polarity via position vs zero baseline + sign labels */
