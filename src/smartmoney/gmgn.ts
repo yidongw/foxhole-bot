@@ -22,7 +22,17 @@ export class GmgnError extends Error {
   }
 }
 
-async function run(args: string[]): Promise<unknown> {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Seconds to wait out a GMGN rate-limit ban, parsed from the CLI's
+ * "…(~141s remaining)…" hint; capped so we never block absurdly long. */
+function banWaitMs(text: string): number {
+  const m = text.match(/~(\d+)s remaining/);
+  const secs = m ? Number(m[1]) : 30;
+  return Math.min(Math.max(secs + 3, 5), 150) * 1000;
+}
+
+async function runOnce(args: string[]): Promise<unknown> {
   let stdout: string;
   try {
     ({ stdout } = await execFileAsync("gmgn-cli", args, {
@@ -32,7 +42,7 @@ async function run(args: string[]): Promise<unknown> {
     }));
   } catch (err) {
     const msg = (err as Error).message ?? String(err);
-    throw new GmgnError(`gmgn-cli spawn failed: ${msg}`, /429/.test(msg));
+    throw new GmgnError(`gmgn-cli spawn failed: ${msg}`, /429|RATE_LIMIT/.test(msg));
   }
   const trimmed = stdout.trim();
   try {
@@ -42,6 +52,27 @@ async function run(args: string[]): Promise<unknown> {
       `gmgn-cli non-JSON output: ${trimmed.slice(0, 200)}`,
       /429|RATE_LIMIT/.test(trimmed),
     );
+  }
+}
+
+/**
+ * Run gmgn-cli, waiting out a rate-limit ban and retrying. GMGN's free tier
+ * shares one IP across every caller (revet / find2 / winner-finder / profit) so
+ * bursts trip an IP ban; without this, callers silently fail (revet skipped 28
+ * RB wallets on 2026-09-05). We back off for the ban's own reported reset window
+ * (once cleared, later calls in the same run sail through), up to 2 retries.
+ */
+async function run(args: string[], retries = 2): Promise<unknown> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await runOnce(args);
+    } catch (err) {
+      if (err instanceof GmgnError && err.rateLimited && attempt < retries) {
+        await sleep(banWaitMs(err.message));
+        continue;
+      }
+      throw err;
+    }
   }
 }
 
