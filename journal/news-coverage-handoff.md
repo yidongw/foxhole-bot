@@ -3,6 +3,24 @@
 与代码正确性复查循环(review-handoff.md)分工不同:本循环专注
 ① 新闻漏分析 ② 暴涨漏报/报了没动静 ③ 代码漏洞/安全。每轮更新本文件,下轮先读。
 
+## 2026-09-05 13:2x UTC 第 29 轮(新 workflow 首用;rug-filtered 覆盖=0真漏,全绿)
+
+按新流程:worktree 已 `reset --hard origin/main` 同步(f88af7a),代码改动改在 worktree、部署走
+scripts/deploy.sh。本轮无代码改动。
+
+- ② 覆盖率(**覆盖脚本升级:现价 liq 过滤 rug**):robinhood ≥100% 未扫候选 1 个=VLAD(0xa1b49ff0),
+  DexScreener 现价 liq **$0**=rug/死池 → 过滤后 **真漏报 0**。R28 挂的"rug 当漏报"问题在审计脚本侧
+  闭环(候选先拉 DexScreener 现价 liq,<30k 判 rug 剔除)。2201+ 币在册。clean **胜率 67%** 稳定。
+- ① 新闻:回放 28 wake **0 junk 噪音**,无新漏。
+- ③ 安全:src/news 无泄漏。junk(18932/GLM/BGBTC/BSC)仍在 TTL 内(~09-06 08-16Z 到期)。
+- ④ 健康:tsc 干净、npm test **334 passed**(review 循环持续加测试)、**真 uncaught=0**(精确 grep)、
+  BN 未复现、**monitor 单实例**(89022 npm→89043 node 是父子=1 个逻辑实例,非重复;deploy.sh 保证单实例)。
+
+**下轮重点:** ① 09-06 后复查 junk 从 hotSymbols 清零。② labeled 新激进 wake 成熟后胜率。
+③ 覆盖 cross-check 继续用现价 liq 过滤 rug(别把 DexPaprika 陈旧 liq 的死池当漏)。④ 代码改动走 worktree+deploy.sh。
+
+---
+
 ## 2026-09-05 11:0x UTC 第 28 轮(ultrathink:精确健康核查 + OpenNews 复检,全绿无改动)
 
 系统稳态成熟,本轮精确核查确认无真问题。
