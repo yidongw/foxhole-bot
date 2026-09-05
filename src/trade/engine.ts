@@ -534,7 +534,10 @@ async function writePositionsJson(
       paperStartTotal += paperStartFor(cfgSnapshot, c);
     }
   }
-  const rows = file.positions.slice(-50).map((p) => {
+  // Export the full ledger (both paper and live) so the dashboard can filter
+  // and paginate client-side; a fixed tail like slice(-50) silently dropped
+  // whichever mode wasn't trading recently (paper vanished once live took over).
+  const rows = file.positions.map((p) => {
     const mark = marks[p.token.toLowerCase()];
     return {
       chain: p.chain ?? "robinhood",

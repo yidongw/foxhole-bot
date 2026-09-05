@@ -117,6 +117,14 @@
       background: rgba(91,140,255,.14); color: #b9cbff; border: 1px solid rgba(91,140,255,.35);
     }
     .mini-btn:hover { background: rgba(91,140,255,.24); }
+    .mini-btn:disabled { opacity: .4; cursor: default; }
+    .pager { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 14px; }
+    .pos-filter { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 4px 0 14px; }
+    .pos-filter select {
+      background: var(--panel); color: var(--text); border: 1px solid var(--border);
+      border-radius: 10px; padding: 8px 12px; font-size: 13px; min-width: 150px;
+    }
+    .pos-filter .hint { color: var(--muted); font-size: 12px; }
     .sig { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; }
     .sig-watch { background: rgba(255, 176, 32, 0.14); color: var(--warn); }
     .sig-alert { background: rgba(255, 130, 32, 0.16); color: #ff9d4d; }
@@ -177,6 +185,18 @@
       <button class="tab" data-tab="launches">🚀 Launches</button>
     </div>
 
+    <div class="pos-filter" id="posFilter">
+      <select id="fMode">
+        <option value="all">全部模式</option>
+        <option value="live">💸 只看 LIVE</option>
+        <option value="paper">📝 只看 PAPER</option>
+      </select>
+      <select id="fChain">
+        <option value="all">全部链</option>
+      </select>
+      <span class="hint" id="fCount"></span>
+    </div>
+
     <div id="modeBanner" class="mode-banner" hidden></div>
 
     <!-- 当前持仓 -->
@@ -193,6 +213,7 @@
         <tfoot id="openFoot"></tfoot>
       </table>
       <div id="openEmpty" class="empty" hidden>无持仓</div>
+      <div class="pager" id="openPager"></div>
       <div class="footer" id="posMeta"></div>
     </div>
 
@@ -210,6 +231,8 @@
         <tbody id="closedBody"></tbody>
         <tfoot id="closedFoot"></tfoot>
       </table>
+      <div id="closedEmpty" class="empty" hidden>无已平仓记录</div>
+      <div class="pager" id="closedPager"></div>
     </div>
 
     <!-- 权益曲线 -->
@@ -347,6 +370,45 @@
     /* ── positions: account tiles + open/closed tables + charts ── */
     let posData = null;
 
+    /* ── mode/chain filter + pagination (shared across position views) ── */
+    const posFilter = { mode: 'all', chain: 'all' };
+    const PAGE = 25;
+    let openPage = 1, closedPage = 1;
+    function applyPosFilter(rows) {
+      return (rows || []).filter(p =>
+        (posFilter.mode === 'all'
+          || (posFilter.mode === 'live' ? p.mode === 'live' : p.mode !== 'live'))
+        && (posFilter.chain === 'all' || (p.chain || 'robinhood') === posFilter.chain));
+    }
+    function filteredPositions() { return applyPosFilter(posData?.positions || []); }
+    function populateChainFilter() {
+      const sel = document.getElementById('fChain');
+      const chains = [...new Set((posData?.positions || []).map(p => p.chain || 'robinhood'))].sort();
+      const cur = sel.value;
+      sel.innerHTML = '<option value="all">全部链</option>' +
+        chains.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+      sel.value = chains.includes(cur) ? cur : 'all';
+      posFilter.chain = sel.value;
+    }
+    function updateFilterCount() {
+      const el = document.getElementById('fCount');
+      if (!posData) { el.textContent = ''; return; }
+      const f = filteredPositions();
+      const open = f.filter(p => p.status === 'open').length;
+      el.textContent = `匹配 ${f.length} 笔 · 持仓中 ${open} · 已平 ${f.length - open}`;
+    }
+    function renderPager(el, page, pages, cb) {
+      if (pages <= 1) { el.innerHTML = ''; return; }
+      el.innerHTML =
+        `<button class="mini-btn" ${page <= 1 ? 'disabled' : ''} data-go="${page - 1}">‹ 上一页</button>` +
+        `<span class="hint">第 ${page} / ${pages} 页</span>` +
+        `<button class="mini-btn" ${page >= pages ? 'disabled' : ''} data-go="${page + 1}">下一页 ›</button>`;
+      el.querySelectorAll('button[data-go]').forEach(b => { b.onclick = () => cb(+b.dataset.go); });
+    }
+    function renderPositions() {
+      renderAccount(); renderOpen(); renderClosed(); renderEquity(); updateFilterCount();
+    }
+
     function positionMarketValue(p) {
       if (p.status !== 'open') return 0;
       if (p.amount_tokens != null && p.current_price_usd != null)
@@ -383,8 +445,10 @@
     }
 
     function renderAccount() {
-      const rows = posData.positions || [];
+      const rows = filteredPositions();
       const t = posData.meta?.trade || {};
+      const showLive = posFilter.mode !== 'paper';
+      const showPaper = posFilter.mode !== 'live';
       const cls = (n) => n >= 0 ? 'chg-pos' : 'chg-neg';
       const tile = (l, v, h) => `<div class="card"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h}</div></div>`;
       const sections = [];
@@ -392,7 +456,7 @@
       // 💸 真实账户 — 链上真金:可用本币 = 钱包本币余额,不是 start−cost 记账
       const liveCashMap = t.live_cash || {};
       const liveRows = rows.filter(p => p.mode === 'live');
-      if (Object.keys(liveCashMap).length || liveRows.length) {
+      if (showLive && (Object.keys(liveCashMap).length || liveRows.length)) {
         const liveCash = Object.values(liveCashMap).reduce((s, v) => s + (v || 0), 0);
         const openValue = liveRows.filter(p => p.status === 'open').reduce((s, p) => s + positionMarketValue(p), 0);
         const equity = liveCash + openValue;
@@ -411,7 +475,7 @@
       // 📝 纸上账户 — 模拟记账
       const pr = rows.filter(p => p.mode !== 'live');
       const start = t.paper_start_total ?? posData.meta?.start_usd ?? 1000;
-      if (pr.length || start > 0) {
+      if (showPaper && (pr.length || start > 0)) {
         const cash = start - pr.reduce((s, p) => s + (p.cost_usd ?? 0), 0) + pr.reduce((s, p) => s + proceedsOf(p), 0);
         const openValue = pr.filter(p => p.status === 'open').reduce((s, p) => s + positionMarketValue(p), 0);
         const equity = cash + openValue;
@@ -436,9 +500,12 @@
     }
 
     function renderOpen() {
-      const rows = (posData.positions || []).filter(p => p.status === 'open').slice().reverse();
+      const all = filteredPositions().filter(p => p.status === 'open').slice().reverse();
+      const pages = Math.max(1, Math.ceil(all.length / PAGE));
+      if (openPage > pages) openPage = pages;
+      const rows = all.slice((openPage - 1) * PAGE, openPage * PAGE);
       const body = document.getElementById('openBody');
-      document.getElementById('openEmpty').hidden = rows.length > 0;
+      document.getElementById('openEmpty').hidden = all.length > 0;
       body.innerHTML = rows.map(p => {
         const mv = positionMarketValue(p);
         const pnl = p.pnl_usd ?? 0;
@@ -455,13 +522,14 @@
           <td class="strat">${esc(p.strategy || '—')}</td>
         </tr>`;
       }).join('');
-      const mvSum = rows.reduce((s, p) => s + positionMarketValue(p), 0);
-      const pnlSum = rows.reduce((s, p) => s + (p.pnl_usd ?? 0), 0);
-      document.getElementById('openFoot').innerHTML = rows.length ? `<tr>
-        <td colspan="6">合计（${rows.length} 仓）</td>
+      const mvSum = all.reduce((s, p) => s + positionMarketValue(p), 0);
+      const pnlSum = all.reduce((s, p) => s + (p.pnl_usd ?? 0), 0);
+      document.getElementById('openFoot').innerHTML = all.length ? `<tr>
+        <td colspan="6">合计（${all.length} 仓）</td>
         <td>${fmtUsd(mvSum)}</td>
         <td><span class="${pnlSum >= 0 ? 'chg-pos' : 'chg-neg'}">${fmtSigned(pnlSum)}</span></td><td></td>
       </tr>` : '';
+      renderPager(document.getElementById('openPager'), openPage, pages, (g) => { openPage = g; renderOpen(); });
     }
 
     function exitSummary(p) {
@@ -474,8 +542,12 @@
     }
 
     function renderClosed() {
-      const rows = (posData.positions || []).filter(p => p.status === 'closed')
+      const all = filteredPositions().filter(p => p.status === 'closed')
         .slice().sort((a, b) => new Date(b.closed_at || 0) - new Date(a.closed_at || 0));
+      const pages = Math.max(1, Math.ceil(all.length / PAGE));
+      if (closedPage > pages) closedPage = pages;
+      const rows = all.slice((closedPage - 1) * PAGE, closedPage * PAGE);
+      document.getElementById('closedEmpty').hidden = all.length > 0;
       document.getElementById('closedBody').innerHTML = rows.map(p => {
         const pr = proceedsOf(p), pnl = pr - (p.cost_usd ?? 0);
         return `<tr>
@@ -489,12 +561,13 @@
           <td class="strat">${esc(exitSummary(p))}</td>
         </tr>`;
       }).join('');
-      const pnlSum = rows.reduce((s, p) => s + proceedsOf(p) - (p.cost_usd ?? 0), 0);
-      document.getElementById('closedFoot').innerHTML = rows.length ? `<tr>
-        <td colspan="6">合计（${rows.length} 笔）</td>
+      const pnlSum = all.reduce((s, p) => s + proceedsOf(p) - (p.cost_usd ?? 0), 0);
+      document.getElementById('closedFoot').innerHTML = all.length ? `<tr>
+        <td colspan="6">合计（${all.length} 笔）</td>
         <td><span class="${pnlSum >= 0 ? 'chg-pos' : 'chg-neg'}">${fmtSigned(pnlSum)}</span></td><td></td>
       </tr>` : '';
-      renderPnlChart(rows.slice().reverse()); // chart in chronological order
+      renderPager(document.getElementById('closedPager'), closedPage, pages, (g) => { closedPage = g; renderClosed(); });
+      renderPnlChart(all.slice().reverse()); // chart in chronological order (all filtered rows)
     }
 
     /* per-trade P&L bars — polarity via position vs zero baseline + sign labels */
@@ -538,7 +611,7 @@
 
     /* realized equity curve from the cash-flow event log */
     function equityEvents() {
-      const rows = posData.positions || [];
+      const rows = filteredPositions();
       const start = posData.meta?.start_usd ?? 1000;
       const ev = [];
       for (const p of rows) {
@@ -559,7 +632,7 @@
         box.innerHTML = '<div class="empty">等待引擎导出交易明细（新字段随下一个 tick 出现）…</div>';
         return;
       }
-      const rows = posData.positions || [];
+      const rows = filteredPositions();
       const openValue = rows.reduce((s, p) => s + positionMarketValue(p), 0);
       const nowEq = ev[ev.length - 1].equity + openValue;
       const pts = [{ at: ev[0].at, equity: start, kind: '起始资金', flow: 0 }, ...ev];
@@ -623,7 +696,8 @@
         const res = await fetch('./data/positions.json?_=' + Date.now());
         if (!res.ok) return;
         posData = await res.json();
-        renderModeBanner(); renderAccount(); renderOpen(); renderClosed(); renderEquity();
+        populateChainFilter();
+        renderModeBanner(); renderPositions();
         document.getElementById('posMeta').textContent = '账本更新于 ' + fmtDate(posData.meta?.updated_at) +
           '（价格随引擎 tick 刷新；memestock 等历史脏价误伤已按出场时点真实价修正）';
       } catch {}
@@ -815,6 +889,14 @@
       document.getElementById('colNow').textContent = showMC ? '现 FDV' : '现价';
       if (posData) renderOpen();
     });
+    function onPosFilterChange() {
+      posFilter.mode = document.getElementById('fMode').value;
+      posFilter.chain = document.getElementById('fChain').value;
+      openPage = 1; closedPage = 1;
+      if (posData) renderPositions();
+    }
+    document.getElementById('fMode').addEventListener('change', onPosFilterChange);
+    document.getElementById('fChain').addEventListener('change', onPosFilterChange);
     document.getElementById('refreshBtn').addEventListener('click', refreshAll);
     document.getElementById('search').addEventListener('input', renderTable);
     document.getElementById('quoteFilter').addEventListener('change', renderTable);
