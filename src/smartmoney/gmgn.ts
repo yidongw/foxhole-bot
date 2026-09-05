@@ -70,6 +70,23 @@ function normAddr(a: string): string {
   return a.startsWith("0x") ? a.toLowerCase() : a;
 }
 
+/**
+ * gmgn-cli's chain vocabulary is strict: sol/bsc/base/eth/robinhood/arc/stable.
+ * Callers (review find2, monitor) use the long forms solana/ethereum, so an
+ * un-normalized "solana" made gmgn-cli exit `Invalid chain: "solana"` — which
+ * surfaced as `spawn failed` and silently zeroed out EVERY solana smart-money
+ * find2 (coarse: all profit providers failed → 0 wallets). Map long→short here
+ * so the whole gmgn layer accepts either form.
+ */
+function normChain(chain: string): string {
+  const map: Record<string, string> = {
+    solana: "sol",
+    ethereum: "eth",
+    ether: "eth",
+  };
+  return map[chain.toLowerCase()] ?? chain.toLowerCase();
+}
+
 export async function gmgnTokenTraders(
   chain: string,
   token: string,
@@ -80,7 +97,7 @@ export async function gmgnTokenTraders(
       "token",
       "traders",
       "--chain",
-      chain,
+      normChain(chain),
       "--address",
       normAddr(token),
       "--limit",
@@ -122,7 +139,7 @@ export async function gmgnPortfolioStats(
       "portfolio",
       "stats",
       "--chain",
-      chain,
+      normChain(chain),
       "--wallet",
       normAddr(wallet),
       "--period",
@@ -175,7 +192,7 @@ export async function gmgnWalletActivity(
       "portfolio",
       "activity",
       "--chain",
-      chain,
+      normChain(chain),
       "--wallet",
       normAddr(wallet),
       "--limit",
